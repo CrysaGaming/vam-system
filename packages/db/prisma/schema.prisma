@@ -7,43 +7,238 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model User {
-  id        Int      @id @default(autoincrement())
-  email     String   @unique
-  name      String?
-  airlineId Int?
-  airline   Airline? @relation(fields: [airlineId], references: [id])
-  rankId    Int?
-  rank      Rank?    @relation(fields: [rankId], references: [id])
-  roleId    Int?
-  role      Role?    @relation(fields: [roleId], references: [id])
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+enum FlightState {
+  Planned
+  Departed
+  Airborne
+  Landed
+  Cancelled
+}
+
+enum NetworkType {
+  VATSIM
+  IVAO
+  Offline
+}
+
+enum PirepStatus {
+  Submitted
+  Approved
+  Rejected
 }
 
 model Airline {
-  id        Int      @id @default(autoincrement())
-  name      String   @unique
-  code      String   @unique
-  users     User[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String   @id @default(cuid())
+  icao        String   @unique
+  iata        String?  @unique
+  name        String
+  callsign    String?
+  logoUrl     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users       User[]
+  ranks       Rank[]
+  aircraft    Aircraft[]
+  routes      Route[]
+  pireps      Pirep[]
+  sceneries   Scenery[]
+  featureFlags FeatureFlag[]
+  roleMappings DiscordRoleMapping[]
+}
+
+model User {
+  id             String   @id @default(cuid())
+  email          String   @unique
+  name           String?
+  discordId      String?  @unique
+  vatsimCid      Int?
+  ivaoVid        Int?
+  avatarUrl      String?
+  totalFlightHours Float  @default(0)
+  totalFlights   Int     @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  airlineId   String?
+  airline     Airline? @relation(fields: [airlineId], references: [id])
+  rankId      String?
+  rank        Rank?    @relation(fields: [rankId], references: [id])
+  roleId      String?
+  role        Role?    @relation(fields: [roleId], references: [id])
+
+  pireps      Pirep[]
+  awards      UserAward[]
+  featureFlags FeatureFlag[]
 }
 
 model Rank {
-  id        Int      @id @default(autoincrement())
-  name      String   @unique
-  level     Int
-  users     User[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id             String @id @default(cuid())
+  airlineId      String
+  airline        Airline @relation(fields: [airlineId], references: [id])
+  name           String
+  minFlightHours Float  @default(0)
+  order          Int
+  createdAt      DateTime @default(now())
+
+  users          User[]
+  roleMappings   DiscordRoleMapping[]
+
+  @@unique([airlineId, name])
+  @@index([airlineId, order])
 }
 
 model Role {
-  id        Int      @id @default(autoincrement())
-  name      String   @unique
-  permissions String?
-  users     User[]
+  id          String @id @default(cuid())
+  name        String @unique
+  description String?
+  permissions String[]
+  createdAt   DateTime @default(now())
+
+  users       User[]
+}
+
+model Aircraft {
+  id            String  @id @default(cuid())
+  airlineId     String
+  airline       Airline @relation(fields: [airlineId], references: [id])
+  registration  String  @unique
+  type          String
+  homeIcao      String?
+  active        Boolean @default(true)
+  createdAt     DateTime @default(now())
+
+  routes        Route[]
+  pireps        Pirep[]
+}
+
+model Airport {
+  id        String  @id @default(cuid())
+  icao      String  @unique
+  iata      String?
+  name      String
+  city      String?
+  country   String
+  latitude  Float
+  longitude Float
+  elevation Int?
+
+  routesFrom Route[] @relation("RouteDeparture")
+  routesTo   Route[] @relation("RouteArrival")
+  pirepsFrom Pirep[] @relation("PirepDeparture")
+  pirepsTo   Pirep[] @relation("PirepArrival")
+}
+
+model Route {
+  id              String @id @default(cuid())
+  airlineId       String
+  airline         Airline @relation(fields: [airlineId], references: [id])
+  flightNumber    String
+  departureId     String
+  departure       Airport @relation("RouteDeparture", fields: [departureId], references: [id])
+  arrivalId       String
+  arrival         Airport @relation("RouteArrival", fields: [arrivalId], references: [id])
+  aircraftId      String?
+  aircraft        Aircraft? @relation(fields: [aircraftId], references: [id])
+  estimatedMinutes Int
+  distanceNm      Int
+  active          Boolean @default(true)
+  createdAt       DateTime @default(now())
+
+  pireps          Pirep[]
+
+  @@unique([airlineId, flightNumber])
+  @@index([departureId])
+  @@index([arrivalId])
+}
+
+model Pirep {
+  id              String      @id @default(cuid())
+  airlineId       String
+  airline         Airline     @relation(fields: [airlineId], references: [id])
+  userId          String
+  user            User        @relation(fields: [userId], references: [id])
+  routeId         String?
+  route           Route?      @relation(fields: [routeId], references: [id])
+  aircraftId      String?
+  aircraft        Aircraft?   @relation(fields: [aircraftId], references: [id])
+  departureId     String
+  departure       Airport     @relation("PirepDeparture", fields: [departureId], references: [id])
+  arrivalId       String
+  arrival         Airport     @relation("PirepArrival", fields: [arrivalId], references: [id])
+  state           FlightState @default(Planned)
+  network         NetworkType @default(Offline)
+  status          PirepStatus @default(Submitted)
+  flightTimeMin   Int?
+  fuelUsedKg      Int?
+  landingRateFpm  Int?
+  remarks         String?
+  submittedAt     DateTime    @default(now())
+  approvedAt      DateTime?
+  rejectedAt      DateTime?
+  rejectionReason String?
+
+  @@index([userId, submittedAt])
+  @@index([airlineId, status])
+}
+
+model Award {
+  id          String @id @default(cuid())
+  name        String @unique
+  description String?
+  iconUrl     String?
+  criteria    Json?
+  createdAt   DateTime @default(now())
+
+  userAwards  UserAward[]
+}
+
+model UserAward {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  awardId   String
+  award     Award    @relation(fields: [awardId], references: [id])
+  awardedAt DateTime @default(now())
+
+  @@unique([userId, awardId])
+}
+
+model Scenery {
+  id        String  @id @default(cuid())
+  airlineId String?
+  airline   Airline? @relation(fields: [airlineId], references: [id])
+  name      String
+  airportIcao String?
+  provider  String?
+  url       String?
+  free      Boolean @default(true)
+  createdAt DateTime @default(now())
+}
+
+model FeatureFlag {
+  id        String  @id @default(cuid())
+  airlineId String?
+  airline   Airline? @relation(fields: [airlineId], references: [id])
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  key       String
+  enabled   Boolean @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@unique([airlineId, userId, key])
+}
+
+model DiscordRoleMapping {
+  id             String @id @default(cuid())
+  airlineId      String
+  airline        Airline @relation(fields: [airlineId], references: [id])
+  rankId         String?
+  rank           Rank?   @relation(fields: [rankId], references: [id])
+  discordRoleId  String
+  discordGuildId String
+  createdAt      DateTime @default(now())
+
+  @@unique([airlineId, discordRoleId])
 }
