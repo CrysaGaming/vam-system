@@ -54,7 +54,7 @@ model User {
   discordId      String?  @unique
   vatsimCid      Int?
   ivaoVid        Int?
-  avatarUrl      String?
+  image		 String?
   totalFlightHours Float  @default(0)
   totalFlights   Int     @default(0)
   createdAt      DateTime @default(now())
