@@ -2,9 +2,17 @@
     "name": "@vam/ui",
     "version": "1.0.0",
     "description": "",
-    "main": "index.js",
+    "main": "./src/index.ts",
+    "types": "./src/index.ts",
+    "exports": {
+        ".": {
+            "types": "./src/index.ts",
+            "default": "./src/index.ts"
+        }
+    },
     "scripts": {
-        "build": "tsc"
+        "build": "tsc",
+        "typecheck": "tsc --noEmit"
     },
     "keywords": [],
     "author": "",
