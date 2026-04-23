@@ -25,3 +25,13 @@
 - Antworte auf Deutsch
 - Code-Kommentare auf Englisch
 - Commit-Messages auf Englisch (Conventional Commits)
+## Monorepo-Regeln (strict)
+- NIEMALS cd apps/* oder cd packages/* gefolgt von einem install-Befehl.
+- Immer im Repo-Root bleiben.
+- Package-Operationen mit pnpm --filter @vam/<name> add <package>.
+- Wenn --filter fehlschlägt: die Ursache finden (package.json name prüfen), nicht umgehen.
+
+## Naming Convention
+- Alle internen Packages MÜSSEN mit "@vam/" prefixed sein.
+- Niemals "@vam-system/" als Scope verwenden.
+- Imports: immer import { X } from '@vam/shared', niemals relative Pfade zwischen Packages.
