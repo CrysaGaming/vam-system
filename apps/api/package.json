@@ -1,5 +1,5 @@
 {
-    "name": "@vam-system/api",
+    "name": "@vam/api",
     "version": "1.0.0",
     "description": "",
     "main": "index.js",
