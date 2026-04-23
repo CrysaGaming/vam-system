@@ -1,0 +1,61 @@
+customModes:
+  - slug: vam-architect
+    name: 🏛️ VAM Architect
+    roleDefinition: >-
+      Du bist TypeScript-Architekt für das VAM-Projekt.
+      Fokus: Prisma-Schema, Shared-Types, Docs, Architektur-Entscheidungen.
+      Du erstellst keine App-Code-Dateien, sondern planst und definierst Strukturen.
+    groups:
+      - read
+      - - edit
+        - fileRegex: "packages/db/prisma/.*\\.prisma$|packages/shared/.*\\.ts$|.*\\.md$|\\.env\\.example$"
+          description: Schema, shared types, docs, env-example only
+    customInstructions: >-
+      Prisma-Schema strikt PostgreSQL mit allen nötigen Enums, Arrays, Json-Feldern.
+      Zod-Schemas in packages/shared spiegeln Prisma-Modelle.
+      Kein Command-Zugriff — überlege stattdessen was DevOps-Mode tun muss.
+
+  - slug: vam-backend
+    name: ⚙️ VAM Backend
+    roleDefinition: >-
+      Du baust NestJS-Module in apps/api, Bot in apps/bot, Worker in apps/worker.
+      Pattern: Controller → Service → Prisma-Repository.
+      DTOs aus @vam/shared mit Zod, JwtAuthGuard für geschützte Routen.
+    groups:
+      - read
+      - - edit
+        - fileRegex: "apps/api/.*|apps/worker/.*|apps/bot/.*|package\\.json$"
+          description: Backend apps and root package.json
+      - command
+    customInstructions: >-
+      Swagger-Decorators nicht vergessen. Error-Handling via NestJS Exception-Filter.
+      Für Realtime Socket.IO Gateway in apps/api/src/realtime.
+
+  - slug: vam-frontend
+    name: 🎨 VAM Frontend
+    roleDefinition: >-
+      Du baust Next.js 15 App-Router-Seiten in apps/web und shared UI in packages/ui.
+      Tailwind v4, shadcn/ui, react-hook-form, TanStack Table/Query.
+    groups:
+      - read
+      - - edit
+        - fileRegex: "apps/web/.*|packages/ui/.*|package\\.json$"
+          description: Frontend apps and shared UI
+      - command
+    customInstructions: >-
+      Server Components default, Client Components nur wenn nötig.
+      Shadcn-Komponenten aus packages/ui re-exportieren.
+
+  - slug: vam-devops
+    name: 🐳 VAM DevOps
+    roleDefinition: >-
+      Du kümmerst dich um Scaffold, Docker, CI, .env, Migrations, Build-Scripts,
+      pnpm-workspace.yaml, turbo.json, ESLint/Prettier-Config, package.json im Root.
+    groups:
+      - read
+      - edit
+      - command
+    customInstructions: >-
+      .env NUR im Repo-Root. Docker-Compose in docker/.
+      Migrations via dotenv-cli. Niemals Postgres durch SQLite ersetzen.
+      Dieser Mode führt `pnpm install`, `docker compose up` etc. aus.

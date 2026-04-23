@@ -1,0 +1,19 @@
+{
+    "name": "@vam-system/bot",
+    "version": "1.0.0",
+    "description": "",
+    "main": "index.js",
+    "scripts": {
+        "dev": "node --watch src/index.ts"
+    },
+    "keywords": [],
+    "author": "",
+    "license": "ISC",
+    "dependencies": {
+        "discord.js": "^14.16.3"
+    },
+    "devDependencies": {
+        "@types/node": "^20.19.39",
+        "typescript": "^5.9.3"
+    }
+}

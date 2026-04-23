@@ -1,0 +1,27 @@
+# VAM System – Roo Rules
+
+## Stack (frozen, nicht verhandelbar)
+- TypeScript strict mode
+- pnpm + Turborepo (niemals npm/yarn)
+- Next.js 15 App Router, NestJS 10
+- PostgreSQL 16 + Prisma — NIEMALS SQLite, auch nicht temporär
+- Redis 7, Socket.IO, BullMQ
+- Docker Compose für Services
+
+## Hard Rules
+- .env existiert NUR im Repo-Root (vam-system/.env)
+- Sub-Packages nutzen dotenv-cli: "dotenv -e ../../.env -- <cmd>"
+- Niemals Prisma-Schema vereinfachen um Fehler zu umgehen
+- Niemals --force, --legacy-peer-deps oder ähnliche Escape-Hatches
+- Bei Fehler: Root-Ursache fixen, nicht umgehen
+
+## Code Standards
+- Zod-Schemas für alle DTOs in packages/shared
+- API-Logik in apps/api, NICHT in Next.js Route Handlers
+- Prisma-Schema ausschließlich in packages/db/prisma/schema.prisma
+- Nach größeren Changes: `pnpm typecheck` laufen lassen
+
+## Kommunikation
+- Antworte auf Deutsch
+- Code-Kommentare auf Englisch
+- Commit-Messages auf Englisch (Conventional Commits)

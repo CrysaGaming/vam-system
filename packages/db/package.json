@@ -1,0 +1,19 @@
+{
+    "name": "@vam-system/db",
+    "version": "1.0.0",
+    "description": "",
+    "main": "index.js",
+    "scripts": {
+        "dev": "prisma dev",
+        "migrate": "prisma migrate dev"
+    },
+    "keywords": [],
+    "author": "",
+    "license": "ISC",
+    "dependencies": {
+        "@prisma/client": "^5.21.1"
+    },
+    "devDependencies": {
+        "prisma": "^5.21.1"
+    }
+}
