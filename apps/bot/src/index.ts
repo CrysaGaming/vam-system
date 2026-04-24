@@ -8,6 +8,7 @@ import {
 } from 'discord.js';
 import { env } from './env.js';
 import * as statusCmd from './commands/status.js';
+import * as pilotCmd from './commands/pilot.js';
 
 type Command = {
   data: SlashCommandBuilder;
@@ -16,6 +17,7 @@ type Command = {
 
 const commands = new Collection<string, Command>();
 commands.set(statusCmd.data.name, statusCmd as unknown as Command);
+commands.set(pilotCmd.data.name, pilotCmd as unknown as Command);
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds],
