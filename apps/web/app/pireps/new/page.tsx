@@ -120,7 +120,13 @@ export default async function NewPirep() {
         orderBy: { order: 'desc' },
       });
 
-      if (qualifyingRank && qualifyingRank.id !== updatedUser.rankId) {
+      // Nur hochstufen, niemals runterstufen
+      const currentOrder = updatedUser.rank?.order ?? -1;
+      if (
+        qualifyingRank &&
+        qualifyingRank.id !== updatedUser.rankId &&
+        qualifyingRank.order > currentOrder
+      ) {
         await prisma.user.update({
           where: { id: user.id },
           data: { rankId: qualifyingRank.id },
