@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 import { prisma } from '@vam/db';
 import Link from 'next/link';
 import { revalidatePath } from 'next/cache';
+import { emitPirepSubmitted, emitRankUpgraded } from '@/lib/bot-events';
 
 export default async function NewPirep() {
   const session = await auth();
@@ -62,7 +63,7 @@ export default async function NewPirep() {
     });
     if (!route) throw new Error('Route not found');
 
-    await prisma.$transaction([
+    const [newPirep] = await prisma.$transaction([
       prisma.pirep.create({
         data: {
           airlineId: user.airline.id,
@@ -79,6 +80,9 @@ export default async function NewPirep() {
           landingRateFpm,
           remarks,
         },
+        include: {
+          aircraft: true,
+        },
       }),
       prisma.user.update({
         where: { id: user.id },
@@ -88,6 +92,18 @@ export default async function NewPirep() {
         },
       }),
     ]);
+
+    // Event: PIREP submitted → Bot postet in #pireps
+    await emitPirepSubmitted({
+      pirepId: newPirep.id,
+      userId: user.id,
+      flightNumber: route.flightNumber,
+      departureIcao: route.departure.icao,
+      arrivalIcao: route.arrival.icao,
+      flightTimeMin,
+      aircraftRegistration: newPirep.aircraft?.registration ?? null,
+      remarks,
+    });
 
     // Rang-Upgrade-Check
     const updatedUser = await prisma.user.findUnique({
@@ -112,6 +128,21 @@ export default async function NewPirep() {
         console.log(
           `[rank-upgrade] ${user.email}: ${updatedUser.rank?.name ?? 'None'} -> ${qualifyingRank.name} (${updatedUser.totalFlightHours.toFixed(1)}h)`
         );
+
+        // Discord-ID des Users für Rolle-Update suchen
+        const discordAccount = await prisma.account.findFirst({
+          where: { userId: user.id, provider: 'discord' },
+          select: { providerAccountId: true },
+        });
+
+        // Event: Rank upgraded → Bot aktualisiert Discord-Rolle + postet Announcement
+        await emitRankUpgraded({
+          userId: user.id,
+          discordId: discordAccount?.providerAccountId ?? null,
+          oldRankName: updatedUser.rank?.name ?? 'None',
+          newRankName: qualifyingRank.name,
+          totalFlightHours: updatedUser.totalFlightHours,
+        });
       }
     }
 
