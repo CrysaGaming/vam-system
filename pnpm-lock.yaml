@@ -71,9 +71,15 @@ importers:
 
   apps/bot:
     dependencies:
+      '@vam/db':
+        specifier: workspace:*
+        version: link:../../packages/db
       discord.js:
         specifier: ^14.16.3
         version: 14.26.3
+      dotenv:
+        specifier: ^17.4.2
+        version: 17.4.2
     devDependencies:
       '@types/node':
         specifier: ^20.19.39
