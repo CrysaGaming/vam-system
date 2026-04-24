@@ -36,4 +36,9 @@ export const env = {
     eventNotifications: required('DISCORD_ROLE_EVENT_NOTIFICATIONS'),
     announcements: required('DISCORD_ROLE_ANNOUNCEMENTS'),
   },
+
+  http: {
+    port: parseInt(process.env.BOT_HTTP_PORT ?? '3001', 10),
+    secret: required('BOT_EVENTS_SECRET'),
+  },
 };

@@ -9,6 +9,7 @@ import {
 import { env } from './env.js';
 import * as statusCmd from './commands/status.js';
 import * as pilotCmd from './commands/pilot.js';
+import { startHttpServer } from './http-server.js';
 
 type Command = {
   data: SlashCommandBuilder;
@@ -26,6 +27,9 @@ const client = new Client({
 client.once('ready', async () => {
   console.log(`Bot online as ${client.user?.tag}`);
   console.log(`Serving guild ${env.guildId}`);
+
+  // HTTP-Server für Web→Bot Events starten
+  startHttpServer(client);
 
   // Post "Bot online" Embed in #bot-logs
   try {
