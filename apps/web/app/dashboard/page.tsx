@@ -60,6 +60,20 @@ export default async function Dashboard() {
       })
     : [];
 
+   // Admin-Stats: Anzahl pending PIREPs der Airline
+  const isApprover =
+    !!user.role && ['admin', 'instructor'].includes(user.role.name);
+
+  const pendingCount =
+    isApprover && user.airlineId
+      ? await prisma.pirep.count({
+          where: {
+            airlineId: user.airlineId,
+            status: 'Submitted',
+          },
+        })
+      : 0; 
+
   // Progress in Prozent
   const progressPercent = nextRank
     ? Math.min(
@@ -313,6 +327,73 @@ export default async function Dashboard() {
             )}
           </section>
         </div>
+
+        {/* Admin-Bereich: nur für admin/instructor */}
+        {isApprover && (
+          <section className="mt-6 bg-gray-900 border border-gray-800 rounded-lg p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-sm uppercase tracking-wider text-gray-500">
+                Admin-Bereich
+              </h2>
+              <span className="text-xs text-gray-500">
+                {user.role?.name === 'admin' ? 'Administrator' : 'Instructor'}
+              </span>
+            </div>
+            <div className="grid md:grid-cols-2 gap-4">
+              <Link
+                href="/pireps/pending"
+                style={
+                  pendingCount > 0
+                    ? {
+                        backgroundColor: 'rgba(99, 102, 241, 0.1)',
+                        borderColor: 'rgba(99, 102, 241, 0.3)',
+                      }
+                    : undefined
+                }
+                className={`group flex justify-between items-center p-4 rounded border transition ${
+                  pendingCount > 0
+                    ? 'hover:opacity-90'
+                    : 'bg-gray-800/50 border-gray-800 hover:bg-gray-800'
+                }`}
+              >
+                <div className="flex items-center gap-4">
+                  <span className="text-2xl">📋</span>
+                  <div>
+                    <p className="font-semibold">PIREPs zur Prüfung</p>
+                    <p className="text-xs text-gray-400">
+                      {pendingCount === 0
+                        ? 'Alle PIREPs sind geprüft'
+                        : `${pendingCount} ${pendingCount === 1 ? 'PIREP wartet' : 'PIREPs warten'} auf Prüfung`}
+                    </p>
+                  </div>
+                </div>
+                {pendingCount > 0 && (
+                  <span
+                    style={{ backgroundColor: '#6366f1' }}
+                    className="px-3 py-1 rounded-full text-xs font-bold text-white"
+                  >
+                    {pendingCount}
+                  </span>
+                )}
+                {pendingCount === 0 && (
+                  <span className="text-gray-500 group-hover:translate-x-1 transition-transform">
+                    →
+                  </span>
+                )}
+              </Link>
+
+              <div className="flex justify-between items-center p-4 rounded border border-gray-800 bg-gray-800/30 opacity-50">
+                <div className="flex items-center gap-4">
+                  <span className="text-2xl">📊</span>
+                  <div>
+                    <p className="font-semibold">Statistiken</p>
+                    <p className="text-xs text-gray-400">In Entwicklung</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+        )}
 
         {/* Quick Actions (bestehende Sektion mit drittem Button erweitert) */}
         <div className="mt-6 grid md:grid-cols-3 gap-6">
