@@ -23,13 +23,64 @@ export default async function Dashboard() {
     redirect("/");
   }
 
+  // Nächster Rang (für Progress-Bar)
+  const nextRank = user.airlineId
+    ? await prisma.rank.findFirst({
+        where: {
+          airlineId: user.airlineId,
+          minFlightHours: { gt: user.totalFlightHours },
+        },
+        orderBy: { order: "asc" },
+      })
+    : null;
+
+  // Letzte 5 PIREPs des aktuellen Users
+  const recentPireps = await prisma.pirep.findMany({
+    where: { userId: user.id },
+    include: {
+      route: true,
+      departure: true,
+      arrival: true,
+      aircraft: true,
+    },
+    orderBy: { submittedAt: "desc" },
+    take: 5,
+  });
+
+  // Top 3 Piloten der Airline (für Mini-Leaderboard)
+  const topPilots = user.airlineId
+    ? await prisma.user.findMany({
+        where: {
+          airlineId: user.airlineId,
+          totalFlights: { gt: 0 },
+        },
+        include: { rank: true },
+        orderBy: { totalFlightHours: "desc" },
+        take: 3,
+      })
+    : [];
+
+  // Progress in Prozent
+  const progressPercent = nextRank
+    ? Math.min(
+        100,
+        Math.round(
+          (user.totalFlightHours / nextRank.minFlightHours) * 100
+        )
+      )
+    : 100;
+
+  const hoursToNextRank = nextRank
+    ? Math.max(0, nextRank.minFlightHours - user.totalFlightHours)
+    : 0;
+
   return (
     <main className="min-h-screen bg-gray-950 text-white p-8">
-      <div className="max-w-4xl mx-auto">
-        <header className="flex justify-between items-center mb-12 pb-6 border-b border-gray-800">
+      <div className="max-w-6xl mx-auto">
+        <header className="flex justify-between items-center mb-8 pb-6 border-b border-gray-800">
           <div>
             <h1 className="text-3xl font-bold">VAM Dashboard</h1>
-            <p className="text-gray-400 text-sm mt-1">Willkommen zurück</p>
+            <p className="text-gray-400 text-sm mt-1">Willkommen zurück, {user.name ?? "Pilot"}</p>
           </div>
           <form
             action={async () => {
@@ -46,6 +97,7 @@ export default async function Dashboard() {
           </form>
         </header>
 
+        {/* Profile + Airline (bestehende Sektion) */}
         <div className="grid md:grid-cols-3 gap-6">
           <section className="md:col-span-1 bg-gray-900 rounded-lg p-6 border border-gray-800">
             <h2 className="text-sm uppercase tracking-wider text-gray-500 mb-4">
@@ -119,7 +171,165 @@ export default async function Dashboard() {
           </section>
         </div>
 
-        <div className="mt-8 grid md:grid-cols-2 gap-6">
+        {/* Next-Rank Progress */}
+        {user.airline && (
+          <section className="mt-6 bg-gray-900 rounded-lg p-6 border border-gray-800">
+            <h2 className="text-sm uppercase tracking-wider text-gray-500 mb-4">
+              Nächster Rang
+            </h2>
+            {nextRank ? (
+              <div>
+                <div className="flex justify-between items-baseline mb-2">
+                  <p>
+                    <span className="text-gray-400">Aktuell: </span>
+                    <span className="font-semibold">{user.rank?.name ?? "—"}</span>
+                    <span className="text-gray-500 mx-2">→</span>
+                    <span className="font-semibold text-indigo-400">{nextRank.name}</span>
+                  </p>
+                  <p className="text-sm text-gray-400">
+                    Noch <span className="text-white font-semibold">{hoursToNextRank.toFixed(1)} h</span>
+                  </p>
+                </div>
+                <div className="w-full bg-gray-800 rounded-full h-3 overflow-hidden">
+                  <div
+                    className="bg-indigo-600 h-full transition-all duration-500"
+                    style={{ width: `${progressPercent}%` }}
+                  />
+                </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  {user.totalFlightHours.toFixed(1)} / {nextRank.minFlightHours} Stunden ({progressPercent}%)
+                </p>
+              </div>
+            ) : (
+              <p className="text-gray-400">
+                🏆 <span className="font-semibold text-yellow-400">Höchster Rang erreicht!</span>
+              </p>
+            )}
+          </section>
+        )}
+
+        {/* Letzte PIREPs + Top-3-Leaderboard */}
+        <div className="mt-6 grid md:grid-cols-3 gap-6">
+          {/* Letzte PIREPs */}
+          <section className="md:col-span-2 bg-gray-900 rounded-lg p-6 border border-gray-800">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-sm uppercase tracking-wider text-gray-500">
+                Letzte Flüge
+              </h2>
+              <Link
+                href="/pireps"
+                className="text-xs text-indigo-400 hover:text-indigo-300 transition"
+              >
+                Alle ansehen →
+              </Link>
+            </div>
+            {recentPireps.length === 0 ? (
+              <p className="text-gray-400 text-sm">
+                Noch keine Flüge eingereicht.{" "}
+                <Link
+                  href="/pireps/new"
+                  className="text-indigo-400 hover:text-indigo-300"
+                >
+                  Ersten Flug einreichen →
+                </Link>
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {recentPireps.map((pirep) => {
+                  const hours = Math.floor((pirep.flightTimeMin ?? 0) / 60);
+                  const mins = (pirep.flightTimeMin ?? 0) % 60;
+                  const flightTime = hours > 0 ? `${hours}h ${mins}min` : `${mins}min`;
+                  const flightNo = pirep.route?.flightNumber ?? "—";
+
+                  return (
+                    <div
+                      key={pirep.id}
+                      className="flex justify-between items-center px-4 py-3 bg-gray-800/50 rounded border border-gray-800"
+                    >
+                      <div className="flex items-center gap-4">
+                        <span className="font-mono text-sm text-indigo-400">
+                          {flightNo}
+                        </span>
+                        <span className="text-sm">
+                          <span className="font-mono">{pirep.departure.icao}</span>
+                          <span className="text-gray-500 mx-2">→</span>
+                          <span className="font-mono">{pirep.arrival.icao}</span>
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-4 text-sm">
+                        <span className="text-gray-400">{flightTime}</span>
+                        {pirep.aircraft && (
+                          <span className="text-gray-500 font-mono text-xs">
+                            {pirep.aircraft.registration}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+
+          {/* Top-3-Leaderboard */}
+          <section className="md:col-span-1 bg-gray-900 rounded-lg p-6 border border-gray-800">
+            <h2 className="text-sm uppercase tracking-wider text-gray-500 mb-4">
+              Top Piloten
+            </h2>
+            {topPilots.length === 0 ? (
+              <p className="text-gray-400 text-sm">Noch keine Flüge.</p>
+            ) : (
+              <div className="space-y-3">
+                {topPilots.map((pilot, idx) => {
+                  const medal = idx === 0 ? "🥇" : idx === 1 ? "🥈" : "🥉";
+                  const isMe = pilot.id === user.id;
+                  return (
+                    <div
+                      key={pilot.id}
+                      className={`flex items-center gap-3 p-2 rounded ${
+                        isMe ? "bg-indigo-600/10 border border-indigo-600/30" : ""
+                      }`}
+                    >
+                      <span className="text-xl">{medal}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold truncate">
+                          {pilot.name ?? "Unbekannt"}
+                          {isMe && (
+                            <span className="ml-2 text-xs text-indigo-400">(Du)</span>
+                          )}
+                        </p>
+                        <p className="text-xs text-gray-400">
+                          {pilot.rank?.name ?? "—"}
+                        </p>
+                      </div>
+                      <p className="text-sm font-semibold">
+                        {pilot.totalFlightHours.toFixed(1)}h
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        </div>
+
+        {/* Quick Actions (bestehende Sektion mit drittem Button erweitert) */}
+        <div className="mt-6 grid md:grid-cols-3 gap-6">
+          <Link
+            href="/pireps/new"
+            className="group bg-indigo-900/20 hover:bg-indigo-900/40 border border-indigo-700/50 hover:border-indigo-500 rounded-lg p-6 transition"
+          >
+            <div className="flex justify-between items-start">
+              <div>
+                <h3 className="text-lg font-semibold mb-1">Neuen Flug</h3>
+                <p className="text-sm text-gray-400">PIREP einreichen</p>
+              </div>
+              <span className="text-indigo-400 group-hover:translate-x-1 transition-transform">
+                →
+              </span>
+            </div>
+          </Link>
+
           <Link
             href="/routes"
             className="group bg-gray-900 hover:bg-gray-800 border border-gray-800 hover:border-indigo-600/50 rounded-lg p-6 transition"
@@ -143,9 +353,9 @@ export default async function Dashboard() {
           >
             <div className="flex justify-between items-start">
               <div>
-                <h3 className="text-lg font-semibold mb-1">PIREPs</h3>
+                <h3 className="text-lg font-semibold mb-1">Alle PIREPs</h3>
                 <p className="text-sm text-gray-400">
-                  Flugberichte einreichen und ansehen
+                  Flugberichte ansehen
                 </p>
               </div>
               <span className="text-indigo-400 group-hover:translate-x-1 transition-transform">
