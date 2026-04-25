@@ -382,15 +382,23 @@ export default async function Dashboard() {
                 )}
               </Link>
 
-              <div className="flex justify-between items-center p-4 rounded border border-gray-800 bg-gray-800/30 opacity-50">
+              <Link
+                href="/admin/stats"
+                className="group flex justify-between items-center p-4 rounded border bg-gray-800/50 border-gray-800 hover:bg-gray-800 transition"
+              >
                 <div className="flex items-center gap-4">
                   <span className="text-2xl">📊</span>
                   <div>
                     <p className="font-semibold">Statistiken</p>
-                    <p className="text-xs text-gray-400">In Entwicklung</p>
+                    <p className="text-xs text-gray-400">
+                      Charts und KPIs der Airline
+                    </p>
                   </div>
                 </div>
-              </div>
+                <span className="text-gray-500 group-hover:translate-x-1 transition-transform">
+                  →
+                </span>
+              </Link>
             </div>
           </section>
         )}
