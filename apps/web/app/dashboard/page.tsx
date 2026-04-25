@@ -396,7 +396,22 @@ export default async function Dashboard() {
         )}
 
         {/* Quick Actions (bestehende Sektion mit drittem Button erweitert) */}
-        <div className="mt-6 grid md:grid-cols-3 gap-6">
+        <div className="mt-6 grid gap-6" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
+          <Link
+            href="/pilots"
+            className="group bg-gray-900 hover:bg-gray-800 border border-gray-800 hover:border-indigo-600/50 rounded-lg p-6 transition"
+          >
+            <div className="flex justify-between items-start">
+              <div>
+                <h3 className="text-lg font-semibold mb-1">Piloten</h3>
+                <p className="text-sm text-gray-400">Alle Mitglieder ansehen</p>
+              </div>
+              <span className="text-indigo-400 group-hover:translate-x-1 transition-transform">
+                →
+              </span>
+            </div>
+          </Link>
+
           <Link
             href="/pireps/new"
             className="group bg-indigo-900/20 hover:bg-indigo-900/40 border border-indigo-700/50 hover:border-indigo-500 rounded-lg p-6 transition"
