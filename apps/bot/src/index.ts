@@ -11,6 +11,7 @@ import * as statusCmd from './commands/status.js';
 import * as pilotCmd from './commands/pilot.js';
 import * as leaderboardCmd from './commands/leaderboard.js';
 import * as fleetCmd from './commands/fleet.js';
+import * as routesCmd from './commands/routes.js';
 import { startHttpServer } from './http-server.js';
 
 type Command = {
@@ -23,6 +24,7 @@ commands.set(statusCmd.data.name, statusCmd as unknown as Command);
 commands.set(pilotCmd.data.name, pilotCmd as unknown as Command);
 commands.set(leaderboardCmd.data.name, leaderboardCmd as unknown as Command);
 commands.set(fleetCmd.data.name, fleetCmd as unknown as Command);
+commands.set(routesCmd.data.name, routesCmd as unknown as Command);
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds],

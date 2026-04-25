@@ -4,12 +4,14 @@ import * as status from './commands/status.js';
 import * as pilot from './commands/pilot.js';
 import * as leaderboard from './commands/leaderboard.js';
 import * as fleet from './commands/fleet.js';
+import * as routes from './commands/routes.js';
 
 const commands = [
   status.data.toJSON(),
   pilot.data.toJSON(),
   leaderboard.data.toJSON(),
   fleet.data.toJSON(),
+  routes.data.toJSON(),
 ];
 
 const rest = new REST({ version: '10' }).setToken(env.botToken);
