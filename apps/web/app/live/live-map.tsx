@@ -76,6 +76,47 @@ type EveryoneResponse = {
   ivao: { count: number; updatedAt: string | null; pilots: PublicPilot[] };
 };
 
+type DecodedMetar = {
+  station: string;
+  observedAt: string | null;
+  wind: {
+    direction: number | null;
+    speed: number;
+    gust: number | null;
+    variableFrom: number | null;
+    variableTo: number | null;
+  } | null;
+  visibility: string | null;
+  weather: string[];
+  clouds: Array<{ coverage: string; base: number; type: string | null }>;
+  temperature: number | null;
+  dewpoint: number | null;
+  pressure: { qnhHpa: number | null; altimeterInHg: number | null };
+  flightCategory: 'VFR' | 'MVFR' | 'IFR' | 'LIFR' | null;
+};
+
+type AirportWithMetar = {
+  airport: {
+    icao: string;
+    iata: string | null;
+    name: string;
+    city: string | null;
+    country: string;
+    latitude: number;
+    longitude: number;
+  };
+  metar: {
+    raw: string;
+    decoded: DecodedMetar | null;
+    fetchedAt: string;
+  };
+};
+
+type MetarsResponse = {
+  count: number;
+  airports: AirportWithMetar[];
+};
+
 type TrailPoint = {
   lat: number;
   lon: number;
@@ -105,7 +146,11 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
     memberOnly: false,
     showVatsim: true,
     showIvao: true,
+    showAirports: true,
   });
+
+  const [airports, setAirports] = useState<AirportWithMetar[]>([]);
+  const [selectedAirportIcao, setSelectedAirportIcao] = useState<string | null>(null);
 
   const selected = useMemo(
     () => sessions.find((s) => s.id === selectedId) ?? null,
@@ -140,7 +185,32 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
     };
   }, []);
 
-  // Public pilots polling
+  // METAR Polling (alle 5min)
+  useEffect(() => {
+    let cancelled = false;
+
+    async function fetchMetars() {
+      try {
+        const res = await fetch('/api/live/metars');
+        if (!res.ok) return;
+        const data: MetarsResponse = await res.json();
+        if (!cancelled) {
+          setAirports(data.airports ?? []);
+        }
+      } catch (err) {
+        console.error('Failed to fetch metars:', err);
+      }
+    }
+
+    fetchMetars();
+    const interval = setInterval(fetchMetars, 5 * 60 * 1000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
+
+  // Public pilots polling (alle VATSIM + IVAO)
   useEffect(() => {
     let cancelled = false;
 
@@ -315,6 +385,60 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
     };
   }, [publicPilots, sessions, filters]);
 
+  // Airport GeoJSON
+  const airportGeoJson = useMemo(() => {
+    if (!filters.showAirports) {
+      return { type: 'FeatureCollection' as const, features: [] };
+    }
+    return {
+      type: 'FeatureCollection' as const,
+      features: airports.map((a) => ({
+        type: 'Feature' as const,
+        properties: {
+          icao: a.airport.icao,
+          flightCategory: a.metar.decoded?.flightCategory ?? 'unknown',
+        },
+        geometry: {
+          type: 'Point' as const,
+          coordinates: [a.airport.longitude, a.airport.latitude],
+        },
+      })),
+    };
+  }, [airports, filters.showAirports]);
+
+  const airportSymbolLayer: SymbolLayerSpecification = useMemo(
+    () => ({
+      id: 'airports',
+      type: 'symbol',
+      source: 'airports-source',
+      layout: {
+        'icon-image': [
+          'match',
+          ['get', 'flightCategory'],
+          'VFR', 'airport-vfr',
+          'MVFR', 'airport-mvfr',
+          'IFR', 'airport-ifr',
+          'LIFR', 'airport-lifr',
+          'airport-unknown',
+        ],
+        'icon-size': 1,
+        'icon-allow-overlap': true,
+        'text-field': ['get', 'icao'],
+        'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+        'text-size': 10,
+        'text-offset': [0, 1.2],
+        'text-anchor': 'top',
+        'text-allow-overlap': false,
+      },
+      paint: {
+        'text-color': '#ffffff',
+        'text-halo-color': '#000000',
+        'text-halo-width': 1,
+      },
+    }),
+    [],
+  );
+
   const publicSymbolLayer: SymbolLayerSpecification = useMemo(
     () => ({
       id: 'public-pilots',
@@ -367,11 +491,11 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
       {/* Sidebar */}
       <aside
         style={{
-          width: isOpen ? SIDEBAR_WIDTH : 0,
+          width: isOpen || selectedAirportIcao ? SIDEBAR_WIDTH : 0,
           flexShrink: 0,
           transition: 'width 220ms ease',
           backgroundColor: 'rgb(17, 24, 39)',
-          borderRight: isOpen ? '1px solid rgb(31, 41, 55)' : 'none',
+          borderRight: isOpen || selectedAirportIcao ? '1px solid rgb(31, 41, 55)' : 'none',
           overflow: 'hidden',
         }}
       >
@@ -380,6 +504,12 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
             session={selected}
             trail={trails[selected.id] ?? []}
             onClose={() => setSelectedId(null)}
+          />
+        )}
+        {selectedAirportIcao && !selected && (
+          <AirportSidebar
+            airportData={airports.find((a) => a.airport.icao === selectedAirportIcao) ?? null}
+            onClose={() => setSelectedAirportIcao(null)}
           />
         )}
       </aside>
@@ -448,7 +578,7 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
             'plane-ivao': '#34d399',
           };
 
-          for (const [name, color] of Object.entries(colors)) {
+         for (const [name, color] of Object.entries(colors)) {
             if (map.hasImage(name)) continue;
             const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><path d="M16 2 L17.5 4 L17.5 12 L29 19 L29 21.5 L17.5 18.5 L17.5 25 L20 27 L20 28.5 L16 27.2 L12 28.5 L12 27 L14.5 25 L14.5 18.5 L3 21.5 L3 19 L14.5 12 L14.5 4 Z" fill="${color}"/></svg>`;
             const img = new Image(32, 32);
@@ -459,6 +589,46 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
             };
             img.src = 'data:image/svg+xml;base64,' + btoa(svg);
           }
+
+          // Airport-Icons (rund, nach Flight-Category gefärbt)
+          const airportColors = {
+            'airport-vfr': '#10b981',   // grün
+            'airport-mvfr': '#3b82f6',  // blau
+            'airport-ifr': '#f59e0b',   // orange
+            'airport-lifr': '#ef4444',  // rot
+            'airport-unknown': '#6b7280', // grau
+          };
+
+          for (const [name, color] of Object.entries(airportColors)) {
+            if (map.hasImage(name)) continue;
+            const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20"><circle cx="10" cy="10" r="6" fill="${color}" stroke="white" stroke-width="1.5"/></svg>`;
+            const img = new Image(20, 20);
+            img.onload = () => {
+              if (!map.hasImage(name)) {
+                map.addImage(name, img);
+              }
+            };
+            img.src = 'data:image/svg+xml;base64,' + btoa(svg);
+          }
+
+          // Click-Handler für Airport-Layer
+          map.on('click', 'airports', (e) => {
+            const feature = e.features?.[0];
+            if (!feature) return;
+            const icao = feature.properties?.icao as string;
+            if (icao) {
+              setSelectedAirportIcao(icao);
+              setSelectedId(null); // Pilot-Sidebar schließen falls offen
+            }
+          });
+
+          // Cursor-Hover über Airport
+          map.on('mouseenter', 'airports', () => {
+            map.getCanvas().style.cursor = 'pointer';
+          });
+          map.on('mouseleave', 'airports', () => {
+            map.getCanvas().style.cursor = '';
+          });
 
           setPlaneImagesLoaded(true);
         }}
@@ -474,6 +644,13 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
               data={publicGeoJson}
             >
               <Layer {...publicSymbolLayer} />
+            </Source>
+          )}
+
+          {/* Airport Layer */}
+          {planeImagesLoaded && airportGeoJson.features.length > 0 && (
+            <Source id="airports-source" type="geojson" data={airportGeoJson}>
+              <Layer {...airportSymbolLayer} />
             </Source>
           )}
 
@@ -567,6 +744,14 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
               setFilters((prev) => ({ ...prev, showIvao: v }))
             }
             color="#34d399"
+          />
+          <FilterToggle
+            label="Airports"
+            checked={filters.showAirports}
+            onChange={(v) =>
+              setFilters((prev) => ({ ...prev, showAirports: v }))
+            }
+            color="#fbbf24"
           />
           <div
             style={{
@@ -992,6 +1177,268 @@ function SessionSidebar({
             </div>
           </section>
         )}
+      </div>
+    </div>
+  );
+}
+
+function AirportSidebar({
+  airportData,
+  onClose,
+}: {
+  airportData: AirportWithMetar | null;
+  onClose: () => void;
+}) {
+  if (!airportData) {
+    return (
+      <div style={{ width: SIDEBAR_WIDTH, padding: '1rem', color: 'white' }}>
+        <p>Lade METAR...</p>
+      </div>
+    );
+  }
+
+  const { airport, metar } = airportData;
+  const decoded = metar.decoded;
+
+  const categoryColor = {
+    VFR: '#10b981',
+    MVFR: '#3b82f6',
+    IFR: '#f59e0b',
+    LIFR: '#ef4444',
+  }[decoded?.flightCategory ?? 'VFR'] ?? '#6b7280';
+
+  return (
+    <div
+      style={{
+        width: SIDEBAR_WIDTH,
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        color: 'white',
+      }}
+    >
+      <div
+        style={{
+          padding: '1rem',
+          borderBottom: '1px solid rgb(31, 41, 55)',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'flex-start',
+          gap: '0.5rem',
+        }}
+      >
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
+            <h2 style={{ fontSize: '1.5rem', fontWeight: 700, margin: 0, fontFamily: 'monospace' }}>
+              {airport.icao}
+            </h2>
+            {airport.iata && (
+              <span style={{ fontSize: '0.75rem', color: 'rgb(156, 163, 175)' }}>
+                {airport.iata}
+              </span>
+            )}
+            {decoded?.flightCategory && (
+              <span
+                style={{
+                  fontSize: '0.7rem',
+                  padding: '0.15rem 0.5rem',
+                  borderRadius: '0.25rem',
+                  backgroundColor: `${categoryColor}33`,
+                  color: categoryColor,
+                  border: `1px solid ${categoryColor}66`,
+                  fontWeight: 700,
+                }}
+              >
+                {decoded.flightCategory}
+              </span>
+            )}
+          </div>
+          <p style={{ fontSize: '0.875rem', color: 'rgb(156, 163, 175)', margin: 0 }}>
+            {airport.name}
+            {airport.city && airport.city !== airport.name && ` · ${airport.city}`}
+            {' · '}
+            {airport.country}
+          </p>
+        </div>
+        <button
+          onClick={onClose}
+          style={{
+            width: '2rem',
+            height: '2rem',
+            borderRadius: '0.375rem',
+            backgroundColor: 'rgb(31, 41, 55)',
+            border: 'none',
+            color: 'white',
+            cursor: 'pointer',
+            fontSize: '1.25rem',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0,
+            padding: 0,
+            lineHeight: 1,
+          }}
+        >
+          ×
+        </button>
+      </div>
+
+      <div style={{ flex: 1, overflowY: 'auto', padding: '1rem' }}>
+        {/* Raw METAR */}
+        <section style={{ marginBottom: '1.25rem' }}>
+          <h3 style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'rgb(107, 114, 128)', marginBottom: '0.5rem' }}>
+            METAR
+          </h3>
+          <div
+            style={{
+              padding: '0.75rem',
+              backgroundColor: 'rgb(31, 41, 55)',
+              borderRadius: '0.375rem',
+              fontFamily: 'monospace',
+              fontSize: '0.75rem',
+              wordBreak: 'break-all',
+              lineHeight: 1.4,
+              color: 'rgb(229, 231, 235)',
+            }}
+          >
+            {metar.raw}
+          </div>
+        </section>
+
+        {decoded && (
+          <>
+            {/* Wind & Visibility */}
+            <section style={{ marginBottom: '1.25rem' }}>
+              <h3 style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'rgb(107, 114, 128)', marginBottom: '0.5rem' }}>
+                Wind & Visibility
+              </h3>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                <Stat
+                  label="Wind"
+                  value={
+                    decoded.wind
+                      ? `${decoded.wind.direction !== null ? `${decoded.wind.direction.toString().padStart(3, '0')}°` : 'VRB'} @ ${decoded.wind.speed}kt${decoded.wind.gust ? ` G${decoded.wind.gust}` : ''}`
+                      : 'Calm'
+                  }
+                />
+                <Stat label="Visibility" value={decoded.visibility ?? '—'} />
+              </div>
+            </section>
+
+            {/* Temperature & Pressure */}
+            <section style={{ marginBottom: '1.25rem' }}>
+              <h3 style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'rgb(107, 114, 128)', marginBottom: '0.5rem' }}>
+                Conditions
+              </h3>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                <Stat
+                  label="Temperature"
+                  value={decoded.temperature !== null ? `${decoded.temperature}°C` : '—'}
+                />
+                <Stat
+                  label="Dewpoint"
+                  value={decoded.dewpoint !== null ? `${decoded.dewpoint}°C` : '—'}
+                />
+                <Stat
+                  label="QNH"
+                  value={
+                    decoded.pressure.qnhHpa
+                      ? `${decoded.pressure.qnhHpa} hPa`
+                      : decoded.pressure.altimeterInHg
+                        ? `${decoded.pressure.altimeterInHg.toFixed(2)}"Hg`
+                        : '—'
+                  }
+                />
+                <Stat
+                  label="Cloud Base"
+                  value={
+                    decoded.clouds.length > 0
+                      ? `${decoded.clouds[0].coverage} ${decoded.clouds[0].base}ft`
+                      : 'Clear'
+                  }
+                />
+              </div>
+            </section>
+
+            {/* Weather Phenomena */}
+            {decoded.weather.length > 0 && (
+              <section style={{ marginBottom: '1.25rem' }}>
+                <h3 style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'rgb(107, 114, 128)', marginBottom: '0.5rem' }}>
+                  Weather
+                </h3>
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  {decoded.weather.map((w) => (
+                    <span
+                      key={w}
+                      style={{
+                        padding: '0.25rem 0.5rem',
+                        backgroundColor: 'rgba(245, 158, 11, 0.15)',
+                        color: '#fbbf24',
+                        borderRadius: '0.25rem',
+                        fontSize: '0.75rem',
+                        fontFamily: 'monospace',
+                        fontWeight: 600,
+                      }}
+                    >
+                      {w}
+                    </span>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {/* Cloud-Layers */}
+            {decoded.clouds.length > 0 && (
+              <section style={{ marginBottom: '1.25rem' }}>
+                <h3 style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'rgb(107, 114, 128)', marginBottom: '0.5rem' }}>
+                  Clouds
+                </h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                  {decoded.clouds.map((c, i) => (
+                    <div
+                      key={i}
+                      style={{
+                        padding: '0.5rem 0.75rem',
+                        backgroundColor: 'rgb(31, 41, 55)',
+                        borderRadius: '0.25rem',
+                        fontSize: '0.75rem',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                      }}
+                    >
+                      <span>
+                        <strong>{c.coverage}</strong>
+                        {c.type && (
+                          <span style={{ marginLeft: '0.5rem', color: '#fbbf24' }}>{c.type}</span>
+                        )}
+                      </span>
+                      <span style={{ color: 'rgb(156, 163, 175)' }}>{c.base.toLocaleString()} ft</span>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+          </>
+        )}
+
+        {/* Coordinates */}
+        <section>
+          <h3 style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'rgb(107, 114, 128)', marginBottom: '0.5rem' }}>
+            Position
+          </h3>
+          <div
+            style={{
+              padding: '0.5rem 0.75rem',
+              backgroundColor: 'rgb(31, 41, 55)',
+              borderRadius: '0.375rem',
+              fontSize: '0.75rem',
+              fontFamily: 'monospace',
+              color: 'rgb(209, 213, 219)',
+            }}
+          >
+            {airport.latitude.toFixed(4)}°, {airport.longitude.toFixed(4)}°
+          </div>
+        </section>
       </div>
     </div>
   );

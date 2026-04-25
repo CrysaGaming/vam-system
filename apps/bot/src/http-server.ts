@@ -7,6 +7,7 @@ import { handlePirepApproved } from './events/pirep-approved.js';
 import { handlePirepRejected } from './events/pirep-rejected.js';
 import { getPublicVatsimPilots } from './services/vatsim-tracker.js';
 import { getPublicIvaoPilots } from './services/ivao-tracker.js';
+import { getCachedMetars } from './services/metar-tracker.js';
 
 export function startHttpServer(client: Client) {
   const app = express();
@@ -92,6 +93,15 @@ export function startHttpServer(client: Client) {
         updatedAt: ivao.updatedAt?.toISOString() ?? null,
         pilots: ivao.pilots,
       },
+    });
+  });
+
+  // METARs für relevante Airports (DB + aktive Member-Sessions)
+  app.get('/metars', (_req, res) => {
+    const metars = getCachedMetars();
+    res.json({
+      count: Object.keys(metars).length,
+      metars,
     });
   });
 

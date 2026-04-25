@@ -15,6 +15,7 @@ import * as routesCmd from './commands/routes.js';
 import { startHttpServer } from './http-server.js';
 import { startVatsimTracker } from './services/vatsim-tracker.js';
 import { startIvaoTracker } from './services/ivao-tracker.js';
+import { startMetarTracker } from './services/metar-tracker.js';
 
 type Command = {
   data: SlashCommandBuilder;
@@ -44,6 +45,9 @@ client.once('ready', async () => {
 
   // IVAO Live-Tracking starten (poll interval: 30s)
   startIvaoTracker();
+
+  // METAR Polling starten (poll interval: 10min)
+  startMetarTracker();
 
   // Post "Bot online" Embed in #bot-logs
   try {
