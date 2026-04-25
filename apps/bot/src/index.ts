@@ -13,6 +13,8 @@ import * as leaderboardCmd from './commands/leaderboard.js';
 import * as fleetCmd from './commands/fleet.js';
 import * as routesCmd from './commands/routes.js';
 import { startHttpServer } from './http-server.js';
+import { startVatsimTracker } from './services/vatsim-tracker.js';
+import { startIvaoTracker } from './services/ivao-tracker.js';
 
 type Command = {
   data: SlashCommandBuilder;
@@ -36,6 +38,12 @@ client.once('ready', async () => {
 
   // HTTP-Server für Web→Bot Events starten
   startHttpServer(client);
+
+  // VATSIM Live-Tracking starten (poll interval: 30s)
+  startVatsimTracker();
+
+  // IVAO Live-Tracking starten (poll interval: 30s)
+  startIvaoTracker();
 
   // Post "Bot online" Embed in #bot-logs
   try {

@@ -78,6 +78,7 @@ model User {
   roleId      String?
   role        Role?    @relation(fields: [roleId], references: [id])
 
+  liveSessions    LiveSession[]
   pireps          Pirep[]
   approvedPireps  Pirep[]  @relation("PirepApprover")
   awards          UserAward[]
@@ -85,6 +86,62 @@ model User {
   accounts        Account[]
   sessions        Session[]
   emailVerified   DateTime?
+}
+
+model LiveSession {
+  id                   String      @id @default(cuid())
+  userId               String
+  user                 User        @relation(fields: [userId], references: [id])
+  network              NetworkType
+  externalId           Int
+  callsign             String
+
+  aircraftType         String?
+  aircraftRegistration String?
+
+  departureIcao        String?
+  arrivalIcao          String?
+  alternateIcao        String?
+  cruiseAltitude       Int?
+  flightRules          String?
+  flightRoute          String?     @db.Text
+  flightRemarks        String?     @db.Text
+
+  latitude             Float
+  longitude            Float
+  altitude             Int
+  groundSpeed          Int
+  heading              Int
+  transponder          String?
+  onGround             Boolean     @default(false)
+
+  connectedAt          DateTime
+  lastUpdatedAt        DateTime
+  isActive             Boolean     @default(true)
+
+  positions            LiveSessionPosition[]
+
+  @@unique([network, externalId])
+  @@index([userId, isActive])
+  @@index([network, isActive])
+  @@index([lastUpdatedAt])
+}
+
+model LiveSessionPosition {
+  id          String      @id @default(cuid())
+  sessionId   String
+  session     LiveSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  latitude    Float
+  longitude   Float
+  altitude    Int
+  groundSpeed Int
+  heading     Int
+  onGround    Boolean
+
+  recordedAt  DateTime    @default(now())
+
+  @@index([sessionId, recordedAt])
 }
 
 model Rank {
