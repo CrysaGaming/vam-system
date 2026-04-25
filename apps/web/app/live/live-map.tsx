@@ -1,7 +1,14 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
-import Map, { Marker, Popup, NavigationControl, ScaleControl } from 'react-map-gl/mapbox';
+import { useEffect, useState, useMemo, useCallback } from 'react';
+import Map, {
+  Marker,
+  NavigationControl,
+  ScaleControl,
+  Source,
+  Layer,
+} from 'react-map-gl/mapbox';
+import type { LineLayerSpecification } from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 
 type LiveSession = {
@@ -40,12 +47,31 @@ type LiveSession = {
   lastUpdatedAt: string;
 };
 
+type TrailPoint = {
+  lat: number;
+  lon: number;
+  alt: number;
+  gs: number;
+  hdg: number;
+  onGround: boolean;
+  at: string;
+};
+
+const SIDEBAR_WIDTH = 360;
+
 export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
   const [sessions, setSessions] = useState<LiveSession[]>([]);
-  const [selected, setSelected] = useState<LiveSession | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [trails, setTrails] = useState<Record<string, TrailPoint[]>>({});
   const [loading, setLoading] = useState(true);
   const [lastFetch, setLastFetch] = useState<Date | null>(null);
 
+  const selected = useMemo(
+    () => sessions.find((s) => s.id === selectedId) ?? null,
+    [sessions, selectedId],
+  );
+
+  // Sessions polling
   useEffect(() => {
     let cancelled = false;
 
@@ -67,100 +93,204 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
 
     fetchSessions();
     const interval = setInterval(fetchSessions, 30_000);
-
     return () => {
       cancelled = true;
       clearInterval(interval);
     };
   }, []);
 
-  const initialView = useMemo(
+  // Trail-Loading bei Session-Click
+  const loadTrail = useCallback(async (sessionId: string) => {
+    try {
+      const res = await fetch(`/api/live/sessions/${sessionId}/positions`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setTrails((prev) => ({
+        ...prev,
+        [sessionId]: data.positions ?? [],
+      }));
+    } catch (err) {
+      console.error('Failed to fetch trail:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!selectedId) return;
+    if (trails[selectedId]) return;
+    void loadTrail(selectedId);
+  }, [selectedId, trails, loadTrail]);
+
+  // GeoJSON für Trail
+  const trailGeoJson = useMemo(() => {
+    if (!selected) {
+      return { type: 'FeatureCollection' as const, features: [] };
+    }
+    const points = trails[selected.id];
+    if (!points || points.length < 2) {
+      return { type: 'FeatureCollection' as const, features: [] };
+    }
+
+    const coords: [number, number][] = points.map((p) => [p.lon, p.lat]);
+    coords.push([selected.position.longitude, selected.position.latitude]);
+
+    return {
+      type: 'FeatureCollection' as const,
+      features: [
+        {
+          type: 'Feature' as const,
+          properties: { network: selected.network },
+          geometry: {
+            type: 'LineString' as const,
+            coordinates: coords,
+          },
+        },
+      ],
+    };
+  }, [selected, trails]);
+
+  const trailColor = selected?.network === 'VATSIM' ? '#3b82f6' : '#10b981';
+
+  const trailLayer: LineLayerSpecification = useMemo(
     () => ({
-      longitude: 10,
-      latitude: 50,
-      zoom: 4,
+      id: 'trail-line',
+      type: 'line',
+      source: 'trail-source',
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': trailColor,
+        'line-width': 3,
+        'line-opacity': 0.8,
+      },
     }),
+    [trailColor],
+  );
+
+  const trailGlowLayer: LineLayerSpecification = useMemo(
+    () => ({
+      id: 'trail-glow',
+      type: 'line',
+      source: 'trail-source',
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': trailColor,
+        'line-width': 12,
+        'line-opacity': 0.25,
+        'line-blur': 6,
+      },
+    }),
+    [trailColor],
+  );
+
+  const initialView = useMemo(
+    () => ({ longitude: 10, latitude: 50, zoom: 4 }),
     [],
   );
 
+  const isOpen = selected !== null;
+
   return (
-    <div style={{ height: 'calc(100vh - 73px)', width: '100%', position: 'relative' }}>
-      <Map
-        mapboxAccessToken={mapboxToken}
-        initialViewState={initialView}
-        style={{ width: '100%', height: '100%' }}
-        mapStyle="mapbox://styles/mapbox/dark-v11"
-      >
-        <NavigationControl position="top-right" />
-        <ScaleControl position="bottom-right" />
-
-        {sessions.map((session) => (
-          <Marker
-            key={session.id}
-            longitude={session.position.longitude}
-            latitude={session.position.latitude}
-            anchor="center"
-            onClick={(e) => {
-              e.originalEvent.stopPropagation();
-              setSelected(session);
-            }}
-          >
-            <div
-              style={{
-                cursor: 'pointer',
-                transform: `rotate(${session.position.heading}deg)`,
-                transformOrigin: 'center',
-                transition: 'transform 0.5s linear',
-              }}
-            >
-              <PlaneIcon network={session.network} onGround={session.position.onGround} />
-            </div>
-          </Marker>
-        ))}
-
-        {selected && (
-          <Popup
-            longitude={selected.position.longitude}
-            latitude={selected.position.latitude}
-            anchor="bottom"
-            onClose={() => setSelected(null)}
-            closeButton={true}
-            closeOnClick={false}
-            offset={20}
-          >
-            <SessionDetail session={selected} />
-          </Popup>
-        )}
-      </Map>
-
-      <div
+    <div
+      style={{
+        height: 'calc(100vh - 73px)',
+        width: '100%',
+        position: 'relative',
+        display: 'flex',
+        overflow: 'hidden',
+      }}
+    >
+      {/* Sidebar */}
+      <aside
         style={{
-          position: 'absolute',
-          top: '1rem',
-          left: '1rem',
-          padding: '0.5rem 0.75rem',
-          backgroundColor: 'rgba(17, 24, 39, 0.85)',
-          color: 'white',
-          borderRadius: '0.375rem',
-          fontSize: '0.75rem',
-          backdropFilter: 'blur(8px)',
-          border: '1px solid rgba(255, 255, 255, 0.1)',
+          width: isOpen ? SIDEBAR_WIDTH : 0,
+          flexShrink: 0,
+          transition: 'width 220ms ease',
+          backgroundColor: 'rgb(17, 24, 39)',
+          borderRight: isOpen ? '1px solid rgb(31, 41, 55)' : 'none',
+          overflow: 'hidden',
         }}
       >
-        {loading ? (
-          <span>Lade Sessions...</span>
-        ) : (
-          <span>
-            {sessions.length} live ·{' '}
-            {sessions.filter((s) => s.network === 'VATSIM').length} VATSIM ·{' '}
-            {sessions.filter((s) => s.network === 'IVAO').length} IVAO
-            {lastFetch && (
-              <span style={{ marginLeft: '0.5rem', color: 'rgb(156, 163, 175)' }}>
-                · {lastFetch.toLocaleTimeString('de-DE')}
-              </span>
-            )}
-          </span>
+        {selected && (
+          <SessionSidebar
+            session={selected}
+            trail={trails[selected.id] ?? []}
+            onClose={() => setSelectedId(null)}
+          />
         )}
+      </aside>
+
+      {/* Map */}
+      <div style={{ flex: 1, position: 'relative' }}>
+        <Map
+          mapboxAccessToken={mapboxToken}
+          initialViewState={initialView}
+          style={{ width: '100%', height: '100%' }}
+          mapStyle="mapbox://styles/mapbox/dark-v11"
+        >
+          <NavigationControl position="top-right" />
+          <ScaleControl position="bottom-right" />
+
+          {trailGeoJson.features.length > 0 && (
+            <Source id="trail-source" type="geojson" data={trailGeoJson}>
+              <Layer {...trailGlowLayer} />
+              <Layer {...trailLayer} />
+            </Source>
+          )}
+
+          {sessions.map((session) => (
+            <Marker
+              key={session.id}
+              longitude={session.position.longitude}
+              latitude={session.position.latitude}
+              anchor="center"
+              onClick={(e) => {
+                e.originalEvent.stopPropagation();
+                setSelectedId(
+                  selectedId === session.id ? null : session.id,
+                );
+              }}
+            >
+              <PlaneIcon
+                network={session.network}
+                heading={session.position.heading}
+                onGround={session.position.onGround}
+                isSelected={selectedId === session.id}
+              />
+            </Marker>
+          ))}
+        </Map>
+
+        {/* Status-Overlay */}
+        <div
+          style={{
+            position: 'absolute',
+            top: '1rem',
+            left: '1rem',
+            padding: '0.5rem 0.75rem',
+            backgroundColor: 'rgba(17, 24, 39, 0.85)',
+            color: 'white',
+            borderRadius: '0.375rem',
+            fontSize: '0.75rem',
+            backdropFilter: 'blur(8px)',
+            border: '1px solid rgba(255, 255, 255, 0.1)',
+          }}
+        >
+          {loading ? (
+            <span>Lade Sessions...</span>
+          ) : (
+            <span>
+              {sessions.length} live ·{' '}
+              {sessions.filter((s) => s.network === 'VATSIM').length} VATSIM ·{' '}
+              {sessions.filter((s) => s.network === 'IVAO').length} IVAO
+              {lastFetch && (
+                <span
+                  style={{ marginLeft: '0.5rem', color: 'rgb(156, 163, 175)' }}
+                >
+                  · {lastFetch.toLocaleTimeString('de-DE')}
+                </span>
+              )}
+            </span>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -168,108 +298,383 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
 
 function PlaneIcon({
   network,
+  heading,
   onGround,
+  isSelected,
 }: {
   network: 'VATSIM' | 'IVAO';
+  heading: number;
   onGround: boolean;
+  isSelected: boolean;
 }) {
   const color = network === 'VATSIM' ? '#3b82f6' : '#10b981';
-  const opacity = onGround ? 0.5 : 1;
+  const opacity = onGround ? 0.55 : 1;
+  const size = isSelected ? 32 : 26;
 
-  return (
-    <svg
-      width="24"
-      height="24"
-      viewBox="0 0 24 24"
-      fill={color}
-      opacity={opacity}
-      style={{
-        filter: 'drop-shadow(0 0 4px rgba(0,0,0,0.6))',
-      }}
-    >
-      <path d="M12 2 L14 10 L22 12 L14 14 L12 22 L10 14 L2 12 L10 10 Z" />
-    </svg>
-  );
-}
-
-function SessionDetail({ session }: { session: LiveSession }) {
   return (
     <div
       style={{
-        padding: '0.5rem',
-        minWidth: '240px',
-        color: 'rgb(17, 24, 39)',
-        fontSize: '0.875rem',
+        cursor: 'pointer',
+        width: size,
+        height: size,
+        transform: `rotate(${heading}deg)`,
+        transformOrigin: 'center',
+        transition: 'transform 0.5s linear, width 0.2s, height 0.2s',
       }}
     >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-        <strong style={{ fontSize: '1rem' }}>{session.callsign}</strong>
-        <span
-          style={{
-            fontSize: '0.7rem',
-            padding: '0.1rem 0.4rem',
-            borderRadius: '0.25rem',
-            backgroundColor: session.network === 'VATSIM' ? '#dbeafe' : '#d1fae5',
-            color: session.network === 'VATSIM' ? '#1e40af' : '#065f46',
-          }}
-        >
-          {session.network}
-        </span>
-      </div>
-
-      <div style={{ marginTop: '0.5rem', color: 'rgb(75, 85, 99)' }}>
-        {session.pilot.name} {session.pilot.rank && `· ${session.pilot.rank}`}
-      </div>
-
-      {(session.flightPlan.departure || session.flightPlan.arrival) && (
-        <div
-          style={{
-            marginTop: '0.5rem',
-            padding: '0.5rem',
-            backgroundColor: 'rgb(243, 244, 246)',
-            borderRadius: '0.25rem',
-          }}
-        >
-          <div style={{ fontWeight: 600 }}>
-            {session.flightPlan.departure ?? '???'} → {session.flightPlan.arrival ?? '???'}
-          </div>
-          {session.aircraft.type && (
-            <div style={{ fontSize: '0.75rem', color: 'rgb(75, 85, 99)', marginTop: '0.25rem' }}>
-              {session.aircraft.type}
-              {session.flightPlan.cruiseAltitude &&
-                ` · FL${(session.flightPlan.cruiseAltitude / 100).toFixed(0)}`}
-            </div>
-          )}
-        </div>
-      )}
-
-      <div
+      <svg
+        width={size}
+        height={size}
+        viewBox="0 0 32 32"
+        fill={color}
+        opacity={opacity}
         style={{
-          marginTop: '0.5rem',
-          display: 'grid',
-          gridTemplateColumns: '1fr 1fr',
-          gap: '0.5rem',
-          fontSize: '0.75rem',
+          filter: isSelected
+            ? `drop-shadow(0 0 8px ${color})`
+            : 'drop-shadow(0 0 3px rgba(0,0,0,0.7))',
+          transition: 'filter 0.2s ease',
         }}
       >
-        <div>
-          <div style={{ color: 'rgb(107, 114, 128)' }}>Altitude</div>
-          <div style={{ fontWeight: 600 }}>{session.position.altitude.toLocaleString()} ft</div>
-        </div>
-        <div>
-          <div style={{ color: 'rgb(107, 114, 128)' }}>Speed</div>
-          <div style={{ fontWeight: 600 }}>{session.position.groundSpeed} kt</div>
-        </div>
-        <div>
-          <div style={{ color: 'rgb(107, 114, 128)' }}>Heading</div>
-          <div style={{ fontWeight: 600 }}>{session.position.heading}°</div>
-        </div>
-        <div>
-          <div style={{ color: 'rgb(107, 114, 128)' }}>Status</div>
-          <div style={{ fontWeight: 600 }}>
-            {session.position.onGround ? 'On Ground' : 'Airborne'}
+        <path d="M16 2 L17.5 4 L17.5 12 L29 19 L29 21.5 L17.5 18.5 L17.5 25 L20 27 L20 28.5 L16 27.2 L12 28.5 L12 27 L14.5 25 L14.5 18.5 L3 21.5 L3 19 L14.5 12 L14.5 4 Z" />
+      </svg>
+    </div>
+  );
+}
+
+function SessionSidebar({
+  session,
+  trail,
+  onClose,
+}: {
+  session: LiveSession;
+  trail: TrailPoint[];
+  onClose: () => void;
+}) {
+  const minutesOnline = Math.floor(
+    (Date.now() - new Date(session.connectedAt).getTime()) / 60000,
+  );
+
+  return (
+    <div
+      style={{
+        width: SIDEBAR_WIDTH,
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        color: 'white',
+      }}
+    >
+      {/* Header */}
+      <div
+        style={{
+          padding: '1rem',
+          borderBottom: '1px solid rgb(31, 41, 55)',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'flex-start',
+          gap: '0.5rem',
+        }}
+      >
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              marginBottom: '0.25rem',
+            }}
+          >
+            <h2
+              style={{
+                fontSize: '1.5rem',
+                fontWeight: 700,
+                margin: 0,
+                fontFamily: 'monospace',
+              }}
+            >
+              {session.callsign}
+            </h2>
+            <span
+              style={{
+                fontSize: '0.7rem',
+                padding: '0.15rem 0.5rem',
+                borderRadius: '0.25rem',
+                backgroundColor:
+                  session.network === 'VATSIM'
+                    ? 'rgba(59, 130, 246, 0.2)'
+                    : 'rgba(16, 185, 129, 0.2)',
+                color: session.network === 'VATSIM' ? '#93c5fd' : '#6ee7b7',
+                border:
+                  session.network === 'VATSIM'
+                    ? '1px solid rgba(59, 130, 246, 0.4)'
+                    : '1px solid rgba(16, 185, 129, 0.4)',
+              }}
+            >
+              {session.network}
+            </span>
           </div>
+          <p
+            style={{
+              fontSize: '0.875rem',
+              color: 'rgb(156, 163, 175)',
+              margin: 0,
+            }}
+          >
+            {session.pilot.name}
+            {session.pilot.rank && ` · ${session.pilot.rank}`}
+          </p>
         </div>
+        <button
+          onClick={onClose}
+          style={{
+            width: '2rem',
+            height: '2rem',
+            borderRadius: '0.375rem',
+            backgroundColor: 'rgb(31, 41, 55)',
+            border: 'none',
+            color: 'white',
+            cursor: 'pointer',
+            fontSize: '1.25rem',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0,
+            padding: 0,
+            lineHeight: 1,
+          }}
+          aria-label="Schließen"
+        >
+          ×
+        </button>
+      </div>
+
+      {/* Content - scrollable */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: '1rem' }}>
+        {/* Flight Plan */}
+        {(session.flightPlan.departure || session.flightPlan.arrival) && (
+          <section style={{ marginBottom: '1.25rem' }}>
+            <h3
+              style={{
+                fontSize: '0.7rem',
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+                color: 'rgb(107, 114, 128)',
+                marginBottom: '0.5rem',
+              }}
+            >
+              Flight Plan
+            </h3>
+            <div
+              style={{
+                padding: '0.75rem',
+                backgroundColor: 'rgb(31, 41, 55)',
+                borderRadius: '0.375rem',
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '0.5rem',
+                  fontFamily: 'monospace',
+                  fontSize: '1.125rem',
+                  fontWeight: 600,
+                }}
+              >
+                <span>{session.flightPlan.departure ?? '???'}</span>
+                <span style={{ color: 'rgb(107, 114, 128)' }}>→</span>
+                <span>{session.flightPlan.arrival ?? '???'}</span>
+              </div>
+              {session.flightPlan.alternate && (
+                <div
+                  style={{
+                    fontSize: '0.75rem',
+                    color: 'rgb(156, 163, 175)',
+                    marginTop: '0.25rem',
+                  }}
+                >
+                  Alt: {session.flightPlan.alternate}
+                </div>
+              )}
+              <div
+                style={{
+                  marginTop: '0.5rem',
+                  display: 'flex',
+                  gap: '1rem',
+                  fontSize: '0.75rem',
+                  color: 'rgb(156, 163, 175)',
+                }}
+              >
+                {session.aircraft.type && (
+                  <span>{session.aircraft.type}</span>
+                )}
+                {session.flightPlan.cruiseAltitude && (
+                  <span>
+                    FL{(session.flightPlan.cruiseAltitude / 100).toFixed(0)}
+                  </span>
+                )}
+                {session.flightPlan.flightRules && (
+                  <span>{session.flightPlan.flightRules}</span>
+                )}
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* Live Position */}
+        <section style={{ marginBottom: '1.25rem' }}>
+          <h3
+            style={{
+              fontSize: '0.7rem',
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em',
+              color: 'rgb(107, 114, 128)',
+              marginBottom: '0.5rem',
+            }}
+          >
+            Live Position
+          </h3>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: '0.5rem',
+            }}
+          >
+            <Stat label="Altitude" value={`${session.position.altitude.toLocaleString()} ft`} />
+            <Stat label="Ground Speed" value={`${session.position.groundSpeed} kt`} />
+            <Stat label="Heading" value={`${session.position.heading}°`} />
+            <Stat
+              label="Status"
+              value={session.position.onGround ? 'On Ground' : 'Airborne'}
+              valueColor={session.position.onGround ? '#fbbf24' : '#34d399'}
+            />
+            {session.position.transponder && (
+              <Stat label="Transponder" value={session.position.transponder} />
+            )}
+            <Stat label="Online" value={`${minutesOnline} min`} />
+          </div>
+        </section>
+
+        {/* Coordinates */}
+        <section style={{ marginBottom: '1.25rem' }}>
+          <h3
+            style={{
+              fontSize: '0.7rem',
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em',
+              color: 'rgb(107, 114, 128)',
+              marginBottom: '0.5rem',
+            }}
+          >
+            Coordinates
+          </h3>
+          <div
+            style={{
+              padding: '0.5rem 0.75rem',
+              backgroundColor: 'rgb(31, 41, 55)',
+              borderRadius: '0.375rem',
+              fontSize: '0.75rem',
+              fontFamily: 'monospace',
+              color: 'rgb(209, 213, 219)',
+            }}
+          >
+            {session.position.latitude.toFixed(4)}°,{' '}
+            {session.position.longitude.toFixed(4)}°
+          </div>
+        </section>
+
+        {/* Route */}
+        {session.flightPlan.route && (
+          <section style={{ marginBottom: '1.25rem' }}>
+            <h3
+              style={{
+                fontSize: '0.7rem',
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+                color: 'rgb(107, 114, 128)',
+                marginBottom: '0.5rem',
+              }}
+            >
+              Route
+            </h3>
+            <div
+              style={{
+                padding: '0.5rem 0.75rem',
+                backgroundColor: 'rgb(31, 41, 55)',
+                borderRadius: '0.375rem',
+                fontSize: '0.7rem',
+                fontFamily: 'monospace',
+                color: 'rgb(209, 213, 219)',
+                wordBreak: 'break-all',
+              }}
+            >
+              {session.flightPlan.route}
+            </div>
+          </section>
+        )}
+
+        {/* Trail-Info */}
+        {trail.length > 0 && (
+          <section>
+            <h3
+              style={{
+                fontSize: '0.7rem',
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+                color: 'rgb(107, 114, 128)',
+                marginBottom: '0.5rem',
+              }}
+            >
+              Trail
+            </h3>
+            <div style={{ fontSize: '0.75rem', color: 'rgb(156, 163, 175)' }}>
+              {trail.length} Punkte aufgezeichnet
+            </div>
+          </section>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Stat({
+  label,
+  value,
+  valueColor,
+}: {
+  label: string;
+  value: string;
+  valueColor?: string;
+}) {
+  return (
+    <div
+      style={{
+        padding: '0.5rem 0.75rem',
+        backgroundColor: 'rgb(31, 41, 55)',
+        borderRadius: '0.375rem',
+      }}
+    >
+      <div
+        style={{
+          fontSize: '0.65rem',
+          textTransform: 'uppercase',
+          color: 'rgb(107, 114, 128)',
+          letterSpacing: '0.03em',
+        }}
+      >
+        {label}
+      </div>
+      <div
+        style={{
+          fontWeight: 600,
+          fontSize: '0.875rem',
+          marginTop: '0.15rem',
+          color: valueColor ?? 'white',
+        }}
+      >
+        {value}
       </div>
     </div>
   );
