@@ -52,13 +52,24 @@ model User {
   email          String   @unique
   name           String?
   discordId      String?  @unique
-  vatsimCid      Int?
-  ivaoVid        Int?
-  image		 String?
-  totalFlightHours Float  @default(0)
-  totalFlights   Int     @default(0)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+
+  vatsimCid              Int?      @unique
+  vatsimVerifiedAt       DateTime?
+  vatsimAccessToken      String?   @db.Text
+  vatsimRefreshToken     String?   @db.Text
+  vatsimTokenExpiresAt   DateTime?
+
+  ivaoVid                Int?      @unique
+  ivaoVerifiedAt         DateTime?
+  ivaoAccessToken        String?   @db.Text
+  ivaoRefreshToken       String?   @db.Text
+  ivaoTokenExpiresAt     DateTime?
+
+  image            String?
+  totalFlightHours Float    @default(0)
+  totalFlights     Int      @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   airlineId   String?
   airline     Airline? @relation(fields: [airlineId], references: [id])
@@ -69,32 +80,32 @@ model User {
 
   pireps          Pirep[]
   approvedPireps  Pirep[]  @relation("PirepApprover")
-  awards      UserAward[]
-  featureFlags FeatureFlag[]
-  accounts    Account[]
-  sessions    Session[]
-  emailVerified DateTime?
+  awards          UserAward[]
+  featureFlags    FeatureFlag[]
+  accounts        Account[]
+  sessions        Session[]
+  emailVerified   DateTime?
 }
 
 model Rank {
-  id             String @id @default(cuid())
+  id             String   @id @default(cuid())
   airlineId      String
-  airline        Airline @relation(fields: [airlineId], references: [id])
+  airline        Airline  @relation(fields: [airlineId], references: [id])
   name           String
-  minFlightHours Float  @default(0)
+  minFlightHours Float    @default(0)
   order          Int
   createdAt      DateTime @default(now())
 
-  users          User[]
-  roleMappings   DiscordRoleMapping[]
+  users        User[]
+  roleMappings DiscordRoleMapping[]
 
   @@unique([airlineId, name])
   @@index([airlineId, order])
 }
 
 model Role {
-  id          String @id @default(cuid())
-  name        String @unique
+  id          String   @id @default(cuid())
+  name        String   @unique
   description String?
   permissions String[]
   createdAt   DateTime @default(now())
@@ -103,17 +114,17 @@ model Role {
 }
 
 model Aircraft {
-  id            String  @id @default(cuid())
-  airlineId     String
-  airline       Airline @relation(fields: [airlineId], references: [id])
-  registration  String  @unique
-  type          String
-  homeIcao      String?
-  active        Boolean @default(true)
-  createdAt     DateTime @default(now())
+  id           String   @id @default(cuid())
+  airlineId    String
+  airline      Airline  @relation(fields: [airlineId], references: [id])
+  registration String   @unique
+  type         String
+  homeIcao     String?
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
 
-  routes        Route[]
-  pireps        Pirep[]
+  routes Route[]
+  pireps Pirep[]
 }
 
 model Airport {
@@ -134,22 +145,22 @@ model Airport {
 }
 
 model Route {
-  id              String @id @default(cuid())
-  airlineId       String
-  airline         Airline @relation(fields: [airlineId], references: [id])
-  flightNumber    String
-  departureId     String
-  departure       Airport @relation("RouteDeparture", fields: [departureId], references: [id])
-  arrivalId       String
-  arrival         Airport @relation("RouteArrival", fields: [arrivalId], references: [id])
-  aircraftId      String?
-  aircraft        Aircraft? @relation(fields: [aircraftId], references: [id])
+  id               String    @id @default(cuid())
+  airlineId        String
+  airline          Airline   @relation(fields: [airlineId], references: [id])
+  flightNumber     String
+  departureId      String
+  departure        Airport   @relation("RouteDeparture", fields: [departureId], references: [id])
+  arrivalId        String
+  arrival          Airport   @relation("RouteArrival", fields: [arrivalId], references: [id])
+  aircraftId       String?
+  aircraft         Aircraft? @relation(fields: [aircraftId], references: [id])
   estimatedMinutes Int
-  distanceNm      Int
-  active          Boolean @default(true)
-  createdAt       DateTime @default(now())
+  distanceNm       Int
+  active           Boolean   @default(true)
+  createdAt        DateTime  @default(now())
 
-  pireps          Pirep[]
+  pireps Pirep[]
 
   @@unique([airlineId, flightNumber])
   @@index([departureId])
@@ -190,14 +201,14 @@ model Pirep {
 }
 
 model Award {
-  id          String @id @default(cuid())
-  name        String @unique
+  id          String   @id @default(cuid())
+  name        String   @unique
   description String?
   iconUrl     String?
   criteria    Json?
   createdAt   DateTime @default(now())
 
-  userAwards  UserAward[]
+  userAwards UserAward[]
 }
 
 model UserAward {
@@ -212,25 +223,25 @@ model UserAward {
 }
 
 model Scenery {
-  id        String  @id @default(cuid())
-  airlineId String?
-  airline   Airline? @relation(fields: [airlineId], references: [id])
-  name      String
+  id          String   @id @default(cuid())
+  airlineId   String?
+  airline     Airline? @relation(fields: [airlineId], references: [id])
+  name        String
   airportIcao String?
-  provider  String?
-  url       String?
-  free      Boolean @default(true)
-  createdAt DateTime @default(now())
+  provider    String?
+  url         String?
+  free        Boolean  @default(true)
+  createdAt   DateTime @default(now())
 }
 
 model FeatureFlag {
-  id        String  @id @default(cuid())
+  id        String   @id @default(cuid())
   airlineId String?
   airline   Airline? @relation(fields: [airlineId], references: [id])
   userId    String?
   user      User?    @relation(fields: [userId], references: [id])
   key       String
-  enabled   Boolean @default(false)
+  enabled   Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -238,11 +249,11 @@ model FeatureFlag {
 }
 
 model DiscordRoleMapping {
-  id             String @id @default(cuid())
+  id             String   @id @default(cuid())
   airlineId      String
-  airline        Airline @relation(fields: [airlineId], references: [id])
+  airline        Airline  @relation(fields: [airlineId], references: [id])
   rankId         String?
-  rank           Rank?   @relation(fields: [rankId], references: [id])
+  rank           Rank?    @relation(fields: [rankId], references: [id])
   discordRoleId  String
   discordGuildId String
   createdAt      DateTime @default(now())
@@ -256,12 +267,12 @@ model Account {
   type              String
   provider          String
   providerAccountId String
-  refresh_token     String?  @db.Text
-  access_token      String?  @db.Text
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
   expires_at        Int?
   token_type        String?
   scope             String?
-  id_token          String?  @db.Text
+  id_token          String? @db.Text
   session_state     String?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
