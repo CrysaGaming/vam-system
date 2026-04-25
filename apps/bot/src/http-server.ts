@@ -5,6 +5,8 @@ import { handlePirepSubmitted } from './events/pirep-submitted.js';
 import { handleRankUpgraded } from './events/rank-upgraded.js';
 import { handlePirepApproved } from './events/pirep-approved.js';
 import { handlePirepRejected } from './events/pirep-rejected.js';
+import { getPublicVatsimPilots } from './services/vatsim-tracker.js';
+import { getPublicIvaoPilots } from './services/ivao-tracker.js';
 
 export function startHttpServer(client: Client) {
   const app = express();
@@ -73,6 +75,24 @@ export function startHttpServer(client: Client) {
       console.error('Failed to handle pirep-rejected:', err);
       res.status(500).json({ error: 'failed' });
     }
+  });
+
+  // Public live tracking data (all VATSIM + IVAO pilots, in-memory cache)
+  app.get('/public-pilots', (_req, res) => {
+    const vatsim = getPublicVatsimPilots();
+    const ivao = getPublicIvaoPilots();
+    res.json({
+      vatsim: {
+        count: vatsim.pilots.length,
+        updatedAt: vatsim.updatedAt?.toISOString() ?? null,
+        pilots: vatsim.pilots,
+      },
+      ivao: {
+        count: ivao.pilots.length,
+        updatedAt: ivao.updatedAt?.toISOString() ?? null,
+        pilots: ivao.pilots,
+      },
+    });
   });
 
   // Fallback 404

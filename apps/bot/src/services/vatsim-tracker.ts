@@ -60,6 +60,22 @@ async function pollVatsim(): Promise<void> {
     const data = (await res.json()) as VatsimDatafeed;
     const onlinePilots = data.pilots ?? [];
 
+    // Update public cache (all pilots, no DB writes)
+    publicVatsimPilots = onlinePilots.map((p) => ({
+      cid: p.cid,
+      callsign: p.callsign,
+      latitude: p.latitude,
+      longitude: p.longitude,
+      altitude: Math.round(p.altitude),
+      groundSpeed: Math.round(p.groundspeed),
+      heading: Math.round(p.heading),
+      onGround: p.groundspeed < 30 && p.altitude < 1000,
+      aircraftType: p.flight_plan?.aircraft_short ?? null,
+      departureIcao: p.flight_plan?.departure || null,
+      arrivalIcao: p.flight_plan?.arrival || null,
+    }));
+    publicVatsimLastUpdate = new Date();
+
     // Get all known CIDs from our DB
     const knownUsers = await prisma.user.findMany({
       where: { vatsimCid: { not: null } },
@@ -194,6 +210,34 @@ function parseAltitude(altStr: string): number | null {
   // 7500 oder "7500" → 7500
   const num = parseInt(trimmed, 10);
   return isNaN(num) ? null : num;
+}
+
+// Module-level cache for ALL VATSIM pilots (public, no DB writes)
+type PublicPilot = {
+  cid: number;
+  callsign: string;
+  latitude: number;
+  longitude: number;
+  altitude: number;
+  groundSpeed: number;
+  heading: number;
+  onGround: boolean;
+  aircraftType: string | null;
+  departureIcao: string | null;
+  arrivalIcao: string | null;
+};
+
+let publicVatsimPilots: PublicPilot[] = [];
+let publicVatsimLastUpdate: Date | null = null;
+
+export function getPublicVatsimPilots(): {
+  pilots: PublicPilot[];
+  updatedAt: Date | null;
+} {
+  return {
+    pilots: publicVatsimPilots,
+    updatedAt: publicVatsimLastUpdate,
+  };
 }
 
 export function startVatsimTracker(): void {

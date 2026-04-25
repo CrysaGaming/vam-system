@@ -109,6 +109,27 @@ async function pollIvao(): Promise<void> {
     const data = (await res.json()) as IvaoWhazzup;
     const onlinePilots = data.clients?.pilots ?? [];
 
+    // Update public cache (all pilots, no DB writes)
+    publicIvaoPilots = onlinePilots
+      .filter((p) => p.lastTrack)
+      .map((p) => {
+        const t = p.lastTrack;
+        return {
+          cid: p.userId,
+          callsign: p.callsign,
+          latitude: t.latitude,
+          longitude: t.longitude,
+          altitude: Math.round(t.altitude),
+          groundSpeed: Math.round(t.groundSpeed),
+          heading: Math.round(t.heading),
+          onGround: t.onGround ?? false,
+          aircraftType: p.flightPlan?.aircraftId ?? null,
+          departureIcao: p.flightPlan?.departureId || null,
+          arrivalIcao: p.flightPlan?.arrivalId || null,
+        };
+      });
+    publicIvaoLastUpdate = new Date();
+
     // Get all known VIDs from our DB
     const knownUsers = await prisma.user.findMany({
       where: { ivaoVid: { not: null } },
@@ -234,6 +255,34 @@ async function pollIvao(): Promise<void> {
   } catch (err) {
     console.error('[IVAO-Tracker] Poll error:', err);
   }
+}
+
+// Module-level cache for ALL IVAO pilots
+type PublicPilot = {
+  cid: number;
+  callsign: string;
+  latitude: number;
+  longitude: number;
+  altitude: number;
+  groundSpeed: number;
+  heading: number;
+  onGround: boolean;
+  aircraftType: string | null;
+  departureIcao: string | null;
+  arrivalIcao: string | null;
+};
+
+let publicIvaoPilots: PublicPilot[] = [];
+let publicIvaoLastUpdate: Date | null = null;
+
+export function getPublicIvaoPilots(): {
+  pilots: PublicPilot[];
+  updatedAt: Date | null;
+} {
+  return {
+    pilots: publicIvaoPilots,
+    updatedAt: publicIvaoLastUpdate,
+  };
 }
 
 export function startIvaoTracker(): void {
