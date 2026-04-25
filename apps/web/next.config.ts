@@ -5,6 +5,7 @@ const nextConfig: NextConfig = {
   // Wildcard *.trycloudflare.com damit URL-Wechsel keine Config-Änderung braucht
   allowedDevOrigins: [
     "*.trycloudflare.com",
+    "vam.kevindrack.de",
   ],
 };
 
