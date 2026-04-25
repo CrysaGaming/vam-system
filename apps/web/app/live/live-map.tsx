@@ -393,30 +393,77 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
           style={{ width: '100%', height: '100%' }}
           mapStyle="mapbox://styles/mapbox/dark-v11"
           onLoad={() => {
-            const map = mapRef.current?.getMap();
-            if (!map) return;
+          const map = mapRef.current?.getMap();
+          if (!map) return;
 
-            const colors: Record<string, string> = {
-              'plane-vatsim': '#60a5fa',
-              'plane-ivao': '#34d399',
+          // 3D Terrain via Mapbox DEM tiles
+          if (!map.getSource('mapbox-dem')) {
+            map.addSource('mapbox-dem', {
+              type: 'raster-dem',
+              url: 'mapbox://mapbox.mapbox-terrain-dem-v1',
+              tileSize: 512,
+              maxzoom: 14,
+            });
+          }
+          map.setTerrain({ source: 'mapbox-dem', exaggeration: 1.5 });
+
+          // Hillshade-Layer: Berge bekommen Licht und Schatten
+          if (!map.getLayer('hillshade')) {
+            map.addLayer({
+              id: 'hillshade',
+              source: 'mapbox-dem',
+              type: 'hillshade',
+              paint: {
+                'hillshade-exaggeration': 0.6,
+                'hillshade-shadow-color': '#0a0a14',
+                'hillshade-highlight-color': '#94a3b8',
+                'hillshade-accent-color': '#475569',
+                'hillshade-illumination-direction': 335,
+                'hillshade-illumination-anchor': 'viewport',
+              },
+            });
+          }
+
+          // Light-Source: simulierte Sonne von Nordwesten
+          map.setLight({
+            anchor: 'viewport',
+            color: '#fef3c7',
+            intensity: 0.4,
+            position: [1.15, 210, 30],
+          });
+
+          // Aviation-Atmosphäre: Horizon-Blur + Sky-Fade + Sterne im Weltraum
+          map.setFog({
+            range: [0.5, 10],
+            color: '#0a0e1a',
+            'high-color': '#1e3a5f',
+            'space-color': '#000814',
+            'horizon-blend': 0.05,
+            'star-intensity': 0.4,
+          });
+
+          // Plane-Icons als Mapbox-Images registrieren
+          const colors = {
+            'plane-vatsim': '#60a5fa',
+            'plane-ivao': '#34d399',
+          };
+
+          for (const [name, color] of Object.entries(colors)) {
+            if (map.hasImage(name)) continue;
+            const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><path d="M16 2 L17.5 4 L17.5 12 L29 19 L29 21.5 L17.5 18.5 L17.5 25 L20 27 L20 28.5 L16 27.2 L12 28.5 L12 27 L14.5 25 L14.5 18.5 L3 21.5 L3 19 L14.5 12 L14.5 4 Z" fill="${color}"/></svg>`;
+            const img = new Image(32, 32);
+            img.onload = () => {
+              if (!map.hasImage(name)) {
+                map.addImage(name, img);
+              }
             };
+            img.src = 'data:image/svg+xml;base64,' + btoa(svg);
+          }
 
-            for (const [name, color] of Object.entries(colors)) {
-              if (map.hasImage(name)) continue;
-              const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><path d="M16 2 L17.5 4 L17.5 12 L29 19 L29 21.5 L17.5 18.5 L17.5 25 L20 27 L20 28.5 L16 27.2 L12 28.5 L12 27 L14.5 25 L14.5 18.5 L3 21.5 L3 19 L14.5 12 L14.5 4 Z" fill="${color}"/></svg>`;
-              const img = new Image(32, 32);
-              img.onload = () => {
-                if (!map.hasImage(name)) {
-                  map.addImage(name, img);
-                }
-              };
-              img.src = 'data:image/svg+xml;base64,' + btoa(svg);
-            }
-
-            setPlaneImagesLoaded(true);
-          }}
+          setPlaneImagesLoaded(true);
+        }}
         >
-          <NavigationControl position="top-right" />
+          <NavigationControl position="top-right" visualizePitch={true} />
           <ScaleControl position="bottom-right" />
 
           {/* Public Pilots Layer (alle Fremde, GPU-rendered) */}
@@ -521,6 +568,48 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
             }
             color="#34d399"
           />
+          <div
+            style={{
+              borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+              marginTop: '0.25rem',
+              paddingTop: '0.5rem',
+            }}
+          >
+            <button
+              onClick={() => {
+                const map = mapRef.current?.getMap();
+                if (!map) return;
+                const currentPitch = map.getPitch();
+                if (currentPitch < 5) {
+                  map.easeTo({ pitch: 60, duration: 1000 });
+                } else {
+                  map.easeTo({ pitch: 0, duration: 1000 });
+                }
+              }}
+              style={{
+                width: '100%',
+                padding: '0.4rem 0.5rem',
+                backgroundColor: 'rgba(99, 102, 241, 0.1)',
+                color: 'rgb(165, 180, 252)',
+                border: '1px solid rgba(99, 102, 241, 0.3)',
+                borderRadius: '0.25rem',
+                fontSize: '0.7rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+                transition: 'background-color 120ms',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = 'rgba(99, 102, 241, 0.2)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = 'rgba(99, 102, 241, 0.1)';
+              }}
+            >
+              Toggle 3D View
+            </button>
+          </div>
         </div>  
 
         {/* Status-Overlay */}
