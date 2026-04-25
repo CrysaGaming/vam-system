@@ -70,36 +70,48 @@ export default async function PirepsList() {
                             </thead>
                             <tbody className="divide-y divide-gray-800">
                                 {pireps.map((p) => (
-                                    <tr key={p.id} className="hover:bg-gray-800/30 transition">
+                                    <tr key={p.id} className="hover:bg-gray-800/30 transition group cursor-pointer">
                                         <td className="px-4 py-3 font-mono font-semibold">
-                                            {p.route?.flightNumber ?? '—'}
+                                            <Link href={`/pireps/${p.id}`} className="block group-hover:text-indigo-400 transition">
+                                                {p.route?.flightNumber ?? '—'}
+                                            </Link>
                                         </td>
                                         <td className="px-4 py-3 text-gray-300">
-                                            {p.departure.icao} → {p.arrival.icao}
+                                            <Link href={`/pireps/${p.id}`} className="block">
+                                                {p.departure.icao} → {p.arrival.icao}
+                                            </Link>
                                         </td>
                                         <td className="px-4 py-3 text-gray-300">
-                                            {p.aircraft?.registration ?? '—'}
+                                            <Link href={`/pireps/${p.id}`} className="block">
+                                                {p.aircraft?.registration ?? '—'}
+                                            </Link>
                                         </td>
                                         <td className="px-4 py-3 text-right">
-                                            {p.flightTimeMin ? `${Math.floor(p.flightTimeMin / 60)}h ${p.flightTimeMin % 60}min` : '—'}
+                                            <Link href={`/pireps/${p.id}`} className="block">
+                                                {p.flightTimeMin ? `${Math.floor(p.flightTimeMin / 60)}h ${p.flightTimeMin % 60}min` : '—'}
+                                            </Link>
                                         </td>
                                         <td className="px-4 py-3 text-right">
-                                            <span className={
-                                                p.status === 'Approved' ? 'text-green-400' :
-                                                    p.status === 'Rejected' ? 'text-red-400' :
-                                                        'text-yellow-400'
-                                            }>
-                                                {p.status}
-                                            </span>
+                                            <Link href={`/pireps/${p.id}`} className="block">
+                                                <span className={
+                                                    p.status === 'Approved' ? 'text-green-400' :
+                                                        p.status === 'Rejected' ? 'text-red-400' :
+                                                            'text-yellow-400'
+                                                }>
+                                                    {p.status}
+                                                </span>
+                                            </Link>
                                         </td>
                                         <td className="px-4 py-3 text-right text-gray-400 text-xs">
-                                            {new Date(p.submittedAt).toLocaleDateString('de-DE', {
-                                                year: 'numeric',
-                                                month: '2-digit',
-                                                day: '2-digit',
-                                                hour: '2-digit',
-                                                minute: '2-digit',
-                                            })}
+                                            <Link href={`/pireps/${p.id}`} className="block">
+                                                {new Date(p.submittedAt).toLocaleDateString('de-DE', {
+                                                    year: 'numeric',
+                                                    month: '2-digit',
+                                                    day: '2-digit',
+                                                    hour: '2-digit',
+                                                    minute: '2-digit',
+                                                })}
+                                            </Link>
                                         </td>
                                     </tr>
                                 ))}
