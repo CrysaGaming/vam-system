@@ -1,7 +1,71 @@
 @import "tailwindcss";
+@plugin "@tailwindcss/forms";
+
+@custom-variant dark (&:where(.dark, .dark *));
 
 @source inline("{hover:,disabled:,focus:,}{bg,border,text,ring}-{red,green,yellow,indigo,blue,gray}-{50,100,200,300,400,500,600,700,800,900}");
 @source inline("bg-indigo-500/5 bg-indigo-500/10 border-indigo-500/30 bg-green-500/5 bg-green-500/10 border-green-500/20 border-green-500/30 bg-red-500/5 bg-red-500/10 border-red-500/20 border-red-500/30 bg-yellow-500/10 border-yellow-500/30 text-yellow-400 bg-indigo-600/10 border-indigo-600/30 bg-indigo-900/20 hover:bg-indigo-900/40 border-indigo-700/50 hover:border-indigo-500 hover:border-indigo-600/50");
+@source inline("fill-gray-500 dark:fill-gray-500 stroke-gray-200 dark:stroke-gray-800 stroke-1 fill-blue-500 stroke-blue-500 fill-emerald-500 stroke-emerald-500 fill-violet-500 fill-amber-500 fill-cyan-500 fill-pink-500 fill-lime-500 fill-fuchsia-500");
+@source inline("text-gray-700 dark:text-gray-300 text-gray-900 dark:text-gray-50 text-gray-500 dark:text-gray-500 border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950 hover:bg-gray-100 dark:hover:bg-gray-800");
+
+@theme {
+  --animate-hide: hide 150ms cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-slide-down-and-fade: slideDownAndFade 150ms cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-slide-left-and-fade: slideLeftAndFade 150ms cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-slide-up-and-fade: slideUpAndFade 150ms cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-slide-right-and-fade: slideRightAndFade 150ms cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-accordion-open: accordionOpen 150ms cubic-bezier(0.87, 0, 0.13, 1);
+  --animate-accordion-close: accordionClose 150ms cubic-bezier(0.87, 0, 0.13, 1);
+  --animate-dialog-overlay-show: dialogOverlayShow 150ms cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-dialog-content-show: dialogContentShow 150ms cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-drawer-slide-left-and-fade: drawerSlideLeftAndFade 150ms cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-drawer-slide-right-and-fade: drawerSlideRightAndFade 150ms ease-in;
+
+  @keyframes hide {
+    from { opacity: 1; }
+    to { opacity: 0; }
+  }
+  @keyframes slideDownAndFade {
+    from { opacity: 0; transform: translateY(-6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes slideLeftAndFade {
+    from { opacity: 0; transform: translateX(6px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+  @keyframes slideUpAndFade {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes slideRightAndFade {
+    from { opacity: 0; transform: translateX(-6px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+  @keyframes accordionOpen {
+    from { height: 0px; }
+    to { height: var(--radix-accordion-content-height); }
+  }
+  @keyframes accordionClose {
+    from { height: var(--radix-accordion-content-height); }
+    to { height: 0px; }
+  }
+  @keyframes dialogOverlayShow {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes dialogContentShow {
+    from { opacity: 0; transform: translate(-50%, -45%) scale(0.95); }
+    to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  }
+  @keyframes drawerSlideLeftAndFade {
+    from { opacity: 0; transform: translateX(100%); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+  @keyframes drawerSlideRightAndFade {
+    from { opacity: 1; transform: translateX(0); }
+    to { opacity: 0; transform: translateX(100%); }
+  }
+}
 
 :root {
   --background: #ffffff;
