@@ -67,7 +67,8 @@ model User {
   roleId      String?
   role        Role?    @relation(fields: [roleId], references: [id])
 
-  pireps      Pirep[]
+  pireps          Pirep[]
+  approvedPireps  Pirep[]  @relation("PirepApprover")
   awards      UserAward[]
   featureFlags FeatureFlag[]
   accounts    Account[]
@@ -180,9 +181,12 @@ model Pirep {
   approvedAt      DateTime?
   rejectedAt      DateTime?
   rejectionReason String?
+  approvedById    String?
+  approver        User?       @relation("PirepApprover", fields: [approvedById], references: [id])
 
   @@index([userId, submittedAt])
   @@index([airlineId, status])
+  @@index([approvedById])
 }
 
 model Award {

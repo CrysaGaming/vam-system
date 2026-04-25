@@ -3,6 +3,8 @@ import type { Client } from 'discord.js';
 import { env } from './env.js';
 import { handlePirepSubmitted } from './events/pirep-submitted.js';
 import { handleRankUpgraded } from './events/rank-upgraded.js';
+import { handlePirepApproved } from './events/pirep-approved.js';
+import { handlePirepRejected } from './events/pirep-rejected.js';
 
 export function startHttpServer(client: Client) {
   const app = express();
@@ -47,6 +49,28 @@ export function startHttpServer(client: Client) {
       res.json({ ok: true });
     } catch (err) {
       console.error('Failed to handle rank-upgraded:', err);
+      res.status(500).json({ error: 'failed' });
+    }
+  });
+
+  // Event: PIREP Approved
+  app.post('/events/pirep-approved', async (req, res) => {
+    try {
+      await handlePirepApproved(client, req.body);
+      res.json({ ok: true });
+    } catch (err) {
+      console.error('Failed to handle pirep-approved:', err);
+      res.status(500).json({ error: 'failed' });
+    }
+  });
+
+  // Event: PIREP Rejected
+  app.post('/events/pirep-rejected', async (req, res) => {
+    try {
+      await handlePirepRejected(client, req.body);
+      res.json({ ok: true });
+    } catch (err) {
+      console.error('Failed to handle pirep-rejected:', err);
       res.status(500).json({ error: 'failed' });
     }
   });

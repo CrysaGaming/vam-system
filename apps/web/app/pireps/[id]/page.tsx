@@ -2,6 +2,9 @@ import { auth } from '@/auth';
 import { redirect, notFound } from 'next/navigation';
 import { prisma } from '@vam/db';
 import Link from 'next/link';
+import { ApprovalActions } from './approval-actions';
+
+const APPROVER_ROLES = ['admin', 'instructor'];
 
 export default async function PirepDetail({
   params,
@@ -16,6 +19,19 @@ export default async function PirepDetail({
 
   const { id } = await params;
 
+  // Current User mit Role
+  const currentUser = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    include: { role: true },
+  });
+
+  if (!currentUser) {
+    redirect('/');
+  }
+
+  const isApprover =
+    !!currentUser.role && APPROVER_ROLES.includes(currentUser.role.name);
+
   const pirep = await prisma.pirep.findUnique({
     where: { id },
     include: {
@@ -27,6 +43,7 @@ export default async function PirepDetail({
       user: {
         include: { rank: true },
       },
+      approver: true,
     },
   });
 
@@ -34,8 +51,13 @@ export default async function PirepDetail({
     notFound();
   }
 
-  // Authorization: nur eigene PIREPs ansehen (oder später: Instructors/Admins)
-  if (pirep.userId !== session.user.id) {
+  // Authorization:
+  // - Eigene PIREPs immer sichtbar
+  // - Admin/Instructor: alle PIREPs der eigenen Airline sichtbar
+  const isOwn = pirep.userId === currentUser.id;
+  const sameAirline = pirep.airlineId === currentUser.airlineId;
+
+  if (!isOwn && !(isApprover && sameAirline)) {
     redirect('/pireps');
   }
 
@@ -64,6 +86,10 @@ export default async function PirepDetail({
         ? 'Abgelehnt'
         : 'Eingereicht';
 
+  // Show approval actions: nur für approver UND status=Submitted UND nicht eigener PIREP
+  const showApprovalActions =
+    isApprover && pirep.status === 'Submitted' && !isOwn;
+
   return (
     <main className="min-h-screen bg-gray-950 text-white p-8">
       <div className="max-w-4xl mx-auto">
@@ -88,12 +114,50 @@ export default async function PirepDetail({
             </p>
           </div>
           <Link
-            href="/pireps"
+            href={isApprover && pirep.status === 'Submitted' ? '/pireps/pending' : '/pireps'}
             className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded text-sm transition"
           >
-            ← Alle PIREPs
+            ← Zurück
           </Link>
         </header>
+
+        {/* Approval Actions (nur für Approver bei Submitted PIREPs) */}
+        {showApprovalActions && (
+          <div className="mb-8">
+            <ApprovalActions pirepId={pirep.id} />
+          </div>
+        )}
+
+        {/* Approver-Info bei bereits geprüften PIREPs */}
+        {pirep.status !== 'Submitted' && pirep.approver && (
+          <div
+            className={`mb-8 px-6 py-4 rounded-lg border ${
+              pirep.status === 'Approved'
+                ? 'bg-green-500/5 border-green-500/20'
+                : 'bg-red-500/5 border-red-500/20'
+            }`}
+          >
+            <p className="text-sm">
+              <span className="text-gray-400">
+                {pirep.status === 'Approved' ? 'Genehmigt von' : 'Abgelehnt von'}{' '}
+              </span>
+              <span className="font-semibold">
+                {pirep.approver.name ?? 'Unbenannt'}
+              </span>
+              <span className="text-gray-400">
+                {' '}am{' '}
+                {new Date(
+                  pirep.status === 'Approved'
+                    ? pirep.approvedAt!
+                    : pirep.rejectedAt!
+                ).toLocaleString('de-DE', {
+                  dateStyle: 'long',
+                  timeStyle: 'short',
+                })}
+              </span>
+            </p>
+          </div>
+        )}
 
         {/* Route - groß und prominent */}
         <section className="bg-gray-900 border border-gray-800 rounded-lg p-6 mb-8">

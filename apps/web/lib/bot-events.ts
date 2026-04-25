@@ -22,6 +22,29 @@ export type RankUpgradedPayload = {
   totalFlightHours: number;
 };
 
+export type PirepApprovedPayload = {
+  pirepId: string;
+  flightNumber: string;
+  pilotDiscordId: string | null;
+  pilotName: string;
+  approverName: string;
+  approverDiscordId: string | null;
+  departureIcao: string;
+  arrivalIcao: string;
+};
+
+export type PirepRejectedPayload = {
+  pirepId: string;
+  flightNumber: string;
+  pilotDiscordId: string | null;
+  pilotName: string;
+  approverName: string;
+  approverDiscordId: string | null;
+  departureIcao: string;
+  arrivalIcao: string;
+  reason: string;
+};
+
 async function post(path: string, body: unknown): Promise<void> {
   if (!BOT_SECRET) {
     console.warn('[bot-events] BOT_EVENTS_SECRET not set, skipping event:', path);
@@ -58,4 +81,12 @@ export async function emitPirepSubmitted(payload: PirepSubmittedPayload): Promis
 
 export async function emitRankUpgraded(payload: RankUpgradedPayload): Promise<void> {
   await post('/events/rank-upgraded', payload);
+}
+
+export async function emitPirepApproved(payload: PirepApprovedPayload): Promise<void> {
+  await post('/events/pirep-approved', payload);
+}
+
+export async function emitPirepRejected(payload: PirepRejectedPayload): Promise<void> {
+  await post('/events/pirep-rejected', payload);
 }
