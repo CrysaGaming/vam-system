@@ -2,10 +2,12 @@ import { REST, Routes } from 'discord.js';
 import { env } from './env.js';
 import * as status from './commands/status.js';
 import * as pilot from './commands/pilot.js';
+import * as leaderboard from './commands/leaderboard.js';
 
 const commands = [
   status.data.toJSON(),
   pilot.data.toJSON(),
+  leaderboard.data.toJSON(),
 ];
 
 const rest = new REST({ version: '10' }).setToken(env.botToken);
