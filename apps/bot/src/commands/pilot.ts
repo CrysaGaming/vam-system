@@ -2,8 +2,12 @@ import {
   SlashCommandBuilder,
   ChatInputCommandInteraction,
   EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
 } from 'discord.js';
 import { prisma } from '@vam/db';
+import { env } from '../env.js';
 
 export const data = new SlashCommandBuilder()
   .setName('pilot')
@@ -141,5 +145,13 @@ export async function execute(interaction: ChatInputCommandInteraction) {
     .setFooter({ text: 'VAM System · Piloten-Profil' })
     .setTimestamp();
 
-  await interaction.editReply({ embeds: [embed] });
+  const webButton = new ButtonBuilder()
+    .setLabel('Profil im Web')
+    .setStyle(ButtonStyle.Link)
+    .setURL(`${env.web.baseUrl}/pilots/${user.id}`)
+    .setEmoji('🔗');
+
+  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(webButton);
+
+  await interaction.editReply({ embeds: [embed], components: [row] });
 }

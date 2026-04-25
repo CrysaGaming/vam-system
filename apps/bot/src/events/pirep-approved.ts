@@ -1,4 +1,4 @@
-import { type Client, TextChannel, EmbedBuilder } from 'discord.js';
+import { type Client, TextChannel, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, } from 'discord.js';
 import { env } from '../env.js';
 
 export type PirepApprovedPayload = {
@@ -53,7 +53,15 @@ export async function handlePirepApproved(
       );
       return;
     }
-    const message = await channel.send({ embeds: [embed] });
+    const webButton = new ButtonBuilder()
+      .setLabel('Im Web ansehen')
+      .setStyle(ButtonStyle.Link)
+      .setURL(`${env.web.baseUrl}/pireps/${payload.pirepId}`)
+      .setEmoji('🔗');
+
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(webButton);
+
+    const message = await channel.send({ embeds: [embed], components: [row] });
     await message.react('🎉').catch(() => {});
   } catch (err) {
     console.error('[event] pirep-approved: failed to post embed:', err);

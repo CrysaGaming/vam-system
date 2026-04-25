@@ -41,4 +41,7 @@ export const env = {
     port: parseInt(process.env.BOT_HTTP_PORT ?? '3001', 10),
     secret: required('BOT_EVENTS_SECRET'),
   },
+  web: {
+    baseUrl: process.env.AUTH_URL ?? 'http://localhost:3000',
+  },
 };
