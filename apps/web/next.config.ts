@@ -1,7 +1,11 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // Erlaubt Dev-Resources (HMR, etc.) von Cloudflare Tunnel-Hosts
+  // Wildcard *.trycloudflare.com damit URL-Wechsel keine Config-Änderung braucht
+  allowedDevOrigins: [
+    "*.trycloudflare.com",
+  ],
 };
 
 export default nextConfig;
