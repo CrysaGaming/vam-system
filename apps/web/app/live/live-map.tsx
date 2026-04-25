@@ -149,7 +149,12 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
     showAirports: true,
     cockpitRain: false,
     cockpitSnow: false,
+    weatherRadar: false,
   });
+
+  const [radarTileUrl, setRadarTileUrl] = useState<string | null>(null);
+  
+  const [mapZoom, setMapZoom] = useState(2);
 
   const [airports, setAirports] = useState<AirportWithMetar[]>([]);
   const [selectedAirportIcao, setSelectedAirportIcao] = useState<string | null>(null);
@@ -206,6 +211,65 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
 
     fetchMetars();
     const interval = setInterval(fetchMetars, 5 * 60 * 1000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
+
+  // Map-Zoom watcher: triggert auf jede beendete Zoom-Bewegung
+  useEffect(() => {
+    const map = mapRef.current?.getMap();
+    if (!map) return;
+
+    const handleZoom = () => {
+      setMapZoom(map.getZoom());
+    };
+
+    // Initial sync
+    handleZoom();
+
+    map.on('zoomend', handleZoom);
+    map.on('moveend', handleZoom); // Auch bei Pan, falls Zoom mit ändert
+
+    return () => {
+      map.off('zoomend', handleZoom);
+      map.off('moveend', handleZoom);
+    };
+  }, [planeImagesLoaded]); // Erst nachdem Map+Style geladen sind
+
+  // RainViewer Radar Tile-URL (alle 10 Min refresh)
+  useEffect(() => {
+    let cancelled = false;
+
+    async function fetchRadarTiles() {
+      try {
+        const res = await fetch('https://api.rainviewer.com/public/weather-maps.json');
+        if (!res.ok) return;
+        const data: {
+          host: string;
+          radar: {
+            past: Array<{ time: number; path: string }>;
+          };
+        } = await res.json();
+
+        const past = data.radar?.past;
+        if (!past || past.length === 0) return;
+        const latest = past[past.length - 1];
+
+        // Tile-Format: {host}{path}/256/{z}/{x}/{y}/{color}/{options}.png
+        // 256 = TileSize, 2 = Color-Scheme (Universal-Blue), 1_1 = Smooth+Snow
+        const url = `${data.host}${latest.path}/256/{z}/{x}/{y}/2/1_1.png`;
+        if (!cancelled) {
+          setRadarTileUrl(url);
+        }
+      } catch (err) {
+        console.error('Failed to fetch radar tiles:', err);
+      }
+    }
+
+    fetchRadarTiles();
+    const interval = setInterval(fetchRadarTiles, 10 * 60 * 1000);
     return () => {
       cancelled = true;
       clearInterval(interval);
@@ -727,6 +791,27 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
             </Source>
           )}
 
+          {/* RainViewer Worldwide Radar - auto-hide bei Zoom > 10 */}
+          {filters.weatherRadar && radarTileUrl && mapZoom <= 10 && (
+            <Source
+              id="rainviewer-source"
+              type="raster"
+              tiles={[radarTileUrl]}
+              tileSize={256}
+              attribution='© RainViewer'
+            >
+              <Layer
+                id="rainviewer-layer"
+                type="raster"
+                source="rainviewer-source"
+                paint={{
+                  'raster-opacity': 0.65,
+                  'raster-fade-duration': 300,
+                }}
+              />
+            </Source>
+          )}
+
           {/* Airport Layer */}
           {planeImagesLoaded && airportGeoJson.features.length > 0 && (
             <Source id="airports-source" type="geojson" data={airportGeoJson}>
@@ -848,6 +933,14 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
               setFilters((prev) => ({ ...prev, cockpitSnow: v }))
             }
             color="#e0e7ff"
+          />
+          <FilterToggle
+            label={filters.weatherRadar && mapZoom > 10 ? 'Wetter Radar (Zoom-Limit)' : 'Wetter Radar'}
+            checked={filters.weatherRadar}
+            onChange={(v) =>
+              setFilters((prev) => ({ ...prev, weatherRadar: v }))
+            }
+            color="#22d3ee"
           />
           <div
             style={{
