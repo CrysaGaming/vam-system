@@ -1,14 +1,24 @@
 'use client';
 
-import { useEffect, useState, useMemo, useCallback } from 'react';
+import {
+  useEffect,
+  useState,
+  useMemo,
+  useCallback,
+  useRef,
+} from 'react';
 import Map, {
   Marker,
   NavigationControl,
   ScaleControl,
   Source,
   Layer,
+  type MapRef,
 } from 'react-map-gl/mapbox';
-import type { LineLayerSpecification } from 'mapbox-gl';
+import type {
+  LineLayerSpecification,
+  SymbolLayerSpecification,
+} from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 
 type LiveSession = {
@@ -47,6 +57,25 @@ type LiveSession = {
   lastUpdatedAt: string;
 };
 
+type PublicPilot = {
+  cid: number;
+  callsign: string;
+  latitude: number;
+  longitude: number;
+  altitude: number;
+  groundSpeed: number;
+  heading: number;
+  onGround: boolean;
+  aircraftType: string | null;
+  departureIcao: string | null;
+  arrivalIcao: string | null;
+};
+
+type EveryoneResponse = {
+  vatsim: { count: number; updatedAt: string | null; pilots: PublicPilot[] };
+  ivao: { count: number; updatedAt: string | null; pilots: PublicPilot[] };
+};
+
 type TrailPoint = {
   lat: number;
   lon: number;
@@ -65,13 +94,25 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
   const [trails, setTrails] = useState<Record<string, TrailPoint[]>>({});
   const [loading, setLoading] = useState(true);
   const [lastFetch, setLastFetch] = useState<Date | null>(null);
+  const [publicPilots, setPublicPilots] = useState<{
+    vatsim: PublicPilot[];
+    ivao: PublicPilot[];
+  }>({ vatsim: [], ivao: [] });
+  const mapRef = useRef<MapRef | null>(null);
+  const [planeImagesLoaded, setPlaneImagesLoaded] = useState(false);
+  
+  const [filters, setFilters] = useState({
+    memberOnly: false,
+    showVatsim: true,
+    showIvao: true,
+  });
 
   const selected = useMemo(
     () => sessions.find((s) => s.id === selectedId) ?? null,
     [sessions, selectedId],
   );
 
-  // Sessions polling
+  // Member sessions polling
   useEffect(() => {
     let cancelled = false;
 
@@ -99,6 +140,34 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
     };
   }, []);
 
+  // Public pilots polling
+  useEffect(() => {
+    let cancelled = false;
+
+    async function fetchEveryone() {
+      try {
+        const res = await fetch('/api/live/everyone');
+        if (!res.ok) return;
+        const data: EveryoneResponse = await res.json();
+        if (!cancelled) {
+          setPublicPilots({
+            vatsim: data.vatsim?.pilots ?? [],
+            ivao: data.ivao?.pilots ?? [],
+          });
+        }
+      } catch (err) {
+        console.error('Failed to fetch everyone:', err);
+      }
+    }
+
+    fetchEveryone();
+    const interval = setInterval(fetchEveryone, 30_000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
+
   // Trail-Loading bei Session-Click
   const loadTrail = useCallback(async (sessionId: string) => {
     try {
@@ -120,7 +189,7 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
     void loadTrail(selectedId);
   }, [selectedId, trails, loadTrail]);
 
-  // GeoJSON für Trail
+  // Trail GeoJSON
   const trailGeoJson = useMemo(() => {
     if (!selected) {
       return { type: 'FeatureCollection' as const, features: [] };
@@ -181,6 +250,103 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
     [trailColor],
   );
 
+  // Public-Pilot GeoJSON für Symbol-Layer
+  const publicGeoJson = useMemo(() => {
+    const features: GeoJSON.Feature[] = [];
+
+    // Skip alle Public Pilots wenn "Member only" aktiv
+    if (filters.memberOnly) {
+      return { type: 'FeatureCollection' as const, features };
+    }
+
+    if (filters.showVatsim) {
+      for (const p of publicPilots.vatsim) {
+        const isMember = sessions.some(
+          (s) => s.network === 'VATSIM' && s.callsign === p.callsign,
+        );
+        if (isMember) continue;
+        features.push({
+        type: 'Feature',
+        properties: {
+          cid: p.cid,
+          callsign: p.callsign,
+          network: 'VATSIM',
+          heading: p.heading,
+          altitude: p.altitude,
+          onGround: p.onGround,
+        },
+        geometry: {
+          type: 'Point',
+          coordinates: [p.longitude, p.latitude],
+        },
+      });
+    }
+
+    // Schließe VATSIM-Loop
+    }
+
+    if (filters.showIvao) {
+      for (const p of publicPilots.ivao) {
+        const isMember = sessions.some(
+          (s) => s.network === 'IVAO' && s.callsign === p.callsign,
+        );
+        if (isMember) continue;
+        features.push({
+          type: 'Feature',
+          properties: {
+            cid: p.cid,
+            callsign: p.callsign,
+            network: 'IVAO',
+            heading: p.heading,
+            altitude: p.altitude,
+            onGround: p.onGround,
+          },
+          geometry: {
+            type: 'Point',
+            coordinates: [p.longitude, p.latitude],
+          },
+        });
+      }
+    }
+
+    return {
+      type: 'FeatureCollection' as const,
+      features,
+    };
+  }, [publicPilots, sessions, filters]);
+
+  const publicSymbolLayer: SymbolLayerSpecification = useMemo(
+    () => ({
+      id: 'public-pilots',
+      type: 'symbol',
+      source: 'public-pilots-source',
+      layout: {
+        'icon-image': [
+          'match',
+          ['get', 'network'],
+          'VATSIM',
+          'plane-vatsim',
+          'IVAO',
+          'plane-ivao',
+          'plane-vatsim',
+        ],
+        'icon-rotate': ['get', 'heading'],
+        'icon-rotation-alignment': 'map',
+        'icon-allow-overlap': true,
+        'icon-size': 0.7,
+      },
+      paint: {
+        'icon-opacity': [
+          'case',
+          ['==', ['get', 'onGround'], true],
+          0.4,
+          0.85,
+        ],
+      },
+    }),
+    [],
+  );
+
   const initialView = useMemo(
     () => ({ longitude: 10, latitude: 50, zoom: 4 }),
     [],
@@ -221,14 +387,50 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
       {/* Map */}
       <div style={{ flex: 1, position: 'relative' }}>
         <Map
+          ref={mapRef}
           mapboxAccessToken={mapboxToken}
           initialViewState={initialView}
           style={{ width: '100%', height: '100%' }}
           mapStyle="mapbox://styles/mapbox/dark-v11"
+          onLoad={() => {
+            const map = mapRef.current?.getMap();
+            if (!map) return;
+
+            const colors: Record<string, string> = {
+              'plane-vatsim': '#60a5fa',
+              'plane-ivao': '#34d399',
+            };
+
+            for (const [name, color] of Object.entries(colors)) {
+              if (map.hasImage(name)) continue;
+              const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><path d="M16 2 L17.5 4 L17.5 12 L29 19 L29 21.5 L17.5 18.5 L17.5 25 L20 27 L20 28.5 L16 27.2 L12 28.5 L12 27 L14.5 25 L14.5 18.5 L3 21.5 L3 19 L14.5 12 L14.5 4 Z" fill="${color}"/></svg>`;
+              const img = new Image(32, 32);
+              img.onload = () => {
+                if (!map.hasImage(name)) {
+                  map.addImage(name, img);
+                }
+              };
+              img.src = 'data:image/svg+xml;base64,' + btoa(svg);
+            }
+
+            setPlaneImagesLoaded(true);
+          }}
         >
           <NavigationControl position="top-right" />
           <ScaleControl position="bottom-right" />
 
+          {/* Public Pilots Layer (alle Fremde, GPU-rendered) */}
+          {planeImagesLoaded && publicGeoJson.features.length > 0 && (
+            <Source
+              id="public-pilots-source"
+              type="geojson"
+              data={publicGeoJson}
+            >
+              <Layer {...publicSymbolLayer} />
+            </Source>
+          )}
+
+          {/* Trail Layer */}
           {trailGeoJson.features.length > 0 && (
             <Source id="trail-source" type="geojson" data={trailGeoJson}>
               <Layer {...trailGlowLayer} />
@@ -236,9 +438,16 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
             </Source>
           )}
 
-          {sessions.map((session) => (
-            <Marker
-              key={session.id}
+          {/* Member Markers (DOM-basiert, klickbar) */}
+          {sessions
+          .filter((s) => {
+            if (s.network === 'VATSIM' && !filters.showVatsim) return false;
+            if (s.network === 'IVAO' && !filters.showIvao) return false;
+            return true;
+          })
+          .map((session) => (
+          <Marker
+            key={session.id}
               longitude={session.position.longitude}
               latitude={session.position.latitude}
               anchor="center"
@@ -259,6 +468,61 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
           ))}
         </Map>
 
+        {/* Filter-Toolbar (top-right unter NavigationControl) */}
+        <div
+          style={{
+            position: 'absolute',
+            top: '8rem',
+            right: '0.5rem',
+            padding: '0.5rem',
+            backgroundColor: 'rgba(17, 24, 39, 0.92)',
+            borderRadius: '0.375rem',
+            border: '1px solid rgba(255, 255, 255, 0.1)',
+            backdropFilter: 'blur(8px)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '0.4rem',
+            minWidth: '160px',
+          }}
+        >
+          <div
+            style={{
+              fontSize: '0.65rem',
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em',
+              color: 'rgb(107, 114, 128)',
+              padding: '0 0.25rem',
+            }}
+          >
+            Filter
+          </div>
+
+          <FilterToggle
+            label="Member only"
+            checked={filters.memberOnly}
+            onChange={(v) =>
+              setFilters((prev) => ({ ...prev, memberOnly: v }))
+            }
+            color="#f97316"
+          />
+          <FilterToggle
+            label="VATSIM"
+            checked={filters.showVatsim}
+            onChange={(v) =>
+              setFilters((prev) => ({ ...prev, showVatsim: v }))
+            }
+            color="#60a5fa"
+          />
+          <FilterToggle
+            label="IVAO"
+            checked={filters.showIvao}
+            onChange={(v) =>
+              setFilters((prev) => ({ ...prev, showIvao: v }))
+            }
+            color="#34d399"
+          />
+        </div>  
+
         {/* Status-Overlay */}
         <div
           style={{
@@ -278,12 +542,15 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
             <span>Lade Sessions...</span>
           ) : (
             <span>
-              {sessions.length} live ·{' '}
-              {sessions.filter((s) => s.network === 'VATSIM').length} VATSIM ·{' '}
-              {sessions.filter((s) => s.network === 'IVAO').length} IVAO
+              <strong style={{ color: '#f97316' }}>{sessions.length}</strong>{' '}
+              Member ·{' '}
+              <span style={{ color: 'rgb(156, 163, 175)' }}>
+                {publicPilots.vatsim.length} VATSIM ·{' '}
+                {publicPilots.ivao.length} IVAO weltweit
+              </span>
               {lastFetch && (
                 <span
-                  style={{ marginLeft: '0.5rem', color: 'rgb(156, 163, 175)' }}
+                  style={{ marginLeft: '0.5rem', color: 'rgb(107, 114, 128)' }}
                 >
                   · {lastFetch.toLocaleTimeString('de-DE')}
                 </span>
@@ -307,9 +574,10 @@ function PlaneIcon({
   onGround: boolean;
   isSelected: boolean;
 }) {
-  const color = network === 'VATSIM' ? '#3b82f6' : '#10b981';
+  // Member: ORANGE highlight statt blau/grün
+  const color = '#f97316';
   const opacity = onGround ? 0.55 : 1;
-  const size = isSelected ? 32 : 26;
+  const size = isSelected ? 36 : 30;
 
   return (
     <div
@@ -330,8 +598,8 @@ function PlaneIcon({
         opacity={opacity}
         style={{
           filter: isSelected
-            ? `drop-shadow(0 0 8px ${color})`
-            : 'drop-shadow(0 0 3px rgba(0,0,0,0.7))',
+            ? `drop-shadow(0 0 10px ${color}) drop-shadow(0 0 4px ${color})`
+            : `drop-shadow(0 0 4px ${color}) drop-shadow(0 0 2px rgba(0,0,0,0.7))`,
           transition: 'filter 0.2s ease',
         }}
       >
@@ -364,7 +632,6 @@ function SessionSidebar({
         color: 'white',
       }}
     >
-      {/* Header */}
       <div
         style={{
           padding: '1rem',
@@ -448,9 +715,7 @@ function SessionSidebar({
         </button>
       </div>
 
-      {/* Content - scrollable */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '1rem' }}>
-        {/* Flight Plan */}
         {(session.flightPlan.departure || session.flightPlan.arrival) && (
           <section style={{ marginBottom: '1.25rem' }}>
             <h3
@@ -522,7 +787,6 @@ function SessionSidebar({
           </section>
         )}
 
-        {/* Live Position */}
         <section style={{ marginBottom: '1.25rem' }}>
           <h3
             style={{
@@ -542,13 +806,21 @@ function SessionSidebar({
               gap: '0.5rem',
             }}
           >
-            <Stat label="Altitude" value={`${session.position.altitude.toLocaleString()} ft`} />
-            <Stat label="Ground Speed" value={`${session.position.groundSpeed} kt`} />
+            <Stat
+              label="Altitude"
+              value={`${session.position.altitude.toLocaleString()} ft`}
+            />
+            <Stat
+              label="Ground Speed"
+              value={`${session.position.groundSpeed} kt`}
+            />
             <Stat label="Heading" value={`${session.position.heading}°`} />
             <Stat
               label="Status"
               value={session.position.onGround ? 'On Ground' : 'Airborne'}
-              valueColor={session.position.onGround ? '#fbbf24' : '#34d399'}
+              valueColor={
+                session.position.onGround ? '#fbbf24' : '#34d399'
+              }
             />
             {session.position.transponder && (
               <Stat label="Transponder" value={session.position.transponder} />
@@ -557,7 +829,6 @@ function SessionSidebar({
           </div>
         </section>
 
-        {/* Coordinates */}
         <section style={{ marginBottom: '1.25rem' }}>
           <h3
             style={{
@@ -585,7 +856,6 @@ function SessionSidebar({
           </div>
         </section>
 
-        {/* Route */}
         {session.flightPlan.route && (
           <section style={{ marginBottom: '1.25rem' }}>
             <h3
@@ -615,7 +885,6 @@ function SessionSidebar({
           </section>
         )}
 
-        {/* Trail-Info */}
         {trail.length > 0 && (
           <section>
             <h3
@@ -636,6 +905,68 @@ function SessionSidebar({
         )}
       </div>
     </div>
+  );
+}
+
+function FilterToggle({
+  label,
+  checked,
+  onChange,
+  color,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  color: string;
+}) {
+  return (
+    <button
+      onClick={() => onChange(!checked)}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '0.5rem',
+        padding: '0.35rem 0.5rem',
+        backgroundColor: checked
+          ? 'rgba(255, 255, 255, 0.05)'
+          : 'transparent',
+        border: '1px solid transparent',
+        borderRadius: '0.25rem',
+        color: 'white',
+        cursor: 'pointer',
+        fontSize: '0.75rem',
+        textAlign: 'left',
+        transition: 'background-color 120ms',
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.08)';
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.backgroundColor = checked
+          ? 'rgba(255, 255, 255, 0.05)'
+          : 'transparent';
+      }}
+    >
+      <span
+        style={{
+          width: '0.875rem',
+          height: '0.875rem',
+          borderRadius: '0.2rem',
+          backgroundColor: checked ? color : 'transparent',
+          border: `1.5px solid ${checked ? color : 'rgb(75, 85, 99)'}`,
+          flexShrink: 0,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: '0.6rem',
+          fontWeight: 700,
+          color: 'white',
+        }}
+      >
+        {checked && '✓'}
+      </span>
+      <span>{label}</span>
+    </button>
   );
 }
 

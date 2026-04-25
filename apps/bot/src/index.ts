@@ -43,7 +43,7 @@ client.once('ready', async () => {
   startVatsimTracker();
 
   // IVAO Live-Tracking starten (poll interval: 30s)
-  //startIvaoTracker();
+  startIvaoTracker();
 
   // Post "Bot online" Embed in #bot-logs
   try {
