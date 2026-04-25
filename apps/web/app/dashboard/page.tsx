@@ -242,12 +242,13 @@ export default async function Dashboard() {
                   const flightNo = pirep.route?.flightNumber ?? "—";
 
                   return (
-                    <div
+                    <Link
                       key={pirep.id}
-                      className="flex justify-between items-center px-4 py-3 bg-gray-800/50 rounded border border-gray-800"
+                      href={`/pireps/${pirep.id}`}
+                      className="flex justify-between items-center px-4 py-3 bg-gray-800/50 hover:bg-gray-800 rounded border border-gray-800 hover:border-indigo-600/50 transition group"
                     >
                       <div className="flex items-center gap-4">
-                        <span className="font-mono text-sm text-indigo-400">
+                        <span className="font-mono text-sm text-indigo-400 group-hover:text-indigo-300 transition">
                           {flightNo}
                         </span>
                         <span className="text-sm">
@@ -264,7 +265,7 @@ export default async function Dashboard() {
                           </span>
                         )}
                       </div>
-                    </div>
+                    </Link>
                   );
                 })}
               </div>
