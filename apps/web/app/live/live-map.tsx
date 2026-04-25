@@ -147,6 +147,8 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
     showVatsim: true,
     showIvao: true,
     showAirports: true,
+    cockpitRain: false,
+    cockpitSnow: false,
   });
 
   const [airports, setAirports] = useState<AirportWithMetar[]>([]);
@@ -209,6 +211,84 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
       clearInterval(interval);
     };
   }, []);
+
+  // Cockpit Rain Effect (Mapbox native v3.9+)
+  useEffect(() => {
+    const map = mapRef.current?.getMap();
+    if (!map) return;
+
+    if (filters.cockpitRain) {
+      // setRain ist erst verfügbar nach Style-Load — fallback wenn nicht da
+      if (typeof (map as unknown as { setRain?: (opts: unknown) => void }).setRain === 'function') {
+        (map as unknown as { setRain: (opts: unknown) => void }).setRain({
+          density: [
+            'interpolate',
+            ['linear'],
+            ['zoom'],
+            11, 0,
+            13, 0.5,
+          ],
+          intensity: 1.0,
+          color: '#a8c5e8',
+          opacity: 0.7,
+          vignette: [
+            'interpolate',
+            ['linear'],
+            ['zoom'],
+            11, 0,
+            13, 1.0,
+          ],
+          'vignette-color': '#1e3a5f',
+          'center-thinning': 0,
+          direction: [0, 80],
+          'droplet-size': [2.6, 18.2],
+          'distortion-strength': 0.7,
+        });
+      }
+    } else {
+      if (typeof (map as unknown as { setRain?: (opts: unknown) => void }).setRain === 'function') {
+        (map as unknown as { setRain: (opts: null) => void }).setRain(null);
+      }
+    }
+  }, [filters.cockpitRain]);
+
+  // Cockpit Snow Effect (Mapbox native v3.9+)
+  useEffect(() => {
+    const map = mapRef.current?.getMap();
+    if (!map) return;
+
+    if (filters.cockpitSnow) {
+      if (typeof (map as unknown as { setSnow?: (opts: unknown) => void }).setSnow === 'function') {
+        (map as unknown as { setSnow: (opts: unknown) => void }).setSnow({
+          density: [
+            'interpolate',
+            ['linear'],
+            ['zoom'],
+            11, 0,
+            13, 0.85,
+          ],
+          intensity: 1.0,
+          color: '#ffffff',
+          opacity: 1.0,
+          vignette: [
+            'interpolate',
+            ['linear'],
+            ['zoom'],
+            11, 0,
+            13, 0.3,
+          ],
+          'vignette-color': '#ffffff',
+          'center-thinning': 0.4,
+          direction: [0, 50],
+          'flake-size': 0.71,
+        });
+      }
+    } else {
+      if (typeof (map as unknown as { setSnow?: (opts: unknown) => void }).setSnow === 'function') {
+        (map as unknown as { setSnow: (opts: null) => void }).setSnow(null);
+      }
+    }
+  }, [filters.cockpitSnow]);
 
   // Public pilots polling (alle VATSIM + IVAO)
   useEffect(() => {
@@ -752,6 +832,22 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
               setFilters((prev) => ({ ...prev, showAirports: v }))
             }
             color="#fbbf24"
+          />
+          <FilterToggle
+            label="Cockpit Rain"
+            checked={filters.cockpitRain}
+            onChange={(v) =>
+              setFilters((prev) => ({ ...prev, cockpitRain: v }))
+            }
+            color="#60a5fa"
+          />
+          <FilterToggle
+            label="Cockpit Snow"
+            checked={filters.cockpitSnow}
+            onChange={(v) =>
+              setFilters((prev) => ({ ...prev, cockpitSnow: v }))
+            }
+            color="#e0e7ff"
           />
           <div
             style={{
