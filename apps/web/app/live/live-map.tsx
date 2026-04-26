@@ -304,6 +304,30 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
     };
   }, []);
 
+  // Auto-Center auf erste Member-Session bei initialem Load
+  // Läuft nur einmal pro Page-Load (siehe Ref-Guard)
+  const hasAutoCenteredRef = useRef(false);
+
+  useEffect(() => {
+    if (hasAutoCenteredRef.current) return;
+    if (!planeImagesLoaded) return;
+    if (sessions.length === 0) return;
+
+    const map = mapRef.current?.getMap();
+    if (!map) return;
+
+    // Erste aktive Session in der Liste
+    const first = sessions[0];
+    map.flyTo({
+      center: [first.position.longitude, first.position.latitude],
+      zoom: 6,
+      duration: 1500,
+      essential: true,
+    });
+
+    hasAutoCenteredRef.current = true;
+  }, [sessions, planeImagesLoaded]);
+
   // Smart Auto-Weather Coupling
   // Wenn aktiv: ermittelt nächsten Airport und setzt Cockpit-Effekte
   // basierend auf dessen METAR-Wetter
