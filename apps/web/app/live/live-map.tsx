@@ -785,12 +785,19 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
           }
 
           // Light-Source: simulierte Sonne von Nordwesten
-          map.setLight({
-            anchor: 'viewport',
-            color: '#fef3c7',
-            intensity: 0.4,
-            position: [1.15, 210, 30],
-          });
+          // (Mapbox 3.x: setLights() statt deprecated setLight())
+          map.setLights([
+            {
+              id: 'sun',
+              type: 'flat',
+              properties: {
+                anchor: 'viewport',
+                color: '#fef3c7',
+                intensity: 0.4,
+                position: [1.15, 210, 30],
+              },
+            },
+          ]);
 
           // Aviation-Atmosphäre: Horizon-Blur + Sky-Fade + Sterne im Weltraum
           map.setFog({
