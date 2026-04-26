@@ -197,6 +197,7 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
     cockpitSnow: false,
     weatherRadar: false,
     autoWeather: false,
+    clustering: true,
   });
 
   const [mapCenter, setMapCenter] = useState<{ lat: number; lng: number } | null>(null);
@@ -1016,14 +1017,69 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
           <NavigationControl position="top-right" visualizePitch={true} />
           <ScaleControl position="bottom-right" />
 
-          {/* Public Pilots Layer (alle Fremde, GPU-rendered) */}
+          {/* Public Pilots Layer (alle Fremde, GPU-rendered, optional geclustert) */}
           {planeImagesLoaded && publicGeoJson.features.length > 0 && (
             <Source
+              key={filters.clustering ? 'public-clustered' : 'public-flat'}
               id="public-pilots-source"
               type="geojson"
               data={publicGeoJson}
+              cluster={filters.clustering}
+              clusterMaxZoom={5}
+              clusterRadius={50}
             >
-              <Layer {...publicSymbolLayer} />
+              {filters.clustering ? [
+                <Layer
+                  key="public-clusters"
+                  id="public-clusters"
+                  type="circle"
+                  source="public-pilots-source"
+                  filter={['has', 'point_count']}
+                  paint={{
+                    'circle-color': [
+                      'step',
+                      ['get', 'point_count'],
+                      'rgba(96, 165, 250, 0.6)',
+                      50, 'rgba(251, 191, 36, 0.7)',
+                      200, 'rgba(239, 68, 68, 0.75)',
+                    ],
+                    'circle-radius': [
+                      'step',
+                      ['get', 'point_count'],
+                      18,
+                      50, 24,
+                      200, 32,
+                    ],
+                    'circle-stroke-width': 2,
+                    'circle-stroke-color': 'rgba(255, 255, 255, 0.4)',
+                  }}
+                />,
+                <Layer
+                  key="public-cluster-count"
+                  id="public-cluster-count"
+                  type="symbol"
+                  source="public-pilots-source"
+                  filter={['has', 'point_count']}
+                  layout={{
+                    'text-field': ['get', 'point_count_abbreviated'],
+                    'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+                    'text-size': 12,
+                  }}
+                  paint={{
+                    'text-color': '#ffffff',
+                    'text-halo-color': '#000000',
+                    'text-halo-width': 1,
+                  }}
+                />,
+                <Layer
+                  key="public-pilots-unclustered"
+                  {...publicSymbolLayer}
+                  filter={['!', ['has', 'point_count']]}
+                />,
+              ] : (
+                /* Clustering aus: alle Plane-Icons einzeln */
+                <Layer {...publicSymbolLayer} />
+              )}
             </Source>
           )}
 
@@ -1192,6 +1248,14 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
               setFilters((prev) => ({ ...prev, autoWeather: v }))
             }
             color="#a78bfa"
+          />
+          <FilterToggle
+            label="Clustering"
+            checked={filters.clustering}
+            onChange={(v) =>
+              setFilters((prev) => ({ ...prev, clustering: v }))
+            }
+            color="#84cc16"
           />
           <div
             style={{
