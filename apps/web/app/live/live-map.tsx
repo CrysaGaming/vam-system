@@ -572,6 +572,80 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
     };
   }, [selected, trails]);
 
+  // Route-GeoJSON: Linien Departure→Plane und Plane→Arrival
+  const routeGeoJson = useMemo(() => {
+    if (!selected) {
+      return { type: 'FeatureCollection' as const, features: [] };
+    }
+
+    const departureIcao = selected.flightPlan.departure;
+    const arrivalIcao = selected.flightPlan.arrival;
+    const planeCoords: [number, number] = [
+      selected.position.longitude,
+      selected.position.latitude,
+    ];
+
+    const features: GeoJSON.Feature[] = [];
+
+    if (departureIcao) {
+      const departure = airports.find((a) => a.airport.icao === departureIcao);
+      if (departure) {
+        features.push({
+          type: 'Feature',
+          properties: { segment: 'past' },
+          geometry: {
+            type: 'LineString',
+            coordinates: [
+              [departure.airport.longitude, departure.airport.latitude],
+              planeCoords,
+            ],
+          },
+        });
+      }
+    }
+
+    if (arrivalIcao) {
+      const arrival = airports.find((a) => a.airport.icao === arrivalIcao);
+      if (arrival) {
+        features.push({
+          type: 'Feature',
+          properties: { segment: 'future' },
+          geometry: {
+            type: 'LineString',
+            coordinates: [
+              planeCoords,
+              [arrival.airport.longitude, arrival.airport.latitude],
+            ],
+          },
+        });
+      }
+    }
+
+    return { type: 'FeatureCollection' as const, features };
+  }, [selected, airports]);
+
+  const routeLineLayer: LineLayerSpecification = useMemo(
+    () => ({
+      id: 'route-line',
+      type: 'line',
+      source: 'route-source',
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': [
+          'match',
+          ['get', 'segment'],
+          'past', '#f97316',     // orange für geflogenen Teil
+          'future', '#22d3ee',   // cyan für noch zu fliegen
+          '#ffffff',
+        ],
+        'line-width': 2,
+        'line-opacity': 0.5,
+        'line-dasharray': [3, 2],
+      },
+    }),
+    [],
+  );
+
   const trailColor = selected?.network === 'VATSIM' ? '#3b82f6' : '#10b981';
 
   const trailLayer: LineLayerSpecification = useMemo(
@@ -978,6 +1052,13 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
           {planeImagesLoaded && airportGeoJson.features.length > 0 && (
             <Source id="airports-source" type="geojson" data={airportGeoJson}>
               <Layer {...airportSymbolLayer} />
+            </Source>
+          )}
+
+          {/* Route Layer (Departure→Plane, Plane→Arrival) */}
+          {routeGeoJson.features.length > 0 && (
+            <Source id="route-source" type="geojson" data={routeGeoJson}>
+              <Layer {...routeLineLayer} />
             </Source>
           )}
 
