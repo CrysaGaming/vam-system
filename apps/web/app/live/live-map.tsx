@@ -757,11 +757,21 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
           }
           map.setTerrain({ source: 'mapbox-dem', exaggeration: 1.5 });
 
-          // Hillshade-Layer: Berge bekommen Licht und Schatten
+          // Eigene DEM-Source für Hillshade (höhere Auflösung als die fürs Terrain)
+          if (!map.getSource('mapbox-dem-hillshade')) {
+            map.addSource('mapbox-dem-hillshade', {
+              type: 'raster-dem',
+              url: 'mapbox://mapbox.mapbox-terrain-dem-v1',
+              tileSize: 512,
+              maxzoom: 14,
+            });
+          }
+
+          // Hillshade-Layer mit eigener Source — schärfer + voll aufgelöst
           if (!map.getLayer('hillshade')) {
             map.addLayer({
               id: 'hillshade',
-              source: 'mapbox-dem',
+              source: 'mapbox-dem-hillshade',
               type: 'hillshade',
               paint: {
                 'hillshade-exaggeration': 0.6,
