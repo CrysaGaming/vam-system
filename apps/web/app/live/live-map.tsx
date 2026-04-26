@@ -155,10 +155,10 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
 
   const [mapCenter, setMapCenter] = useState<{ lat: number; lng: number } | null>(null);
 
-  const [radarTileUrl, setRadarTileUrl] = useState<string | null>(null);
-  
   const [mapZoom, setMapZoom] = useState(2);
 
+  const [radarTileUrl, setRadarTileUrl] = useState<string | null>(null);
+  
   const [airports, setAirports] = useState<AirportWithMetar[]>([]);
   const [selectedAirportIcao, setSelectedAirportIcao] = useState<string | null>(null);
 
@@ -219,27 +219,6 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
       clearInterval(interval);
     };
   }, []);
-
-  // Map-Zoom watcher: triggert auf jede beendete Zoom-Bewegung
-  useEffect(() => {
-    const map = mapRef.current?.getMap();
-    if (!map) return;
-
-    const handleZoom = () => {
-      setMapZoom(map.getZoom());
-    };
-
-    // Initial sync
-    handleZoom();
-
-    map.on('zoomend', handleZoom);
-    map.on('moveend', handleZoom); // Auch bei Pan, falls Zoom mit ändert
-
-    return () => {
-      map.off('zoomend', handleZoom);
-      map.off('moveend', handleZoom);
-    };
-  }, [planeImagesLoaded]); // Erst nachdem Map+Style geladen sind
 
   // RainViewer Radar Tile-URL (alle 10 Min refresh)
   useEffect(() => {
@@ -759,9 +738,10 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
           style={{ width: '100%', height: '100%' }}
           mapStyle="mapbox://styles/mapbox/dark-v11"
           onMoveEnd={(e) => {
-          const center = e.target.getCenter();
-          setMapCenter({ lat: center.lat, lng: center.lng });
-        }}
+            const center = e.target.getCenter();
+            setMapCenter({ lat: center.lat, lng: center.lng });
+            setMapZoom(e.target.getZoom());
+          }}
           onLoad={() => {
           const map = mapRef.current?.getMap();
           if (!map) return;
