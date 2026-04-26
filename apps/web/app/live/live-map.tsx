@@ -150,7 +150,10 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
     cockpitRain: false,
     cockpitSnow: false,
     weatherRadar: false,
+    autoWeather: false,
   });
+
+  const [mapCenter, setMapCenter] = useState<{ lat: number; lng: number } | null>(null);
 
   const [radarTileUrl, setRadarTileUrl] = useState<string | null>(null);
   
@@ -275,6 +278,95 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
       clearInterval(interval);
     };
   }, []);
+
+  // Smart Auto-Weather Coupling
+  // Wenn aktiv: ermittelt nächsten Airport und setzt Cockpit-Effekte
+  // basierend auf dessen METAR-Wetter
+  useEffect(() => {
+    if (!filters.autoWeather || !mapCenter || airports.length === 0) {
+      return;
+    }
+
+    const RADIUS_KM = 5;
+
+    // Haversine: Distanz zwischen 2 Punkten in km
+    function haversineKm(
+      lat1: number,
+      lng1: number,
+      lat2: number,
+      lng2: number,
+    ): number {
+      const R = 6371;
+      const toRad = (deg: number) => (deg * Math.PI) / 180;
+      const dLat = toRad(lat2 - lat1);
+      const dLng = toRad(lng2 - lng1);
+      const a =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos(toRad(lat1)) *
+          Math.cos(toRad(lat2)) *
+          Math.sin(dLng / 2) ** 2;
+      return 2 * R * Math.asin(Math.sqrt(a));
+    }
+
+    // Finde nächsten Airport im Radius
+    let nearest: AirportWithMetar | null = null;
+    let nearestDist = Infinity;
+
+    for (const a of airports) {
+      const dist = haversineKm(
+        mapCenter.lat,
+        mapCenter.lng,
+        a.airport.latitude,
+        a.airport.longitude,
+      );
+      if (dist <= RADIUS_KM && dist < nearestDist) {
+        nearest = a;
+        nearestDist = dist;
+      }
+    }
+
+    // Wenn kein Airport nahe: beide Effekte aus
+    if (!nearest || !nearest.metar.decoded) {
+      setFilters((prev) => ({
+        ...prev,
+        cockpitRain: false,
+        cockpitSnow: false,
+      }));
+      return;
+    }
+
+    // Klassifiziere METAR weather Codes
+    const weather = nearest.metar.decoded.weather;
+    const SNOW_CODES = ['SN', '+SN', '-SN', 'SHSN', 'GS', 'PL', 'IC'];
+    const RAIN_CODES = [
+      'RA', '+RA', '-RA', 'SHRA', 'DZ',
+      'TS', 'TSRA', '+TSRA', '-TSRA', 'VCTS', 'VCSH',
+    ];
+
+    const hasSnow = weather.some((w) => SNOW_CODES.includes(w));
+    const hasRain = weather.some((w) => RAIN_CODES.includes(w));
+
+    // Schnee dominiert wenn beides (visuell auffälliger)
+    if (hasSnow) {
+      setFilters((prev) => ({
+        ...prev,
+        cockpitRain: false,
+        cockpitSnow: true,
+      }));
+    } else if (hasRain) {
+      setFilters((prev) => ({
+        ...prev,
+        cockpitRain: true,
+        cockpitSnow: false,
+      }));
+    } else {
+      setFilters((prev) => ({
+        ...prev,
+        cockpitRain: false,
+        cockpitSnow: false,
+      }));
+    }
+  }, [filters.autoWeather, mapCenter, airports]);
 
   // Cockpit Rain Effect (Mapbox native v3.9+)
   useEffect(() => {
@@ -666,6 +758,10 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
           initialViewState={initialView}
           style={{ width: '100%', height: '100%' }}
           mapStyle="mapbox://styles/mapbox/dark-v11"
+          onMoveEnd={(e) => {
+          const center = e.target.getCenter();
+          setMapCenter({ lat: center.lat, lng: center.lng });
+        }}
           onLoad={() => {
           const map = mapRef.current?.getMap();
           if (!map) return;
@@ -941,6 +1037,14 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
               setFilters((prev) => ({ ...prev, weatherRadar: v }))
             }
             color="#22d3ee"
+          />
+          <FilterToggle
+            label="Auto Wetter (5km)"
+            checked={filters.autoWeather}
+            onChange={(v) =>
+              setFilters((prev) => ({ ...prev, autoWeather: v }))
+            }
+            color="#a78bfa"
           />
           <div
             style={{
