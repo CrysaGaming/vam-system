@@ -551,23 +551,21 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
         );
         if (isMember) continue;
         features.push({
-        type: 'Feature',
-        properties: {
-          cid: p.cid,
-          callsign: p.callsign,
-          network: 'VATSIM',
-          heading: p.heading,
-          altitude: p.altitude,
-          onGround: p.onGround,
-        },
-        geometry: {
-          type: 'Point',
-          coordinates: [p.longitude, p.latitude],
-        },
-      });
-    }
-
-    // Schließe VATSIM-Loop
+          type: 'Feature',
+          properties: {
+            cid: p.cid,
+            callsign: p.callsign,
+            network: 'VATSIM',
+            heading: p.heading,
+            altitude: p.altitude,
+            onGround: p.onGround,
+          },
+          geometry: {
+            type: 'Point',
+            coordinates: [p.longitude, p.latitude],
+          },
+        });
+      }
     }
 
     if (filters.showIvao) {
