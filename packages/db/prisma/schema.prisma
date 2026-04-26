@@ -65,6 +65,8 @@ model User {
   ivaoRefreshToken       String?   @db.Text
   ivaoTokenExpiresAt     DateTime?
 
+  overlayToken           String?   @unique
+
   image            String?
   totalFlightHours Float    @default(0)
   totalFlights     Int      @default(0)

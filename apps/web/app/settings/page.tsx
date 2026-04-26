@@ -3,6 +3,8 @@ import { redirect } from 'next/navigation';
 import { prisma } from '@vam/db';
 import Link from 'next/link';
 import { ConnectionCard } from './connection-card';
+import { OverlayCard } from './overlay-card';
+import { getOrCreateOverlayToken } from './actions';
 
 export default async function SettingsPage({
   searchParams,
@@ -30,6 +32,9 @@ export default async function SettingsPage({
   });
 
   if (!user) redirect('/');
+
+  // OBS-Overlay-Token laden (oder generieren falls nicht vorhanden)
+  const overlayToken = await getOrCreateOverlayToken();
 
   const statusBanner =
     params.status === 'success' && params.provider
@@ -157,6 +162,18 @@ export default async function SettingsPage({
               canDisconnect={true}
             />
           </div>
+        </section>
+
+        {/* OBS-Overlay */}
+        <section className="bg-gray-900 border border-gray-800 rounded-lg p-6 mt-8">
+          <h2 className="text-sm uppercase tracking-wider text-gray-500 mb-4">
+            OBS-Overlay
+          </h2>
+          <p className="text-sm text-gray-400 mb-6">
+            Live-Flugdaten für Twitch/YouTube-Streams. URL als Browser-Source in OBS einfügen,
+            zeigt während des Fluges automatisch deine Live-Daten an.
+          </p>
+          <OverlayCard token={overlayToken} />
         </section>
       </div>
     </main>
