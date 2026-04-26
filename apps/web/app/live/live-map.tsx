@@ -129,6 +129,52 @@ type TrailPoint = {
 
 const SIDEBAR_WIDTH = 360;
 
+/**
+ * Berechnet Distanz und ETA von der aktuellen Position
+ * zum Arrival-Airport, falls bekannt.
+ */
+function computeProgress(
+  session: LiveSession,
+  airports: AirportWithMetar[],
+): { distanceKm: number | null; etaMinutes: number | null } {
+  if (!session.flightPlan.arrival) {
+    return { distanceKm: null, etaMinutes: null };
+  }
+  const arrival = airports.find(
+    (a) => a.airport.icao === session.flightPlan.arrival,
+  );
+  if (!arrival) {
+    return { distanceKm: null, etaMinutes: null };
+  }
+
+  // Haversine
+  const R = 6371;
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const lat1 = session.position.latitude;
+  const lng1 = session.position.longitude;
+  const lat2 = arrival.airport.latitude;
+  const lng2 = arrival.airport.longitude;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) *
+      Math.cos(toRad(lat2)) *
+      Math.sin(dLng / 2) ** 2;
+  const distanceKm = 2 * R * Math.asin(Math.sqrt(a));
+
+  // ETA: distanceKm / groundSpeed
+  // groundSpeed in knots → km/h: 1kt = 1.852 km/h
+  const groundSpeedKmh = session.position.groundSpeed * 1.852;
+  let etaMinutes: number | null = null;
+  if (groundSpeedKmh > 30) {
+    // Ignore taxi/parked: nur ETA wenn airborne mit sinnvoller Speed
+    etaMinutes = (distanceKm / groundSpeedKmh) * 60;
+  }
+
+  return { distanceKm, etaMinutes };
+}
+
 export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
   const [sessions, setSessions] = useState<LiveSession[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -717,6 +763,7 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
             session={selected}
             trail={trails[selected.id] ?? []}
             onClose={() => setSelectedId(null)}
+            airports={airports}
           />
         )}
         {selectedAirportIcao && !selected && (
@@ -1175,14 +1222,17 @@ function SessionSidebar({
   session,
   trail,
   onClose,
+  airports,
 }: {
   session: LiveSession;
   trail: TrailPoint[];
   onClose: () => void;
+  airports: AirportWithMetar[];
 }) {
   const minutesOnline = Math.floor(
     (Date.now() - new Date(session.connectedAt).getTime()) / 60000,
   );
+  const { distanceKm, etaMinutes } = computeProgress(session, airports);
 
   return (
     <div
@@ -1345,6 +1395,41 @@ function SessionSidebar({
                   <span>{session.flightPlan.flightRules}</span>
                 )}
               </div>
+
+              {distanceKm !== null && (
+                <div
+                  style={{
+                    marginTop: '0.75rem',
+                    paddingTop: '0.75rem',
+                    borderTop: '1px solid rgba(255, 255, 255, 0.06)',
+                    display: 'flex',
+                    gap: '1.5rem',
+                    fontSize: '0.875rem',
+                    fontFamily: 'monospace',
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: '0.65rem', color: 'rgb(107, 114, 128)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      Distance
+                    </div>
+                    <div style={{ color: 'white', fontWeight: 600, marginTop: '0.15rem' }}>
+                      {distanceKm.toFixed(0)} km
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '0.65rem', color: 'rgb(107, 114, 128)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      ETA
+                    </div>
+                    <div style={{ color: '#34d399', fontWeight: 600, marginTop: '0.15rem' }}>
+                      {etaMinutes !== null
+                        ? etaMinutes < 60
+                          ? `${Math.round(etaMinutes)} min`
+                          : `${Math.floor(etaMinutes / 60)}h ${Math.round(etaMinutes % 60)}min`
+                        : '—'}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </section>
         )}
