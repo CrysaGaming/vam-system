@@ -3,24 +3,24 @@
 /**
  * OverlayPreferences - Settings-UI für Overlay-Anpassung
  *
- * In /settings einbinden (z.B. nach OverlayCard).
- *
- * Features:
- *   - Radio-Buttons: Bar / Card Layout
- *   - Color-Picker pro Phase (8 aktive Phasen)
- *   - Live-Preview rechts daneben
- *   - Reset auf Defaults
- *   - Save via Server-Actions
+ * Sections:
+ *   1. Layout-Wahl (Bar/Card)
+ *   2. Card-Position (nur sichtbar wenn Layout=Card)
+ *   3. Phase-Farben (Color-Picker pro Phase + Live-Preview)
+ *   4. Setup-Anleitung (How to use in OBS)
  */
 
-import { useState, useTransition } from 'react';
+import React, { useState, useTransition } from 'react';
 import {
   updateOverlayLayout,
+  updateOverlayCardPosition,
   updateOverlayPhaseColors,
   resetOverlayPhaseColors,
 } from './overlay-actions';
 import {
   DEFAULT_PHASE_COLORS,
+  OBS_BROWSER_SOURCE_SIZES,
+  type CardPosition,
   type OverlayLayout,
   type FlightPhaseId,
   type PhaseColor,
@@ -49,18 +49,29 @@ const PHASE_ORDER: FlightPhaseId[] = [
   'arrived',
 ];
 
+const CARD_POSITIONS: { id: CardPosition; label: string }[] = [
+  { id: 'top-left',     label: 'Oben Links' },
+  { id: 'top-right',    label: 'Oben Rechts' },
+  { id: 'bottom-left',  label: 'Unten Links' },
+  { id: 'bottom-right', label: 'Unten Rechts' },
+];
+
 export function OverlayPreferences({
   initialLayout,
+  initialCardPosition,
   initialColors,
   callsign,
+  overlayUrl,
 }: {
   initialLayout: OverlayLayout;
+  initialCardPosition: CardPosition;
   initialColors: PhaseColorMap | null;
-  /** Optional: aktueller User-Callsign für Preview */
   callsign?: string | null;
+  /** Vollständige Overlay-URL für Setup-Anleitung */
+  overlayUrl?: string;
 }) {
   const [layout, setLayout] = useState<OverlayLayout>(initialLayout);
-  // State ist Vollständig (alle 8 Phasen), gemerged mit User-Override
+  const [cardPosition, setCardPosition] = useState<CardPosition>(initialCardPosition);
   const [colors, setColors] = useState<Record<FlightPhaseId, PhaseColor>>(() => ({
     ...DEFAULT_PHASE_COLORS,
     ...(initialColors ?? {}),
@@ -70,17 +81,11 @@ export function OverlayPreferences({
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saved' | 'error'>('idle');
 
   function updatePhaseBg(phase: FlightPhaseId, color: string) {
-    setColors((prev) => ({
-      ...prev,
-      [phase]: { ...prev[phase], bg: color },
-    }));
+    setColors((prev) => ({ ...prev, [phase]: { ...prev[phase], bg: color } }));
   }
 
   function updatePhaseFg(phase: FlightPhaseId, color: string) {
-    setColors((prev) => ({
-      ...prev,
-      [phase]: { ...prev[phase], fg: color },
-    }));
+    setColors((prev) => ({ ...prev, [phase]: { ...prev[phase], fg: color } }));
   }
 
   function handleLayoutChange(newLayout: OverlayLayout) {
@@ -92,9 +97,17 @@ export function OverlayPreferences({
     });
   }
 
+  function handlePositionChange(newPosition: CardPosition) {
+    setCardPosition(newPosition);
+    startTransition(async () => {
+      const result = await updateOverlayCardPosition(newPosition);
+      setSaveStatus(result.success ? 'saved' : 'error');
+      setTimeout(() => setSaveStatus('idle'), 2000);
+    });
+  }
+
   function handleSaveColors() {
     startTransition(async () => {
-      // Nur die Override-Differenzen zu Defaults speichern
       const overrides: PhaseColorMap = {};
       for (const phase of PHASE_ORDER) {
         const current = colors[phase];
@@ -174,6 +187,29 @@ export function OverlayPreferences({
         </div>
       </Section>
 
+      {/* Card-Position (nur wenn Layout=card) */}
+      {layout === 'card' && (
+        <Section title="Card Position">
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: '0.5rem',
+            }}
+          >
+            {CARD_POSITIONS.map((pos) => (
+              <PositionOption
+                key={pos.id}
+                position={pos.id}
+                label={pos.label}
+                selected={cardPosition === pos.id}
+                onSelect={() => handlePositionChange(pos.id)}
+              />
+            ))}
+          </div>
+        </Section>
+      )}
+
       {/* Phase-Colors */}
       <Section title="Phasen-Farben">
         <div
@@ -221,25 +257,11 @@ export function OverlayPreferences({
                   >
                     {meta.shortLabel}
                   </span>
-                  <span
-                    style={{
-                      flex: 1,
-                      fontSize: '0.875rem',
-                      color: 'rgb(229, 231, 235)',
-                    }}
-                  >
+                  <span style={{ flex: 1, fontSize: '0.875rem', color: 'rgb(229, 231, 235)' }}>
                     {meta.label}
                   </span>
-                  <ColorInput
-                    label="BG"
-                    value={color.bg}
-                    onChange={(v) => updatePhaseBg(phase, v)}
-                  />
-                  <ColorInput
-                    label="FG"
-                    value={color.fg}
-                    onChange={(v) => updatePhaseFg(phase, v)}
-                  />
+                  <ColorInput label="BG" value={color.bg} onChange={(v) => updatePhaseBg(phase, v)} />
+                  <ColorInput label="FG" value={color.fg} onChange={(v) => updatePhaseFg(phase, v)} />
                 </div>
               );
             })}
@@ -298,6 +320,7 @@ export function OverlayPreferences({
             </div>
             <PreviewPanel
               layout={layout}
+              cardPosition={cardPosition}
               phase={previewPhase}
               phaseColors={colors}
               callsign={callsign ?? 'DLH123'}
@@ -305,6 +328,9 @@ export function OverlayPreferences({
           </div>
         </div>
       </Section>
+
+      {/* Setup-Anleitung */}
+      <SetupGuide layout={layout} cardPosition={cardPosition} overlayUrl={overlayUrl} />
     </div>
   );
 }
@@ -382,6 +408,78 @@ function LayoutOption({
   );
 }
 
+function PositionOption({
+  position,
+  label,
+  selected,
+  onSelect,
+}: {
+  position: CardPosition;
+  label: string;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  // ASCII-Visualisierung der Position
+  const positionDot = {
+    'top-left':     ['●', '·', '·', '·'],
+    'top-right':    ['·', '●', '·', '·'],
+    'bottom-left':  ['·', '·', '●', '·'],
+    'bottom-right': ['·', '·', '·', '●'],
+  }[position];
+
+  return (
+    <button
+      onClick={onSelect}
+      style={{
+        padding: '0.6rem 0.75rem',
+        background: selected ? 'rgba(99, 102, 241, 0.15)' : 'rgb(31, 41, 55)',
+        border: `1px solid ${selected ? 'rgb(99, 102, 241)' : 'rgb(55, 65, 81)'}`,
+        borderRadius: '0.375rem',
+        cursor: 'pointer',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '0.5rem',
+        transition: 'all 120ms',
+      }}
+    >
+      {/* Mini-Position-Indicator (2×2 Grid) */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: '1fr 1fr',
+          gridTemplateRows: '1fr 1fr',
+          gap: '2px',
+          width: '20px',
+          height: '20px',
+        }}
+      >
+        {positionDot.map((dot, i) => (
+          <span
+            key={i}
+            style={{
+              fontSize: '10px',
+              lineHeight: '8px',
+              textAlign: 'center',
+              color: dot === '●' ? 'rgb(165, 180, 252)' : 'rgb(75, 85, 99)',
+            }}
+          >
+            {dot}
+          </span>
+        ))}
+      </div>
+      <span
+        style={{
+          fontSize: '0.8rem',
+          fontWeight: 500,
+          color: selected ? 'rgb(165, 180, 252)' : 'white',
+        }}
+      >
+        {label}
+      </span>
+    </button>
+  );
+}
+
 function ColorInput({
   label,
   value,
@@ -393,13 +491,7 @@ function ColorInput({
 }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-      <span
-        style={{
-          fontSize: '0.65rem',
-          color: 'rgb(107, 114, 128)',
-          fontFamily: 'monospace',
-        }}
-      >
+      <span style={{ fontSize: '0.65rem', color: 'rgb(107, 114, 128)', fontFamily: 'monospace' }}>
         {label}
       </span>
       <input
@@ -429,39 +521,21 @@ function SaveStatusBadge({
 }) {
   if (pending) {
     return (
-      <span
-        style={{
-          fontSize: '0.75rem',
-          color: 'rgb(156, 163, 175)',
-          fontStyle: 'italic',
-        }}
-      >
+      <span style={{ fontSize: '0.75rem', color: 'rgb(156, 163, 175)', fontStyle: 'italic' }}>
         Speichern...
       </span>
     );
   }
   if (status === 'saved') {
     return (
-      <span
-        style={{
-          fontSize: '0.75rem',
-          color: '#34D399',
-          fontWeight: 600,
-        }}
-      >
+      <span style={{ fontSize: '0.75rem', color: '#34D399', fontWeight: 600 }}>
         ✓ Gespeichert
       </span>
     );
   }
   if (status === 'error') {
     return (
-      <span
-        style={{
-          fontSize: '0.75rem',
-          color: '#EF4444',
-          fontWeight: 600,
-        }}
-      >
+      <span style={{ fontSize: '0.75rem', color: '#EF4444', fontWeight: 600 }}>
         ✗ Fehler
       </span>
     );
@@ -470,16 +544,174 @@ function SaveStatusBadge({
 }
 
 // ────────────────────────────────────────────────────────────
+// Setup Guide
+// ────────────────────────────────────────────────────────────
+
+function SetupGuide({
+  layout,
+  cardPosition,
+  overlayUrl,
+}: {
+  layout: OverlayLayout;
+  cardPosition: CardPosition;
+  overlayUrl?: string;
+}) {
+  // URL ggf. mit aktuellen Parametern bauen für Custom-URL
+  const fullUrl = overlayUrl
+    ? layout === 'card'
+      ? `${overlayUrl}?layout=card&position=${cardPosition}`
+      : overlayUrl
+    : null;
+
+  return (
+    <Section title="OBS Setup-Anleitung">
+      <div
+        style={{
+          background: 'rgba(0, 0, 0, 0.25)',
+          border: '1px solid rgba(255, 255, 255, 0.06)',
+          borderRadius: '0.5rem',
+          padding: '1rem',
+        }}
+      >
+        {/* Schritt-für-Schritt */}
+        <ol
+          style={{
+            margin: '0 0 1.25rem 0',
+            paddingLeft: '1.25rem',
+            color: 'rgb(229, 231, 235)',
+            fontSize: '0.875rem',
+            lineHeight: 1.7,
+          }}
+        >
+          <li>
+            In OBS: <strong>+</strong> unter <strong>Quellen</strong> →{' '}
+            <strong>Browser</strong> hinzufügen
+          </li>
+          <li>
+            URL einfügen (siehe oben in der Token-Karte oder die Custom-URL unten)
+          </li>
+          <li>
+            Breite und Höhe auf deine Stream-Auflösung setzen (siehe Tabelle)
+          </li>
+          <li>
+            <strong>Quelle aktualisieren wenn aktiv:</strong> aus (für stabile Performance)
+          </li>
+          <li>
+            <strong>OK</strong>. Beim nächsten Flug erscheint das Overlay automatisch.
+          </li>
+        </ol>
+
+        {/* Custom-URL für aktuelles Layout */}
+        {fullUrl && (
+          <div style={{ marginBottom: '1.25rem' }}>
+            <div
+              style={{
+                fontSize: '0.7rem',
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+                color: 'rgb(107, 114, 128)',
+                marginBottom: '0.4rem',
+              }}
+            >
+              URL für aktuelles Layout
+            </div>
+            <div
+              style={{
+                fontFamily: 'monospace',
+                fontSize: '0.75rem',
+                background: 'rgba(0, 0, 0, 0.4)',
+                padding: '0.6rem 0.75rem',
+                borderRadius: '0.25rem',
+                color: 'rgb(165, 180, 252)',
+                wordBreak: 'break-all',
+              }}
+            >
+              {fullUrl}
+            </div>
+            <div
+              style={{
+                fontSize: '0.7rem',
+                color: 'rgb(107, 114, 128)',
+                marginTop: '0.3rem',
+                fontStyle: 'italic',
+              }}
+            >
+              Diese URL überschreibt das Default-Layout aus den Settings via URL-Parameter.
+              Praktisch wenn du verschiedene Browser-Sources mit unterschiedlichen Layouts haben willst.
+            </div>
+          </div>
+        )}
+
+        {/* Browser-Source Größen-Tabelle */}
+        <div>
+          <div
+            style={{
+              fontSize: '0.7rem',
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em',
+              color: 'rgb(107, 114, 128)',
+              marginBottom: '0.4rem',
+            }}
+          >
+            Browser-Source Größe (an Stream-Auflösung anpassen)
+          </div>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr auto auto',
+              gap: '0.4rem 1rem',
+              fontSize: '0.8rem',
+              fontFamily: 'monospace',
+            }}
+          >
+            <div style={{ color: 'rgb(107, 114, 128)', fontWeight: 600 }}>Stream</div>
+            <div style={{ color: 'rgb(107, 114, 128)', fontWeight: 600 }}>Width</div>
+            <div style={{ color: 'rgb(107, 114, 128)', fontWeight: 600 }}>Height</div>
+
+            {OBS_BROWSER_SOURCE_SIZES.map((size) => (
+              <React.Fragment key={size.label}>
+                <div style={{ color: 'rgb(229, 231, 235)' }}>
+                  {size.label}
+                </div>
+                <div style={{ color: 'rgb(165, 180, 252)' }}>
+                  {size.width}
+                </div>
+                <div style={{ color: 'rgb(165, 180, 252)' }}>
+                  {size.height}
+                </div>
+              </React.Fragment>
+            ))}
+          </div>
+          <div
+            style={{
+              fontSize: '0.7rem',
+              color: 'rgb(107, 114, 128)',
+              marginTop: '0.5rem',
+              fontStyle: 'italic',
+            }}
+          >
+            Hintergrund ist transparent. Bar/Card positionieren sich automatisch im Container,
+            also Browser-Source = Stream-Auflösung machen.
+          </div>
+        </div>
+      </div>
+    </Section>
+  );
+}
+
+// ────────────────────────────────────────────────────────────
 // Preview Panel
 // ────────────────────────────────────────────────────────────
 
 function PreviewPanel({
   layout,
+  cardPosition,
   phase,
   phaseColors,
   callsign,
 }: {
   layout: OverlayLayout;
+  cardPosition: CardPosition;
   phase: FlightPhaseId;
   phaseColors: Record<FlightPhaseId, PhaseColor>;
   callsign: string;
@@ -487,7 +719,6 @@ function PreviewPanel({
   const phaseColor = phaseColors[phase];
   const meta = PHASE_LABELS[phase];
 
-  // Mock-Daten für Preview
   const mockData = {
     callsign,
     departure: 'EDDF',
@@ -499,12 +730,21 @@ function PreviewPanel({
     duration: '1h 24m',
   };
 
+  // Card-Position-Style für Preview (kleinere Offsets als echtes Overlay)
+  const previewPositionStyle = (() => {
+    switch (cardPosition) {
+      case 'top-left':     return { top: '12px', left: '12px' };
+      case 'top-right':    return { top: '12px', right: '12px' };
+      case 'bottom-left':  return { bottom: '12px', left: '12px' };
+      case 'bottom-right': return { bottom: '12px', right: '12px' };
+    }
+  })();
+
   return (
     <div
       style={{
         flex: 1,
-        background:
-          'linear-gradient(135deg, rgb(17, 24, 39) 0%, rgb(30, 41, 59) 100%)',
+        background: 'linear-gradient(135deg, rgb(17, 24, 39) 0%, rgb(30, 41, 59) 100%)',
         border: '1px solid rgb(55, 65, 81)',
         borderRadius: '0.375rem',
         padding: '1rem',
@@ -512,10 +752,8 @@ function PreviewPanel({
         minHeight: '180px',
         display: 'flex',
         flexDirection: 'column',
-        justifyContent: layout === 'bar' ? 'flex-start' : 'flex-start',
       }}
     >
-      {/* Mockup-Background-Hint */}
       <div
         style={{
           position: 'absolute',
@@ -532,7 +770,6 @@ function PreviewPanel({
         Stream-Vorschau
       </div>
 
-      {/* Bar Preview */}
       {layout === 'bar' && (
         <div
           style={{
@@ -580,13 +817,11 @@ function PreviewPanel({
         </div>
       )}
 
-      {/* Card Preview */}
       {layout === 'card' && (
         <div
           style={{
             position: 'absolute',
-            top: '12px',
-            right: '12px',
+            ...previewPositionStyle,
             width: '180px',
             background: 'rgba(15, 25, 41, 0.88)',
             border: '1px solid rgba(255, 255, 255, 0.1)',

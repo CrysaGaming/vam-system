@@ -18,6 +18,17 @@
 // ────────────────────────────────────────────────────────────
 
 export type OverlayLayout = 'bar' | 'card';
+// Future: 'compact' | 'cockpit' | 'glass' (Phase 5+)
+
+/**
+ * Card-Position auf dem Stream-Bild.
+ * Nur relevant wenn Layout='card'.
+ */
+export type CardPosition =
+  | 'top-left'
+  | 'top-right'
+  | 'bottom-left'
+  | 'bottom-right';
 
 // ────────────────────────────────────────────────────────────
 // FLIGHT-PHASE-TYPES
@@ -68,15 +79,6 @@ export type PhaseColorMap = Partial<Record<FlightPhaseId, PhaseColor>>;
 // DEFAULT COLORS
 // ────────────────────────────────────────────────────────────
 
-/**
- * Default-Farben für jede Phase. Verwendet wenn User keine Overrides
- * in seinen Preferences gesetzt hat.
- *
- * Color-System: 8 sichtbar unterschiedliche Farben aus Tailwind-Palette.
- * Cruise = blau (häufigste Phase, neutral)
- * Approach = amber (Aufmerksamkeit erforderlich)
- * Climb/Descent = grün/violett (klare Richtungsindikation)
- */
 export const DEFAULT_PHASE_COLORS: Record<FlightPhaseId, PhaseColor> = {
   'preflight':     { bg: '#64748B', fg: '#FFFFFF' },  // slate
   'taxi-out':      { bg: '#94A3B8', fg: '#0F172A' },  // light slate
@@ -86,8 +88,26 @@ export const DEFAULT_PHASE_COLORS: Record<FlightPhaseId, PhaseColor> = {
   'descent':       { bg: '#8B5CF6', fg: '#FFFFFF' },  // violet
   'approach':      { bg: '#F59E0B', fg: '#0F172A' },  // amber
   'arrived':       { bg: '#06B6D4', fg: '#FFFFFF' },  // cyan
-  // 'pushback':      { bg: '#A78BFA', fg: '#0F172A' },  // ACARS-pending
-  // 'takeoff-roll':  { bg: '#34D399', fg: '#0F172A' },  // ACARS-pending
-  // 'landing-roll':  { bg: '#FB923C', fg: '#0F172A' },  // ACARS-pending
-  // 'taxi-in':       { bg: '#A1A1AA', fg: '#0F172A' },  // ACARS-pending
+  // ACARS-pending:
+  // 'pushback':      { bg: '#A78BFA', fg: '#0F172A' },
+  // 'takeoff-roll':  { bg: '#34D399', fg: '#0F172A' },
+  // 'landing-roll':  { bg: '#FB923C', fg: '#0F172A' },
+  // 'taxi-in':       { bg: '#A1A1AA', fg: '#0F172A' },
 };
+
+// ────────────────────────────────────────────────────────────
+// OBS BROWSER-SOURCE GRÖSSEN-EMPFEHLUNGEN
+// ────────────────────────────────────────────────────────────
+
+/**
+ * Empfohlene Browser-Source-Größen in OBS.
+ *
+ * Background ist transparent — die Bar/Card positioniert sich selbst
+ * absolute-positioned innerhalb des Containers. Daher: Browser-Source
+ * = Stream-Auflösung machen.
+ */
+export const OBS_BROWSER_SOURCE_SIZES = [
+  { label: '1080p (Full HD)', width: 1920, height: 1080 },
+  { label: '1440p (QHD)',     width: 2560, height: 1440 },
+  { label: '4K (UHD)',        width: 3840, height: 2160 },
+] as const;

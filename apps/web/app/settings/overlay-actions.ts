@@ -14,13 +14,14 @@ import { prisma } from '@vam/db';
 import { auth } from '@/auth';
 import { revalidatePath } from 'next/cache';
 import {
+  type CardPosition,
   type OverlayLayout,
   type PhaseColor,
   type PhaseColorMap,
 } from '@/lib/overlay-types';
 
-// Re-Exports für convenience
 export {
+  type CardPosition,
   type OverlayLayout,
   type PhaseColor,
   type PhaseColorMap,
@@ -31,6 +32,12 @@ export {
 // ────────────────────────────────────────────────────────────
 
 const VALID_LAYOUTS: OverlayLayout[] = ['bar', 'card'];
+const VALID_CARD_POSITIONS: CardPosition[] = [
+  'top-left',
+  'top-right',
+  'bottom-left',
+  'bottom-right',
+];
 const HEX_COLOR_REGEX = /^#[0-9A-Fa-f]{6}$/;
 
 function isValidColor(color: unknown): color is string {
@@ -51,9 +58,6 @@ function isValidPhaseColorMap(value: unknown): value is PhaseColorMap {
 // ACTIONS
 // ────────────────────────────────────────────────────────────
 
-/**
- * Setzt das Layout-Preset für den User.
- */
 export async function updateOverlayLayout(
   layout: OverlayLayout,
 ): Promise<{ success: true } | { success: false; error: string }> {
@@ -75,9 +79,27 @@ export async function updateOverlayLayout(
   return { success: true };
 }
 
-/**
- * Setzt die Phase-Farben (oder NULL um Defaults zu nutzen).
- */
+export async function updateOverlayCardPosition(
+  position: CardPosition,
+): Promise<{ success: true } | { success: false; error: string }> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { success: false, error: 'unauthorized' };
+  }
+
+  if (!VALID_CARD_POSITIONS.includes(position)) {
+    return { success: false, error: 'invalid_position' };
+  }
+
+  await prisma.user.update({
+    where: { id: session.user.id },
+    data: { overlayCardPosition: position },
+  });
+
+  revalidatePath('/settings');
+  return { success: true };
+}
+
 export async function updateOverlayPhaseColors(
   colors: PhaseColorMap | null,
 ): Promise<{ success: true } | { success: false; error: string }> {
@@ -99,40 +121,34 @@ export async function updateOverlayPhaseColors(
   return { success: true };
 }
 
-/**
- * Setzt Phase-Colors auf Defaults zurück (NULL in DB).
- */
 export async function resetOverlayPhaseColors(): Promise<
   { success: true } | { success: false; error: string }
 > {
   return updateOverlayPhaseColors(null);
 }
 
-/**
- * Liest die aktuellen Preferences des eingeloggten Users.
- *
- * Returns Defaults wenn nicht eingeloggt — damit die Settings-Page
- * immer was rendern kann.
- */
 export async function getOverlayPreferences(): Promise<{
   layout: OverlayLayout;
+  cardPosition: CardPosition;
   phaseColors: PhaseColorMap | null;
 }> {
   const session = await auth();
   if (!session?.user?.id) {
-    return { layout: 'bar', phaseColors: null };
+    return { layout: 'bar', cardPosition: 'top-right', phaseColors: null };
   }
 
   const user = await prisma.user.findUnique({
     where: { id: session.user.id },
     select: {
       overlayLayout: true,
+      overlayCardPosition: true,
       overlayPhaseColors: true,
     },
   });
 
   return {
     layout: (user?.overlayLayout as OverlayLayout) ?? 'bar',
+    cardPosition: (user?.overlayCardPosition as CardPosition) ?? 'top-right',
     phaseColors: (user?.overlayPhaseColors as PhaseColorMap | null) ?? null,
   };
 }

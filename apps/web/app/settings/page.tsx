@@ -185,8 +185,10 @@ export default async function SettingsPage({
         <section className="mt-8">
           <OverlayPreferences
             initialLayout={overlayPrefs.layout}
+            initialCardPosition={overlayPrefs.cardPosition}
             initialColors={overlayPrefs.phaseColors}
             callsign={user.name}
+            overlayUrl={`${process.env.NEXTAUTH_URL ?? 'https://vam.kevindrack.de'}/overlay/${overlayToken}`}
           />
         </section>
       </div>

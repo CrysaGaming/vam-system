@@ -6,6 +6,7 @@
  * Verantwortlich für:
  *  - Polling /api/overlay/[token]/data alle 5s
  *  - Layout-Switching (bar vs. card)
+ *  - Card-Position (4 Ecken)
  *  - Inactive-State (komplett unsichtbar)
  *  - Phase-aware Coloring (Defaults oder User-Override)
  *  - Smooth Transitions zwischen Updates
@@ -17,15 +18,17 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import {
   DEFAULT_PHASE_COLORS,
+  type CardPosition,
   type FlightPhaseId,
   type OverlayLayout,
   type PhaseColor,
   type PhaseColorMap,
 } from '@/lib/overlay-types';
 
-// Re-Exports für convenience (manche andere Files erwarten sie evtl. von hier)
+// Re-Exports für convenience
 export {
   DEFAULT_PHASE_COLORS,
+  type CardPosition,
   type FlightPhaseId,
   type OverlayLayout,
   type PhaseColor,
@@ -88,7 +91,7 @@ type OverlayData =
 // ────────────────────────────────────────────────────────────
 
 const POLL_INTERVAL_MS = 5000;
-const FETCH_TIMEOUT_MS = 4500; // weniger als Poll-Interval
+const FETCH_TIMEOUT_MS = 4500;
 
 // ────────────────────────────────────────────────────────────
 // MAIN COMPONENT
@@ -97,10 +100,13 @@ const FETCH_TIMEOUT_MS = 4500; // weniger als Poll-Interval
 export function OverlayClient({
   token,
   initialLayout,
+  cardPosition = 'top-right',
   phaseColorOverride,
 }: {
   token: string;
   initialLayout: OverlayLayout;
+  /** Position für Card-Layout (default: top-right) */
+  cardPosition?: CardPosition;
   /** Optional User-Override für Phase-Colors (sonst Defaults) */
   phaseColorOverride?: PhaseColorMap | null;
 }) {
@@ -108,13 +114,11 @@ export function OverlayClient({
   const [hasError, setHasError] = useState(false);
   const isFetchingRef = useRef(false);
 
-  // Mische Defaults mit User-Override
   const phaseColors: Record<FlightPhaseId, PhaseColor> = {
     ...DEFAULT_PHASE_COLORS,
     ...(phaseColorOverride ?? {}),
   };
 
-  // Polling-Loop
   const fetchData = useCallback(async () => {
     if (isFetchingRef.current) return;
     isFetchingRef.current = true;
@@ -129,7 +133,6 @@ export function OverlayClient({
       });
 
       if (!res.ok) {
-        // 401, 429, 500: Overlay verstecken (silent fail)
         setHasError(true);
         setData(null);
         return;
@@ -139,7 +142,6 @@ export function OverlayClient({
       setData(json);
       setHasError(false);
     } catch (err) {
-      // Network-Error oder Timeout: silent fail
       if ((err as Error).name !== 'AbortError') {
         console.error('Overlay fetch failed:', err);
       }
@@ -156,14 +158,12 @@ export function OverlayClient({
     return () => clearInterval(interval);
   }, [fetchData]);
 
-  // ─── Inactive oder Error: nichts rendern ─────────────────
   if (!data || data.active === false || hasError) {
     return null;
   }
 
-  // ─── Active: Layout rendern ──────────────────────────────
   return initialLayout === 'card' ? (
-    <CardLayout data={data} phaseColors={phaseColors} />
+    <CardLayout data={data} phaseColors={phaseColors} position={cardPosition} />
   ) : (
     <BarLayout data={data} phaseColors={phaseColors} />
   );
@@ -220,17 +220,13 @@ function BarLayout({
           whiteSpace: 'nowrap',
         }}
       >
-        {/* Plane icon */}
         <span style={{ fontSize: '14px', opacity: 0.9 }}>✈</span>
-
-        {/* Callsign */}
         <span style={{ fontWeight: 700, fontFamily: 'monospace', fontSize: '14px' }}>
           {data.user.callsign}
         </span>
 
         <Divider />
 
-        {/* Route */}
         {(data.flightPlan.departure || data.flightPlan.arrival) && (
           <>
             <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>
@@ -242,7 +238,6 @@ function BarLayout({
           </>
         )}
 
-        {/* Aircraft */}
         {data.aircraft.type && (
           <>
             <span style={{ opacity: 0.85 }}>{data.aircraft.type}</span>
@@ -250,19 +245,16 @@ function BarLayout({
           </>
         )}
 
-        {/* Altitude */}
         <span style={{ fontFamily: 'monospace' }}>{flLabel}</span>
 
         <Divider />
 
-        {/* Speed */}
         <span style={{ fontFamily: 'monospace' }}>
           {data.position.groundSpeed}<span style={{ opacity: 0.6 }}>kt</span>
         </span>
 
         <Divider />
 
-        {/* Phase Badge */}
         <span
           style={{
             padding: '2px 8px',
@@ -278,7 +270,6 @@ function BarLayout({
           {data.phase.shortLabel}
         </span>
 
-        {/* Progress (wenn ETA verfügbar) */}
         {data.progress.etaFormatted && (
           <>
             <Divider />
@@ -288,7 +279,6 @@ function BarLayout({
           </>
         )}
 
-        {/* Duration */}
         <Divider />
         <span style={{ opacity: 0.7, fontFamily: 'monospace', fontSize: '12px' }}>
           {data.duration.formatted}
@@ -311,24 +301,40 @@ function Divider() {
 }
 
 // ────────────────────────────────────────────────────────────
-// LAYOUT 2: CARD-STYLE (kompakte Box, free position)
+// LAYOUT 2: CARD-STYLE (kompakte Box, 4-Ecken-Position)
 // ────────────────────────────────────────────────────────────
+
+function getCardPositionStyle(position: CardPosition): React.CSSProperties {
+  const offset = '20px';
+  switch (position) {
+    case 'top-left':
+      return { top: offset, left: offset };
+    case 'top-right':
+      return { top: offset, right: offset };
+    case 'bottom-left':
+      return { bottom: offset, left: offset };
+    case 'bottom-right':
+      return { bottom: offset, right: offset };
+  }
+}
 
 function CardLayout({
   data,
   phaseColors,
+  position,
 }: {
   data: Extract<OverlayData, { active: true }>;
   phaseColors: Record<FlightPhaseId, PhaseColor>;
+  position: CardPosition;
 }) {
   const phaseColor = phaseColors[data.phase.id] ?? { bg: '#64748B', fg: '#FFFFFF' };
+  const positionStyle = getCardPositionStyle(position);
 
   return (
     <div
       style={{
         position: 'fixed',
-        top: '20px',
-        right: '20px',
+        ...positionStyle,
         pointerEvents: 'none',
         fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
       }}
@@ -346,7 +352,7 @@ function CardLayout({
           overflow: 'hidden',
         }}
       >
-        {/* Header: Callsign + Phase */}
+        {/* Header */}
         <div
           style={{
             padding: '12px 16px',
@@ -426,7 +432,7 @@ function CardLayout({
           />
         </div>
 
-        {/* Progress (nur wenn vorhanden) */}
+        {/* Progress */}
         {(data.progress.distanceKm !== null || data.progress.etaFormatted) && (
           <div
             style={{
@@ -448,9 +454,7 @@ function CardLayout({
             {data.progress.etaFormatted && (
               <div>
                 <span style={{ opacity: 0.5 }}>ETA </span>
-                <span
-                  style={{ fontFamily: 'monospace', fontWeight: 600, color: '#34D399' }}
-                >
+                <span style={{ fontFamily: 'monospace', fontWeight: 600, color: '#34D399' }}>
                   {data.progress.etaFormatted}
                 </span>
               </div>
