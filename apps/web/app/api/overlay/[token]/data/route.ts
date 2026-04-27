@@ -1,0 +1,360 @@
+/**
+ * Public Overlay API
+ *
+ * Endpoint: GET /api/overlay/[token]/data
+ *
+ * Liefert die aktuellen Live-Daten eines Pilots für externe Konsumenten
+ * (OBS Browser-Source, Streaming-Tools, Discord-Bots, etc.).
+ *
+ * Authentication: Token-basiert via URL-Path-Parameter.
+ *   - Token ist 32 hex chars (128 bit Entropie)
+ *   - User generiert Token in /settings, kann rotieren
+ *   - Bei Leak: User rotiert → alter Token sofort ungültig
+ *
+ * Rate-Limiting:
+ *   - 100 Requests/Min pro Token (5s Polling = 12/Min, viel Buffer)
+ *   - 200 Requests/Min pro IP (mehrere OBS-Instanzen pro IP möglich)
+ *   - 401-Spike-Detection bei 5+ failed auths in 1 Min
+ *
+ * CORS: Access-Control-Allow-Origin: *
+ *   → Erlaubt OBS-Browser-Source und externe Web-Apps
+ *
+ * Cache: no-store
+ *   → Daten ändern sich alle 30s (Tracker-Interval), aber User erwartet
+ *     "live", also kein Caching auf Browser/CDN-Ebene.
+ *
+ * Response-Format: siehe OverlayResponse-Type unten.
+ *
+ * @see weather-provider-strategy.md  für ähnliche Proxy-Architektur
+ * @see todo-obs-overlay-system.md     für Phase-Übersicht
+ */
+
+import { NextRequest, NextResponse } from 'next/server';
+import { prisma } from '@vam/db';
+import {
+  detectPhase,
+  haversineKm,
+  formatDuration,
+  FLIGHT_PHASES,
+  type FlightPhase,
+} from '@/lib/flight-phase';
+import {
+  checkRateLimit,
+  recordAuthFail,
+  RATE_LIMITS,
+} from '@/lib/rate-limit';
+
+// ────────────────────────────────────────────────────────────
+// RESPONSE TYPES
+// ────────────────────────────────────────────────────────────
+
+type OverlayUser = {
+  callsign: string | null;
+  name: string | null;
+  rank: string | null;
+};
+
+type OverlayActiveResponse = {
+  active: true;
+  user: OverlayUser;
+  network: 'VATSIM' | 'IVAO' | 'Offline';
+  aircraft: {
+    type: string | null;
+    registration: string | null;
+  };
+  flightPlan: {
+    departure: string | null;
+    arrival: string | null;
+    alternate: string | null;
+    cruiseAltitude: number | null;
+    flightRules: string | null;
+  };
+  position: {
+    latitude: number;
+    longitude: number;
+    altitude: number;
+    groundSpeed: number;
+    heading: number;
+    onGround: boolean;
+  };
+  phase: {
+    id: FlightPhase;
+    label: string;
+    shortLabel: string;
+  };
+  duration: {
+    minutes: number;
+    formatted: string;
+  };
+  progress: {
+    distanceKm: number | null;
+    etaMinutes: number | null;
+    etaFormatted: string | null;
+  };
+  timestamp: string;
+};
+
+type OverlayInactiveResponse = {
+  active: false;
+  user: OverlayUser;
+  message: string;
+};
+
+type OverlayErrorResponse = {
+  error: string;
+  message?: string;
+};
+
+// ────────────────────────────────────────────────────────────
+// CORS-HEADERS (alle Responses)
+// ────────────────────────────────────────────────────────────
+
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Max-Age': '86400',
+};
+
+const NO_CACHE_HEADERS = {
+  'Cache-Control': 'no-store, no-cache, must-revalidate',
+  Pragma: 'no-cache',
+  Expires: '0',
+};
+
+// ────────────────────────────────────────────────────────────
+// HELPERS
+// ────────────────────────────────────────────────────────────
+
+function jsonResponse<T>(
+  data: T,
+  status: number,
+  extraHeaders?: Record<string, string>,
+): NextResponse {
+  return new NextResponse(JSON.stringify(data), {
+    status,
+    headers: {
+      'Content-Type': 'application/json',
+      ...CORS_HEADERS,
+      ...NO_CACHE_HEADERS,
+      ...extraHeaders,
+    },
+  });
+}
+
+/**
+ * Extrahiert die Client-IP aus dem Request.
+ * Berücksichtigt Cloudflare-Tunnel-Header und Standard-Proxy-Header.
+ */
+function getClientIp(req: NextRequest): string {
+  // Cloudflare-Tunnel setzt diesen Header
+  const cfIp = req.headers.get('cf-connecting-ip');
+  if (cfIp) return cfIp;
+
+  // Standard X-Forwarded-For (kann mehrere IPs enthalten, nimm erste)
+  const forwarded = req.headers.get('x-forwarded-for');
+  if (forwarded) return forwarded.split(',')[0].trim();
+
+  // X-Real-IP als Fallback
+  const realIp = req.headers.get('x-real-ip');
+  if (realIp) return realIp;
+
+  // Last-resort: unbekannt
+  return 'unknown';
+}
+
+/**
+ * Validiert Token-Format. Schnell-Check vor DB-Zugriff um Bruteforce
+ * via Garbage-Tokens zu reduzieren.
+ *
+ * Erwartetes Format: 32 hex chars (a-f, 0-9), case-insensitive
+ */
+function isValidTokenFormat(token: string): boolean {
+  return /^[0-9a-f]{32}$/i.test(token);
+}
+
+// ────────────────────────────────────────────────────────────
+// OPTIONS HANDLER (CORS preflight)
+// ────────────────────────────────────────────────────────────
+
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 204,
+    headers: CORS_HEADERS,
+  });
+}
+
+// ────────────────────────────────────────────────────────────
+// GET HANDLER
+// ────────────────────────────────────────────────────────────
+
+export async function GET(
+  req: NextRequest,
+  { params }: { params: Promise<{ token: string }> },
+): Promise<NextResponse> {
+  const { token } = await params;
+  const ip = getClientIp(req);
+
+  // ─── 1. Token-Format-Check (vor DB-Hit, schnell) ──────────
+  if (!isValidTokenFormat(token)) {
+    recordAuthFail(`bad-format:${ip}`);
+    return jsonResponse<OverlayErrorResponse>(
+      { error: 'invalid_token_format' },
+      401,
+    );
+  }
+
+  // ─── 2. Rate-Limit ─────────────────────────────────────────
+  const rateLimit = checkRateLimit(token, ip);
+  const rateLimitHeaders = {
+    'X-RateLimit-Limit': String(RATE_LIMITS.TOKEN_REQUESTS_PER_MIN),
+    'X-RateLimit-Remaining': String(rateLimit.remaining),
+    'X-RateLimit-Reset': String(Math.ceil(rateLimit.resetAt / 1000)),
+  };
+
+  if (!rateLimit.allowed) {
+    return jsonResponse<OverlayErrorResponse>(
+      {
+        error: 'rate_limit_exceeded',
+        message: `Too many requests. Limited by ${rateLimit.limitedBy}.`,
+      },
+      429,
+      rateLimitHeaders,
+    );
+  }
+
+  // ─── 3. Token-Lookup ───────────────────────────────────────
+  const user = await prisma.user.findUnique({
+    where: { overlayToken: token },
+    select: {
+      id: true,
+      name: true,
+      rank: { select: { name: true } },
+    },
+  });
+
+  if (!user) {
+    recordAuthFail(`unknown-token:${ip}`);
+    return jsonResponse<OverlayErrorResponse>(
+      { error: 'invalid_token' },
+      401,
+      rateLimitHeaders,
+    );
+  }
+
+  const overlayUser: OverlayUser = {
+    callsign: null,
+    name: user.name,
+    rank: user.rank?.name ?? null,
+  };
+
+  // ─── 4. LiveSession-Lookup ─────────────────────────────────
+  const session = await prisma.liveSession.findFirst({
+    where: {
+      userId: user.id,
+      isActive: true,
+    },
+    orderBy: { lastUpdatedAt: 'desc' },
+  });
+
+  if (!session) {
+    return jsonResponse<OverlayInactiveResponse>(
+      {
+        active: false,
+        user: overlayUser,
+        message: 'No active flight',
+      },
+      200,
+      rateLimitHeaders,
+    );
+  }
+
+  // ─── 5. Optional: Arrival-Airport für Distance/ETA ────────
+  let distanceToArrivalKm: number | null = null;
+  let etaMinutes: number | null = null;
+
+  if (session.arrivalIcao) {
+    const arrival = await prisma.airport.findUnique({
+      where: { icao: session.arrivalIcao },
+      select: { latitude: true, longitude: true },
+    });
+    if (arrival) {
+      distanceToArrivalKm = haversineKm(
+        session.latitude,
+        session.longitude,
+        arrival.latitude,
+        arrival.longitude,
+      );
+      // ETA: nur wenn airborne mit sinnvoller Speed
+      const groundSpeedKmh = session.groundSpeed * 1.852;
+      if (groundSpeedKmh > 30) {
+        etaMinutes = (distanceToArrivalKm / groundSpeedKmh) * 60;
+      }
+    }
+  }
+
+  // ─── 6. Phase-Detection ────────────────────────────────────
+  const phase = detectPhase({
+    onGround: session.onGround,
+    altitude: session.altitude,
+    groundSpeed: session.groundSpeed,
+    cruiseAltitude: session.cruiseAltitude,
+    distanceToArrivalKm,
+  });
+  const phaseMeta = FLIGHT_PHASES[phase];
+
+  // ─── 7. Duration ───────────────────────────────────────────
+  const durationMinutes = Math.floor(
+    (Date.now() - new Date(session.connectedAt).getTime()) / 60_000,
+  );
+
+  // ─── 8. Response ───────────────────────────────────────────
+  const response: OverlayActiveResponse = {
+    active: true,
+    user: {
+      ...overlayUser,
+      callsign: session.callsign,
+    },
+    network: session.network,
+    aircraft: {
+      type: session.aircraftType,
+      registration: session.aircraftRegistration,
+    },
+    flightPlan: {
+      departure: session.departureIcao,
+      arrival: session.arrivalIcao,
+      alternate: session.alternateIcao,
+      cruiseAltitude: session.cruiseAltitude,
+      flightRules: session.flightRules,
+    },
+    position: {
+      latitude: session.latitude,
+      longitude: session.longitude,
+      altitude: session.altitude,
+      groundSpeed: session.groundSpeed,
+      heading: session.heading,
+      onGround: session.onGround,
+    },
+    phase: {
+      id: phase,
+      label: phaseMeta.label,
+      shortLabel: phaseMeta.shortLabel,
+    },
+    duration: {
+      minutes: durationMinutes,
+      formatted: formatDuration(durationMinutes),
+    },
+    progress: {
+      distanceKm:
+        distanceToArrivalKm !== null
+          ? Math.round(distanceToArrivalKm)
+          : null,
+      etaMinutes: etaMinutes !== null ? Math.round(etaMinutes) : null,
+      etaFormatted:
+        etaMinutes !== null ? formatDuration(etaMinutes) : null,
+    },
+    timestamp: new Date().toISOString(),
+  };
+
+  return jsonResponse(response, 200, rateLimitHeaders);
+}
