@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { ConnectionCard } from './connection-card';
 import { OverlayCard } from './overlay-card';
 import { getOrCreateOverlayToken } from './actions';
+import { OverlayPreferences } from './overlay-preferences';
+import { getOverlayPreferences } from './overlay-actions';
 
 export default async function SettingsPage({
   searchParams,
@@ -35,6 +37,9 @@ export default async function SettingsPage({
 
   // OBS-Overlay-Token laden (oder generieren falls nicht vorhanden)
   const overlayToken = await getOrCreateOverlayToken();
+
+  // OBS-Overlay User-Preferences laden (Layout + Phase-Colors)
+  const overlayPrefs = await getOverlayPreferences();
 
   const statusBanner =
     params.status === 'success' && params.provider
@@ -174,6 +179,15 @@ export default async function SettingsPage({
             zeigt während des Fluges automatisch deine Live-Daten an.
           </p>
           <OverlayCard token={overlayToken} />
+        </section>
+
+        {/* OBS-Overlay Anpassung */}
+        <section className="mt-8">
+          <OverlayPreferences
+            initialLayout={overlayPrefs.layout}
+            initialColors={overlayPrefs.phaseColors}
+            callsign={user.name}
+          />
         </section>
       </div>
     </main>

@@ -67,6 +67,9 @@ model User {
 
   overlayToken           String?   @unique
 
+  overlayLayout          String    @default("bar")    // "bar" | "card"
+  overlayPhaseColors     Json?                        // optional override
+
   image            String?
   totalFlightHours Float    @default(0)
   totalFlights     Int      @default(0)
