@@ -118,6 +118,7 @@ async function pollVatsim(): Promise<void> {
         create: {
           userId,
           network: 'VATSIM',
+          dataSource: 'VATSIM_API',
           externalId: pilot.cid,
           callsign: pilot.callsign,
           aircraftType: pilot.flight_plan?.aircraft_short ?? null,
@@ -142,6 +143,7 @@ async function pollVatsim(): Promise<void> {
         },
         update: {
           callsign: pilot.callsign,
+          dataSource: 'VATSIM_API',
           aircraftType: pilot.flight_plan?.aircraft_short ?? null,
           departureIcao: pilot.flight_plan?.departure || null,
           arrivalIcao: pilot.flight_plan?.arrival || null,

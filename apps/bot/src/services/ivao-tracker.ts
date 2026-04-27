@@ -177,6 +177,7 @@ async function pollIvao(): Promise<void> {
         create: {
           userId,
           network: 'IVAO',
+          dataSource: 'IVAO_API',
           externalId: pilot.userId,
           callsign: pilot.callsign,
           aircraftType: fp?.aircraftId ?? null,
@@ -201,6 +202,7 @@ async function pollIvao(): Promise<void> {
         },
         update: {
           callsign: pilot.callsign,
+          dataSource: 'IVAO_API',
           aircraftType: fp?.aircraftId ?? null,
           departureIcao: fp?.departureId || null,
           arrivalIcao: fp?.arrivalId || null,

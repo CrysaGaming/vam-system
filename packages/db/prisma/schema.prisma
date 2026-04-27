@@ -27,6 +27,14 @@ enum PirepStatus {
   Rejected
 }
 
+enum DataSource {
+  VATSIM_API
+  IVAO_API
+  ACARS_CLIENT
+  MANUAL
+  REPLAY
+}
+
 model Airline {
   id          String   @id @default(cuid())
   icao        String   @unique
@@ -101,6 +109,11 @@ model LiveSession {
   network              NetworkType
   externalId           Int
   callsign             String
+
+  // ACARS Phase 1: Trennung Network (wo) vs DataSource (wer liefert)
+  dataSource           DataSource  @default(VATSIM_API)
+  acarsClientVersion   String?
+  lastAcarsHeartbeat   DateTime?
 
   aircraftType         String?
   aircraftRegistration String?
