@@ -1083,21 +1083,34 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
             </Source>
           )}
 
-          {/* RainViewer Worldwide Radar - auto-hide bei Zoom > 10 */}
-          {filters.weatherRadar && radarTileUrl && mapZoom <= 10 && (
+          {/* RainViewer Worldwide Radar */}
+          {/* RainViewer hat Server-side max zoom 7. Mit source maxzoom=7 werden */}
+          {/* z=7 tiles für höhere Levels overzoomed (gestretcht) statt 404. */}
+          {/* Layer maxzoom=11 + interpolate opacity = smoother fade-out beim */}
+          {/* Reinzoomen auf Stadt-Level (Wetter wird unscharf, dann unsichtbar). */}
+          {filters.weatherRadar && radarTileUrl && (
             <Source
               id="rainviewer-source"
               type="raster"
               tiles={[radarTileUrl]}
               tileSize={256}
+              maxzoom={7}
               attribution='© RainViewer'
             >
               <Layer
                 id="rainviewer-layer"
                 type="raster"
                 source="rainviewer-source"
+                maxzoom={14}
                 paint={{
-                  'raster-opacity': 0.65,
+                  'raster-opacity': [
+                      'interpolate', ['linear'], ['zoom'],
+                    7, 0.65,    // Bei Zoom 7: voll
+                    11, 0.65,   // Bei Zoom 11 (~5km Maßstab): noch voll, weil Approach
+                    12, 0.45,   // Bei Zoom 12 (~2km Maßstab): merklich blasser
+                    13, 0.2,    // Bei Zoom 13 (~1km): fast weg
+                    14, 0,      // Bei Zoom 14: komplett weg
+                   ],
                   'raster-fade-duration': 300,
                 }}
               />
@@ -1234,7 +1247,7 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
             color="#e0e7ff"
           />
           <FilterToggle
-            label={filters.weatherRadar && mapZoom > 10 ? 'Wetter Radar (Zoom-Limit)' : 'Wetter Radar'}
+            label="Wetter Radar"
             checked={filters.weatherRadar}
             onChange={(v) =>
               setFilters((prev) => ({ ...prev, weatherRadar: v }))
