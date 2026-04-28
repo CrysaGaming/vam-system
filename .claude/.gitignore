@@ -1,0 +1,5 @@
+# Auth tokens / credentials — never commit
+credentials.json
+.credentials.json
+*.credential
+auth.json
