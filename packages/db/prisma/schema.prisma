@@ -83,6 +83,10 @@ model User {
   ivaoRefreshToken       String?   @db.Text
   ivaoTokenExpiresAt     DateTime?
 
+  // SimBrief-Account-Identifier für API-Dispatch. Wenn null, dispatcht User
+  // via Browser-Fallback (prefilled URL).
+  simBriefUsername       String?
+
   overlayToken           String?   @unique
 
   overlayLayout          String    @default("bar")          // "bar" | "card"
@@ -411,6 +415,11 @@ model Booking {
   flightPlanCacheId String?
   flightPlanCache   FlightPlanCache? @relation(fields: [flightPlanCacheId], references: [id], onDelete: SetNull)
   simBriefOfpId     String?
+  // SimBrief static_id — caller-provided trace identifier sent during
+  // dispatch (format: "vam-<bookingId>"). Used for debug-tracing OFPs
+  // back to bookings server-side. Deterministically derivable from
+  // booking.id; this field is for explicit audit logging.
+  simBriefStaticId  String?
   dispatchedAt      DateTime?
 
   createdAt          DateTime  @default(now())
@@ -427,10 +436,11 @@ model Booking {
   @@index([expiresAt])
 }
 
-// v1-Limitation: Cache-Key ist (routeId, aircraftType) — KEINE per-User-SimBrief-Settings.
-// Alle User einer Airline kriegen denselben OFP für gleiche Route+Aircraft, unabhängig
-// von Fuel-Policy / Units / Layout-Präferenzen. Wenn das in v2 problematisch wird,
-// muss der Cache-Key user- bzw. setting-hash-aware werden.
+// v1-Limitation: Cache-Key ist (routeId, aircraftType) — Cache ist airline-shared,
+// ignoriert per-User OFP-Personalisierung (Fuel-Policy/Units/Layout).
+// User-Identity (simBriefUsername) wird beim API-Dispatch verwendet aber NICHT als
+// Cache-Key-Komponente. Wenn User-Personalisierung in v2 problematisch wird, muss der
+// Cache-Key user- bzw. setting-hash-aware werden.
 model FlightPlanCache {
   id            String   @id @default(cuid())
   airlineId     String
