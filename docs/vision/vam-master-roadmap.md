@@ -1406,10 +1406,10 @@ AUFWAND: 1-2 Wochen real (Faktor 0.3 von 3-7 Wochen Plan)
 DEPENDENCIES:
   ✅ Routes existieren (Tag 1)
   ✅ Schema-System steht (Prisma)
-  ⏳ SimBrief-API-Key (Email gesendet, warte auf Antwort)
+  ✅ SimBrief-API-Key (Key erhalten 28.04.2026)
 
 RISIKEN:
-  - SimBrief-API-Antwort verzögert sich → Fallback-Modus aktiv
+  - SimBrief-API-Quota/Rate-Limits unklar → Caching-Strategie für FlightPlanCache von Anfang an wichtig
   - Schema-Migration-Konflikt mit existing Pireps → Test sorgfältig
   - Multi-Network-PIREP-Edge-Cases (VATSIM + IVAO same Flug)
 
