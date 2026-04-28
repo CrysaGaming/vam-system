@@ -35,6 +35,14 @@ enum DataSource {
   REPLAY
 }
 
+enum BookingState {
+  Created
+  SimBriefDispatched
+  Completed
+  Cancelled
+  Expired
+}
+
 model Airline {
   id          String   @id @default(cuid())
   icao        String   @unique
@@ -53,6 +61,8 @@ model Airline {
   sceneries   Scenery[]
   featureFlags FeatureFlag[]
   roleMappings DiscordRoleMapping[]
+  bookings         Booking[]
+  flightPlanCaches FlightPlanCache[]
 }
 
 model User {
@@ -100,6 +110,7 @@ model User {
   accounts        Account[]
   sessions        Session[]
   emailVerified   DateTime?
+  bookings        Booking[]
 }
 
 model LiveSession {
@@ -237,6 +248,8 @@ model Route {
   createdAt        DateTime  @default(now())
 
   pireps Pirep[]
+  bookings         Booking[]
+  flightPlanCaches FlightPlanCache[]
 
   @@unique([airlineId, flightNumber])
   @@index([departureId])
@@ -270,6 +283,11 @@ model Pirep {
   rejectionReason String?
   approvedById    String?
   approver        User?       @relation("PirepApprover", fields: [approvedById], references: [id])
+  // 1:1 — eine Booking hat max. einen abschließenden PIREP. DB-level Uniqueness
+  // schützt vor Doppel-Submit-Race-Conditions; bei v2 Multi-Leg wird ein eigenes
+  // Booking-Parent/Leg-Children-Pattern entstehen, nicht 1:n hier.
+  bookingId       String?     @unique
+  booking         Booking?    @relation(fields: [bookingId], references: [id], onDelete: SetNull)
 
   @@index([userId, submittedAt])
   @@index([airlineId, status])
@@ -370,4 +388,71 @@ model VerificationToken {
   expires    DateTime
 
   @@unique([identifier, token])
+}
+
+model Booking {
+  id              String       @id @default(cuid())
+  airlineId       String
+  airline         Airline      @relation(fields: [airlineId], references: [id])
+  userId          String
+  user            User         @relation(fields: [userId], references: [id])
+
+  // Required + onDelete: Restrict (default). Booking ohne Route ist Nonsense-State.
+  // Hard-Delete einer Route erfordert vorheriges Cancel/Expire aller referenzierenden Bookings
+  // — bewusste Operational Hygiene, nicht Bug.
+  routeId         String
+  route           Route        @relation(fields: [routeId], references: [id])
+
+  state           BookingState @default(Created)
+
+  // Hint für UI/Filter, kein Hard-Lock — actual Network kommt vom PIREP/LiveSession
+  intendedNetwork NetworkType?
+
+  flightPlanCacheId String?
+  flightPlanCache   FlightPlanCache? @relation(fields: [flightPlanCacheId], references: [id], onDelete: SetNull)
+  simBriefOfpId     String?
+  dispatchedAt      DateTime?
+
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  expiresAt          DateTime  // app-level: createdAt + 7d in v1
+  cancelledAt        DateTime?
+  cancellationReason String?
+
+  pirep              Pirep?
+
+  @@index([userId, state])
+  @@index([airlineId, state])
+  @@index([routeId])
+  @@index([expiresAt])
+}
+
+// v1-Limitation: Cache-Key ist (routeId, aircraftType) — KEINE per-User-SimBrief-Settings.
+// Alle User einer Airline kriegen denselben OFP für gleiche Route+Aircraft, unabhängig
+// von Fuel-Policy / Units / Layout-Präferenzen. Wenn das in v2 problematisch wird,
+// muss der Cache-Key user- bzw. setting-hash-aware werden.
+model FlightPlanCache {
+  id            String   @id @default(cuid())
+  airlineId     String
+  airline       Airline  @relation(fields: [airlineId], references: [id])
+  routeId       String
+  route         Route    @relation(fields: [routeId], references: [id])
+  aircraftType  String   // ICAO type code (A320, B738), nicht Aircraft-PK
+
+  ofpId         String
+  rawResponse   Json
+  routeString   String?  @db.Text
+  fuelKg        Int?
+  blockTimeMin  Int?
+
+  generatedAt   DateTime @default(now())
+  // SimBrief weather TTL — hardcoded weil physikalisch, nicht airline-policy.
+  // app-level: generatedAt + 6h in v1.
+  expiresAt     DateTime
+
+  bookings      Booking[]
+
+  @@index([routeId, aircraftType, expiresAt])
+  @@index([airlineId])
+  @@index([expiresAt])
 }
