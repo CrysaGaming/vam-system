@@ -99,7 +99,7 @@ async function main() {
     { flightNumber: 'LH200', from: 'EDDF', to: 'EDDB', minutes: 70, nm: 225 },
     { flightNumber: 'LH250', from: 'EDDF', to: 'EDDH', minutes: 65, nm: 215 },
     { flightNumber: 'LH300', from: 'EDDM', to: 'EDDH', minutes: 75, nm: 330 },
-    { flightNumber: 'LH400', from: 'EDDF', to: 'EGLL', minutes: 90, nm: 350 },
+    { flightNumber: 'LH918', from: 'EDDF', to: 'EGLL', minutes: 90, nm: 350 },
     { flightNumber: 'LH420', from: 'EDDF', to: 'LFPG', minutes: 80, nm: 250 },
     { flightNumber: 'LH500', from: 'EDDF', to: 'LEMD', minutes: 165, nm: 790 },
     { flightNumber: 'LH550', from: 'EDDM', to: 'LSZH', minutes: 55, nm: 145 },
@@ -125,6 +125,11 @@ async function main() {
         distanceNm: route.nm,
       },
     });
+  }
+
+  const actualRouteCount = await prisma.route.count({ where: { airlineId: airline.id } });
+  if (actualRouteCount !== routes.length) {
+    console.warn(`⚠️  Route mismatch: expected ${routes.length}, got ${actualRouteCount} — likely flightNumber conflict in seed`);
   }
 
   console.log('Seed completed:', {
