@@ -115,7 +115,7 @@ WAS WIR HABEN:
   ✅ Architektur-Docs für ACARS, Weather, OBS bereits gepusht
 
 WAS WIR BAUEN MÜSSEN (kurz):
-  ⏳ Booking-Loop schließen (Routes existieren, Booking fehlt)
+  ⏳ Booking-Loop schließen (Schema da, Service-Layer als nächstes)
   ⏳ Awards UI (Backend ready)
   ⏳ Sceneries UI (Backend ready)
   ⏳ OBS-Overlay komplettieren (Phase 1-3 done, 4-9 offen)
@@ -1373,7 +1373,7 @@ TRACK 5: Business-Layer
 ```
 ZIEL: 
   Pilot-Workflow ist VOLLSTÄNDIG. Von Onboarding bis Award-Display.
-  Heute: PIREP einreichen geht. Booking fehlt. Awards ohne UI.
+  Heute: PIREP einreichen geht. Booking-Schema da, Service-Layer als nächstes. Awards ohne UI.
 
 STRATEGISCHER WERT:
   Plattform-Kern. Ohne dies ist VAM kein VAM.
@@ -1385,7 +1385,7 @@ AUFWAND TOTAL: 4-8 Wochen real
 
 ### 9.2 Track-Items (priorisiert)
 
-#### 9.2.1 Booking-System (Phase 6, Tag 6 nächster Schritt)
+#### 9.2.1 Booking-System (Phase 1 done — Service-Layer next)
 
 ```
 WAS:
@@ -1395,10 +1395,11 @@ WAS:
   - PIREP-Auto-Link nach Submit (closes booking)
 
 KOMPONENTEN:
-  - Schema: Booking-Model + FlightPlanCache-Model
-  - Logic: Dual-Path SimBrief (API-Key vorhanden vs Fallback)
-  - UI: Booking-Dashboard, Booking-Detail-Page
-  - Settings-UI für ACARS + SimBrief
+  ✅ Phase 1 — Schema: Booking-Model + FlightPlanCache-Model
+     (Tag 6, 28.04.2026, Migration: add_booking_with_flightplan_cache)
+  ⏳ Phase 2 — Service-Layer: Dual-Path SimBrief (API-Key vorhanden vs Fallback)
+  🔵 Phase 3 — UI: Booking-Dashboard, Booking-Detail-Page
+  🔵 Phase 4 — Settings-UI für ACARS + SimBrief
 
 KOMPLEXITÄT: 🟡 mittel
 AUFWAND: 1-2 Wochen real (Faktor 0.3 von 3-7 Wochen Plan)
@@ -1616,6 +1617,10 @@ v2-VISION:
 ### 9.3 Track 1 Strategische Reihenfolge
 
 ```
+⚠️ TODO (nach Phase 2): Wochen-Aufteilung verwendet 2-Phase-Modell,
+   während 9.2.1 ein 4-Phase-Modell etabliert hat. Re-Kalibrierung
+   in eigenem Reorg-Pass nach Phase-2-Service-Layer-Daten.
+
 WOCHE 1-2 (Tag 6-12):
   → Booking-System Phase 1 (Schema + Dual-Path-Logic)
   → Booking-Settings-UI
@@ -2905,7 +2910,12 @@ RISIKO: Open-Source vs Proprietär-Entscheidung
   Datum: Tag 5 (vor Master-Roadmap)
   Decision: Track 1 startet mit Booking
   Begründung: Schließt Pilot-Workflow-Lücke
-  Status: ⏳ Tag 6 nächster Schritt
+  Status: ✅ Phase 1 (Schema) done 28.04.2026
+  Outcome: Decision validated. Schema-Phase ohne Strategic-Pivot durchgezogen.
+           Eine Mid-Course-Correction am Implementation-Detail (1:1-Constraint
+           auf Pirep.bookingId via Prisma-Validation gefangen, nicht erst in
+           Production). Eine Pre-existing-Bug-Discovery (Seed-LH400-Konflikt)
+           als Bonus-Outcome. Phase 2 (Service-Layer) ist next.
 
 [D-104] Top-Level-Adressat: Multi-Audience
   Datum: Tag 5
@@ -3044,6 +3054,9 @@ TIME ───────██████████████████
 ### 19.2 Detail-Timeline Track 1 (Pilot-Experience)
 
 ```
+⚠️ TODO (nach Phase 2): Timeline verwendet 2-Phase-Modell parallel
+   zu 9.2.1's 4-Phase-Modell. Pending reorg.
+
 WOCHE 1-2 (Tag 6-12):
   ████████  Booking-System Phase 1 (Schema + Dual-Path)
   ████      Booking-Settings-UI
@@ -3609,7 +3622,7 @@ KURZ (heute / morgen):
   1. Diese Master-Doc nach docs/vision/ pushen (Repo-Commit)
      ↳ Plus die 3 Vision-Docs aus /mnt/user-data/outputs/
   2. README "Next" aktualisieren (verweise auf Master-Doc)
-  3. Start mit Track 1 Item 9.2.1 (Booking-System Phase 1)
+  3. Track 1 Item 9.2.1 Service-Layer (Phase 1 Schema done, Phase 2 next)
 
 MITTEL (1-2 Wochen):
   4. Booking-System v1 fertigstellen
