@@ -65,3 +65,9 @@ Thumbs.db
 *.log
 npm-debug.log*
 pnpm-debug.log*
+
+# Scratch / discovery — never tracked, never versioned
+# Used for vendor sample files, external docs being analyzed,
+# temporary working files. Treat as ephemeral.
+tmp/
+_scratch/
