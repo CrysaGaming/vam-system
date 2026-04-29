@@ -70,13 +70,15 @@ async function main() {
   }
 
   // ───── Aircraft ─────
+  // Aircraft.type ist ICAO-type-code per Schema-Convention (siehe FlightPlanCache-Comment)
+  // — Pattern-α buildSimBriefDispatchUrl sendet diesen Wert direkt an SimBrief, das ICAO erwartet.
   const aircraftList = [
-    { registration: 'D-AIBL', type: 'Airbus A319-114', homeIcao: 'EDDF' },
-    { registration: 'D-AIZA', type: 'Airbus A320-214', homeIcao: 'EDDF' },
-    { registration: 'D-AIUX', type: 'Airbus A320-214', homeIcao: 'EDDM' },
-    { registration: 'D-AIDM', type: 'Airbus A321-231', homeIcao: 'EDDF' },
-    { registration: 'D-AIXA', type: 'Airbus A350-941', homeIcao: 'EDDM' },
-    { registration: 'D-ABYA', type: 'Boeing 747-830', homeIcao: 'EDDF' },
+    { registration: 'D-AIBL', type: 'A319', homeIcao: 'EDDF' },
+    { registration: 'D-AIZA', type: 'A320', homeIcao: 'EDDF' },
+    { registration: 'D-AIUX', type: 'A320', homeIcao: 'EDDM' },
+    { registration: 'D-AIDM', type: 'A321', homeIcao: 'EDDF' },
+    { registration: 'D-AIXA', type: 'A359', homeIcao: 'EDDM' },
+    { registration: 'D-ABYA', type: 'B748', homeIcao: 'EDDF' },
   ];
   for (const ac of aircraftList) {
     await prisma.aircraft.upsert({
@@ -92,6 +94,19 @@ async function main() {
     const ap = await prisma.airport.findUnique({ where: { icao } });
     if (!ap) throw new Error(`Airport ${icao} not found in seed`);
     return ap.id;
+  }
+
+  // Pre-load Aircraft-IDs per ICAO-type für distance-based default-assignment
+  const aircraftByIcao = new Map<string, string>();
+  for (const ac of await prisma.aircraft.findMany({
+    where: { airlineId: airline.id },
+    select: { id: true, type: true },
+  })) {
+    if (!aircraftByIcao.has(ac.type)) aircraftByIcao.set(ac.type, ac.id);
+  }
+  function defaultAircraftIdForDistance(nm: number): string | null {
+    const icao = nm < 250 ? 'A319' : nm < 2500 ? 'A320' : 'A359';
+    return aircraftByIcao.get(icao) ?? null;
   }
 
   const routes = [
@@ -112,15 +127,17 @@ async function main() {
   for (const route of routes) {
     const departureId = await findAirportId(route.from);
     const arrivalId = await findAirportId(route.to);
+    const aircraftId = defaultAircraftIdForDistance(route.nm);
 
     await prisma.route.upsert({
       where: { airlineId_flightNumber: { airlineId: airline.id, flightNumber: route.flightNumber } },
-      update: {},
+      update: { aircraftId },
       create: {
         airlineId: airline.id,
         flightNumber: route.flightNumber,
         departureId,
         arrivalId,
+        aircraftId,
         estimatedMinutes: route.minutes,
         distanceNm: route.nm,
       },
@@ -130,6 +147,16 @@ async function main() {
   const actualRouteCount = await prisma.route.count({ where: { airlineId: airline.id } });
   if (actualRouteCount !== routes.length) {
     console.warn(`⚠️  Route mismatch: expected ${routes.length}, got ${actualRouteCount} — likely flightNumber conflict in seed`);
+  }
+
+  // Assign existing users (without airline) to default airline
+  // — for OAuth-Login-Flow where User exists but airlineId is null
+  const orphanUserUpdate = await prisma.user.updateMany({
+    where: { airlineId: null },
+    data: { airlineId: airline.id },
+  });
+  if (orphanUserUpdate.count > 0) {
+    console.log(`Assigned ${orphanUserUpdate.count} orphan user(s) to ${airline.icao}`);
   }
 
   console.log('Seed completed:', {

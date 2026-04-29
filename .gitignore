@@ -71,3 +71,7 @@ pnpm-debug.log*
 # temporary working files. Treat as ephemeral.
 tmp/
 _scratch/
+
+# Claude Code per-user harness settings (permissions, etc.)
+# Project-shared CC config (CLAUDE.md, skills/) stays tracked.
+.claude/settings.local.json
