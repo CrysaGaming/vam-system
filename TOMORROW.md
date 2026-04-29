@@ -2,9 +2,9 @@
 
 ## Day-3 Achievement (gestern, ~10h)
 
-10 Commits auf origin/cc-experiment. Drei Patterns evaluiert, zwei
-end-to-end shipped, plus die größten UX-Lücken aus dem ursprünglichen
-Day-4-plan schon abgearbeitet.
+14 Commits auf origin/cc-experiment. Drei Patterns evaluiert, zwei
+end-to-end shipped, alle ursprünglichen Day-4 Priority-2 Items schon
+abgearbeitet — Day-4 startet effektiv direkt mit dem Live-Test.
 
 | Commit    | Scope                                                          |
 | --------- | -------------------------------------------------------------- |
@@ -18,6 +18,10 @@ Day-4-plan schon abgearbeitet.
 | `c8d6f9d` | docs: TOMORROW.md Day-4 plan after Pattern Z ship              |
 | `ebbf232` | feat(simbrief): Pattern Z callback error banner                |
 | `cf6478d` | feat(bookings): listing page + dashboard navigation            |
+| `e7a63e5` | docs: TOMORROW.md sync after Day-3 evening shipping spree      |
+| `8612e43` | feat(simbrief): Pattern Z symmetry on Plan-again CTA           |
+| `098f7b9` | feat(settings): SimBrief dispatch-mode availability indicator  |
+| `dd48005` | refactor(bookings): extract OfpSummary component               |
 
 ### Pattern α (fallback path, fully working)
 
@@ -40,7 +44,7 @@ Documented in `docs/decisions/2026-04-29-pattern-z-final.md` als der
 Roadmap für den silent vAMSYS-style flow. Not implemented — requires
 Navigraph dev approval, email an dev@navigraph.com pending.
 
-### Bonus (was ursprünglich Day-4 Priority 2 war)
+### Bonus (was ursprünglich Day-4 Priority 2 war — alles closed)
 
 - ✓ Callback-Error-Banner shipped (`ebbf232`) — Pattern-Z-Fehler werden
   jetzt als rotes Banner inline gerendert, nicht mehr als
@@ -49,6 +53,23 @@ Navigraph dev approval, email an dev@navigraph.com pending.
   navigierbar mit Aktiv/Abgeschlossen-Split. Dashboard hat einen
   Quick-Action-Tile dorthin. Schließt die Navigations-Lücke die das
   Live-Testing blockiert hat.
+- ✓ Plan-again Pattern-Z symmetry (`8612e43`) — der "Plan again →"-CTA
+  auf einem `SimBriefDispatched` Booking nutzt jetzt dieselbe Popup-Form
+  wie der initiale Dispatch wenn Pattern Z verfügbar ist, statt durch
+  den Tab-Redirect zu fallen. Pattern α bleibt der Fallback wenn kein
+  API-Key gesetzt ist.
+- ✓ Settings dispatch-mode indicator (`098f7b9`) — `SimBriefCard` zeigt
+  am Card-Ende eine Zwei-Zeilen-Statusliste welche Dispatch-Modi
+  aktuell verfügbar sind, mit der konkreten blockenden Bedingung
+  (Username fehlt / SIMBRIEF_API_KEY nicht konfiguriert) wo zutreffend.
+  Schließt die Lücke "warum sehe ich Pattern α statt Z auf der
+  Booking-Page?".
+- ✓ OfpSummary refactor (`dd48005`) — der OFP-Summary-Block war zweimal
+  in `bookings/[id]/page.tsx` dupliziert (read-only final-state +
+  active cache-exists Variante). Extrahiert nach
+  `bookings/[id]/OfpSummary.tsx` als Server-Component mit optionalem
+  `actions`-Slot — actions present ⇒ live, actions absent ⇒ muted.
+  page.tsx 599 → 501 LOC.
 
 ## Day-4 Priority 1 — LIVE-TEST both patterns
 
@@ -126,28 +147,12 @@ Tab-link statt der Z-Form.
 - Edge-case dokumentieren in eigenem decision-doc
 - Vor Fix-Commit: reproduzieren + minimal repro
 
-## Day-4 Priority 2 — Restliche Polish-Items
+## Day-4 Priority 2 — (leer)
 
-### Settings-UI: Pattern Z Verfügbarkeit anzeigen
-
-`SimBriefCard` zeigt aktuell nur den simBriefUsername. Ergänzen um
-einen Status-Indicator: "Pattern Z (Popup) verfügbar" wenn API-Key
-gesetzt, sonst "Pattern α (Tab-Redirect) verfügbar". Hilft Admins zu
-verstehen welcher Path aktiv ist. Env-check muss server-seitig
-passieren — analog zu `patternZAvailable` in der booking-detail-page.
-
-### "Plan again" für SimBriefDispatched-Bookings
-
-Auf der Detail-Page wenn schon ein OFP cached ist: der "Plan again →"
-Tab-link nutzt aktuell Pattern α auch wenn Pattern Z verfügbar wäre.
-Sollte symmetrisch sein zur "Generate Flight Plan" Variante. Plan:
-denselben patternZFields-Pfad re-nutzen statt einer separater Variant.
-
-### OFP Summary refactor
-
-`<OfpSummary>` Component extrahieren aus booking-detail-page (variant
-C+D dedup). ~30 LOC saved, klarere Logik, prep für mögliche Pirep-page
-Re-use.
+War ursprünglich Settings-Indicator + Plan-again-Symmetry + OfpSummary-
+Refactor. Alle drei Day-3 abends mit-erledigt — siehe Bonus-Block oben.
+Day-4 hat damit nur noch Priority 1 (Live-Test) und Priority 3
+(Pattern-Y-Email) als pre-defined Tasks.
 
 ## Day-4 Priority 3 — Pattern Y email vorbereiten
 
@@ -192,5 +197,5 @@ Falls 1-2 Wochen kein Reply: forum.navigraph.com Post als Backup-Channel
 - Working tree clean (alle Day-3 Files committed)
 - Branch `cc-experiment` 0 commits ahead origin nach Push
 - Web typecheck clean
-- 10 Commits Day-3, alle gepusht
+- 14 Commits Day-3, alle gepusht
 - `.claude/settings.local.json` (harness) bleibt untracked
