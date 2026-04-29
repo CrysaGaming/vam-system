@@ -2835,6 +2835,32 @@ Implementation-Pivot:
 - Neuer Plan: Per-User OAuth-Flow + Token-Storage + S2S-Dispatch
 - Pattern-Z-Code-Wiederverwendung: XML-Parser bleibt, captureSimBriefOfp bleibt
 
+### Pattern α Refinement — Dispatch-Redirect + xml.fetcher (2026-04-29)
+
+KORREKTUR der Pattern-Y-Architektur. Pattern Y (OAuth-basiert für Generate) war eine Fehl-Annahme aus späten Stunden 28.04. Systematische Doku-Recherche am 29.04. (Navigraph Developer Portal, Forum-Threads, phpVMS-Quellen, vAMSYS-llms-full.txt) hat ergeben:
+
+Es gibt KEINEN OAuth-basierten OFP-Generate-Path. Drei separate SimBrief-Mechanismen:
+- OAuth: nur Subscription-Check + Account-Linking
+- Pattern Z (apiv1.js Popup): mit API-Key, legacy
+- Pattern α (Dispatch-Redirect): ohne API-Key, ohne OAuth, modern
+- xml.fetcher.php: read-only, ohne Auth
+
+vAMSYS-Doku bestätigt expliziter: "SimBrief [...] pilots access it by linking their Navigraph account". Server-side OFP-Generate via vAMSYS gibt es nicht.
+
+Architektur-Decision: Pattern α (siehe docs/decisions/2026-04-29-pattern-alpha.md).
+
+Implementation Phase 1 (29.04.):
+- buildDispatchUrl Helper (~80 LOC)
+- fetchOfp Helper (~80 LOC)
+- refreshSimBriefOfp Server-Action (~60 LOC)
+- UI auf Booking-Detail-Page
+- Cleanup Pattern-Z-Code (api-code route, dispatchSimBrief, alter buildDispatchUrl)
+
+Phase 2 Material (post-MVP):
+- Override-Hierarchie (Airline → Fleet → Aircraft → Route → Airport, je 16+ SB-Felder; vAMSYS-Vorbild)
+- Lifecycle-Pattern (FlightPlanCache → Pirep transfer; phpVMS-Vorbild)
+- OAuth-Linking (Subscription-Check + Username-Auto-Fill)
+
 ---
 
 ## 17. Strategische Decision-Log

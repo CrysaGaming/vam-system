@@ -1,60 +1,73 @@
-# Tomorrow
+# Tomorrow / In-Progress
 
-## Stand 2026-04-28 ~03:18
+## Stand 2026-04-29 ~16:00
 
-10 commits ahead of origin/cc-experiment. Pattern Z server-side komplett (API-agnostischer Teil bleibt nutzbar für Pattern Y). UI-Layer NICHT implementiert — wird auch nicht mehr nötig sein.
+11 commits ahead of origin/cc-experiment (post Day-2 Tag-Schluss).
+Pattern α architecture decision finalized. Phase-1-Implementation in progress.
 
-## Pattern Y Architektur-Discovery — DONE
+## Pattern α — Architektur-Stand
 
-OAuth-Flow vollständig dokumentiert (siehe docs/decisions/2026-04-28-pattern-z.md). Verbleibend morgen: 3 konkrete Lookup-Tasks, dann Implementation-Plan.
+Pattern Y (OAuth-Server-to-Server) war Fehl-Annahme von 28.04. spät. Korrigiert am 29.04. zu Pattern α (Dispatch-Redirect-Link + xml.fetcher.php). Vollständige Begründung in docs/decisions/2026-04-29-pattern-alpha.md.
 
-## Vorhandene Investigation-Artefakte
+OAuth ist NICHT für MVP nötig. simBriefUsername-Manual-Eingabe ist genug für V1.
 
-- tmp/navigraph-oauth-flow.har (falls gespeichert) — HAR-Recording vom OAuth-Flow. Enthält Live-Tokens! NICHT committen, NICHT teilen. Morgen: in DevTools "Import HAR" laden für vollständige Scope-List und Response-Headers.
+## Pattern α Phase 1 — Heute Tasks
 
-## CRITICAL FIRST ITEM — Navigraph-Developer-Portal
+1. lib/simbrief/buildDispatchUrl.ts Helper schreiben (~80 LOC)
+2. lib/simbrief/fetchOfp.ts Helper schreiben (~80 LOC)
+3. refreshSimBriefOfp Server-Action in actions.ts erweitern (~60 LOC)
+4. UI auf Booking-Detail-Page: "Plan via SimBrief" Link + "Refresh OFP" Button + OFP-Summary inline
+5. Cleanup Pattern-Z-Code: api-code/route.ts, dispatchSimBrief, alter buildDispatchUrl
 
-3 Konkrete Lookup-Tasks (~30-60min):
+## Pattern α Phase 2 — Post-MVP
 
-1. Navigraph-Developer-Portal finden + App-Registration:
-   - Vermutlich developer.navigraph.com oder navigraph.com/developer
-   - OAuth-App-Registration-Flow für VAM-System
-   - VAM-System als OAuth-Client registrieren
-   - NAVIGRAPH_CLIENT_ID + NAVIGRAPH_CLIENT_SECRET bekommen
-   - Callback-URL hinterlegen: https://vam.kevindrack.de/api/oauth/navigraph/callback
-   - DEV-Callback ggf zusätzlich: http://localhost:3000/api/oauth/navigraph/callback
+### Override-Hierarchie (vAMSYS-Vorbild)
 
-2. Vollständige Scope-List rausfinden:
-   - HAR-File analysieren — kompletter scope-Parameter im OAuth-URL
-   - Welcher Scope grants SimBrief-API-Access
-   - Vermutung: 'openid', 'profile', 'simbrief' oder 'fmsdata' o.ä.
+Schema-Erweiterung um SimBrief-Felder auf 4 Ebenen:
+- Aircraft (per individual airframe override)
+- Fleet (per aircraft type defaults)
+- Airline (system defaults)
+- Route (per scheduled flight overrides)
+- Airport (für Alternate-Settings)
 
-3. SimBrief-API-Endpoint mit Navigraph-Bearer-Auth finden:
-   - Navigraph hat vermutlich Developer-Docs für SimBrief-Integration
-   - Welche URL für OFP-Generation
-   - Welches Request-Format
-   - Rate-Limits
+16+ Felder pro Ebene: OFP-Layout, Performance-Code, Weight-Cat, ETOPS, ICAO-Equipment, PBN, Pax/Bag-Weight, OEW/MZFW/MTOW/MLW/MaxFuel, Fuel-Policies (Contingency, Reserve, MEL, ATC, WXX, Extra, Tankering), Alternate-Search-Logic.
 
-## Pattern Y Implementation Roadmap (post-Discovery)
+buildDispatchUrl erweitern um Inheritance-Resolution: Aircraft → Fleet → Airline → Route-Overrides → final acdata-Object.
 
-1. Schema-Migration: User-Model erweitert um navigraph* Felder (per-User Token-Storage, NICHT auf Airline-Level)
-2. /api/oauth/navigraph/start route (requireUser)
-3. /api/oauth/navigraph/callback route mit Token-Exchange + per-User-Storage
-4. Token-Refresh Server-Action
-5. dispatchSimBriefViaNavigraph Server-Action (ersetzt dispatchSimBrief), nutzt aktuelle-User-Tokens
-6. UI: User-Settings-Page für "Connect Navigraph" Button (analog vAMSYS) mit Status-Indikator + Disconnect-Action
-7. Booking-Detail-Page Update: Dispatch-Button löst direkt Server-Action aus, OFP rendert inline (kein Popup, kein Roundtrip)
-8. Inline-Handling falls User nicht verlinkt: Hinweis + Link zu Settings
-9. captureSimBriefOfp wird intern von Server-Action gerufen (existiert)
-10. Live-Test gegen echten Navigraph+SimBrief
+Aufwand: ~3-5 Tage. Schema-Migration + UI-Pflegestelle für Owners.
 
-## Pending Sub-Stages (priority order)
+### Lifecycle-Pattern (phpVMS-Vorbild)
 
-1. CRITICAL: Navigraph-Developer-Portal-Discovery (3 Lookups oben)
-2. Pattern Y Implementation-Plan finalisieren
-3. Schritt 6 expireOverdueBookings (unabhängig, ~30min, kann parallel)
-4. Side-Quest .env.example mit NAVIGRAPH_CLIENT_ID + NAVIGRAPH_CLIENT_SECRET Placeholder
+FlightPlanCache aktuell direkt an Booking gebunden (cascade delete).
+
+Refactor zu:
+- FlightPlanCache.bookingId nullable
+- FlightPlanCache.pirepId hinzufügen (nullable)
+- Bei PIREP-File: transfer FlightPlanCache von Booking zu Pirep
+- OFP überlebt Booking-Stornierung
+
+Aufwand: ~1 Tag. Schema-Migration + actions.ts adapt.
+
+### OAuth-Account-Linking
+
+Optional, falls User-Friction durch manual simBriefUsername-Eingabe erkannt wird.
+
+- Navigraph-Developer-Portal-Registration via Email an dev@navigraph.com
+- NAVIGRAPH_CLIENT_ID + NAVIGRAPH_CLIENT_SECRET in .env
+- Authorization Code Flow + PKCE (RFC 7636 zwingend per Navigraph-Doku)
+- User-Schema-Erweiterung: navigraphAccessToken, navigraphRefreshToken, navigraphTokenExpiresAt, navigraphSubject
+- Routes: /api/oauth/navigraph/{start,callback,refresh}
+- Token-Refresh-Logic mit one-time-use Refresh-Token-Replacement
+
+Aufwand: ~1-2 Tage + externe Email-Wartezeit für Navigraph-Approval.
+
+## Pending Sub-Stages aus Phase 2 Service-Layer
+
+Diese sind noch offen aus dem Service-Layer-Plan vor Pattern-Z-Pivot:
+
+- Schritt 6 expireOverdueBookings (~30min, unabhängig, kann parallel)
+- .env.example mit SIMBRIEF_API_KEY-Placeholder gelöscht (Pattern α braucht keinen Key)
 
 ## Branch-State
 
-cc-experiment, 10 commits ahead, KEIN Push, working tree clean post-11f0240.
+cc-experiment, 11 commits ahead, KEIN Push. Working tree clean nach diesem Commit.
