@@ -453,6 +453,23 @@ export default async function Dashboard() {
           </Link>
 
           <Link
+            href="/bookings"
+            className="group bg-gray-900 hover:bg-gray-800 border border-gray-800 hover:border-indigo-600/50 rounded-lg p-6 transition"
+          >
+            <div className="flex justify-between items-start">
+              <div>
+                <h3 className="text-lg font-semibold mb-1">Bookings</h3>
+                <p className="text-sm text-gray-400">
+                  Aktive Flugplanung &amp; SimBrief
+                </p>
+              </div>
+              <span className="text-indigo-400 group-hover:translate-x-1 transition-transform">
+                →
+              </span>
+            </div>
+          </Link>
+
+          <Link
             href="/pireps"
             className="group bg-gray-900 hover:bg-gray-800 border border-gray-800 hover:border-indigo-600/50 rounded-lg p-6 transition"
           >
