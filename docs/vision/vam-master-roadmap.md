@@ -2816,6 +2816,25 @@ RISIKO: Open-Source vs Proprietär-Entscheidung
     - Strategische Wette
 ```
 
+### Pattern Y Discovery — Navigraph-OAuth (2026-04-28 spätsession)
+
+CRITICAL ARCHITEKTUR-DISCOVERY: vAMSYS nutzt Navigraph-OAuth-2.0-Authorization-Code-Flow für SimBrief-Integration. Standard OIDC-Pattern.
+
+Bewiesen via:
+- Browser-fetch-Proxy: 4/4 Calls an vamsys.io/livewire/update, 0 an simbrief.com
+- DevTools Initiator-Chain zeigt vollständige OAuth-Sequence
+- vAMSYS Client-ID: vamsys-frontend
+- OAuth-Endpoint: identity.api.navigraph.com/connect/authorize
+- vAMSYS-Callback: /user/oauth/navigraph
+- Linking ist USER-Level Operation in User-Account-Settings (nicht VA-Admin-Setup)
+
+Pattern Z (apiv1.js MD5-popup) ist LEGACY für Apps ohne Navigraph-Integration. Pattern Y ist der moderne, Navigraph-supported Pfad und wird für VAM-System adoptiert.
+
+Implementation-Pivot:
+- Stage 5c-3c-2 + 5c-3c-3 (Output-Page + Popup-Coordinator) VERWORFEN
+- Neuer Plan: Per-User OAuth-Flow + Token-Storage + S2S-Dispatch
+- Pattern-Z-Code-Wiederverwendung: XML-Parser bleibt, captureSimBriefOfp bleibt
+
 ---
 
 ## 17. Strategische Decision-Log
