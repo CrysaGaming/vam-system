@@ -49,28 +49,40 @@ export default async function BookingDetail({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ ofp_id?: string }>;
+  searchParams: Promise<{ ofp_id?: string; ofp_error?: string }>;
 }) {
   const session = await auth();
   if (!session?.user) redirect('/');
 
   const { id } = await params;
-  const { ofp_id: ofpIdParam } = await searchParams;
+  const { ofp_id: ofpIdParam, ofp_error: ofpErrorParam } = await searchParams;
 
   // Pattern Z popup callback: when the popup closes the vendored JS sends
   // the user back here with `?ofp_id=…`. Handle it before the rest of the
-  // page renders so we redirect to the clean URL on success and the page
-  // shows the freshly cached OFP — no second click required.
+  // page renders so we redirect to the clean URL on success — and on
+  // failure surface the reason via `?ofp_error=…` so the page can render
+  // a banner instead of swallowing it silently.
+  //
+  // The redirect() call MUST live outside the try/catch: it throws
+  // NEXT_REDIRECT which Next.js relies on to perform the redirect, and
+  // the catch block would otherwise swallow it.
   if (ofpIdParam) {
+    let callbackError: string | null = null;
     try {
       await processSimBriefCallback({ bookingId: id, ofpId: ofpIdParam });
     } catch (err) {
-      // Surface the error in the URL so we can render a banner on the
-      // clean page after redirect. We do not throw — that would crash the
-      // page; we'd rather show what went wrong and let the user retry.
       console.error('[Pattern Z] processSimBriefCallback failed:', err);
+      // Cap message length to avoid pushing pathological errors into the
+      // URL bar. The known error throws (zod, static_id mismatch, fetch
+      // status, state guard) are all short human-readable strings.
+      const raw = err instanceof Error ? err.message : 'Unknown error';
+      callbackError = raw.slice(0, 200);
     }
-    redirect(`/bookings/${id}`);
+    redirect(
+      callbackError
+        ? `/bookings/${id}?ofp_error=${encodeURIComponent(callbackError)}`
+        : `/bookings/${id}`,
+    );
   }
 
   const currentUser = await prisma.user.findUnique({
@@ -188,6 +200,35 @@ export default async function BookingDetail({
             ← Zurück
           </Link>
         </header>
+
+        {/* Pattern Z callback error — set by `processSimBriefCallback` failure
+            in the if(ofpIdParam) block above. Rendered as a dismissable banner
+            so the user knows why the popup flow did not produce a cached OFP
+            and can decide whether to retry, fall back to Pattern α, or open
+            an issue. The "Schließen" link strips the query param without a
+            client-side handler. */}
+        {ofpErrorParam && (
+          <section className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 mb-8 flex items-start justify-between gap-4">
+            <div>
+              <p className="text-sm font-semibold text-red-400 mb-1">
+                SimBrief-Callback fehlgeschlagen
+              </p>
+              <p className="text-sm text-gray-300 break-words">
+                {ofpErrorParam}
+              </p>
+              <p className="text-xs text-gray-500 mt-2">
+                Tipp: Falls dieser Fehler bleibt, kannst du den
+                Tab-Redirect (Pattern α) als Fallback nutzen.
+              </p>
+            </div>
+            <Link
+              href={`/bookings/${booking.id}`}
+              className="text-gray-400 hover:text-gray-200 text-sm flex-shrink-0"
+            >
+              Schließen
+            </Link>
+          </section>
+        )}
 
         <section className="bg-gray-900 border border-gray-800 rounded-lg p-6 mb-8">
           <div className="flex items-center justify-between gap-8">
