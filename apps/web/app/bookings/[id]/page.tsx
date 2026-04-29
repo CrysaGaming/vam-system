@@ -3,7 +3,9 @@ import { redirect, notFound } from 'next/navigation';
 import { prisma, BookingState } from '@vam/db';
 import Link from 'next/link';
 import { buildSimBriefDispatchUrl } from '@/lib/simbrief/buildDispatchUrl';
-import { refreshSimBriefOfp } from '../actions';
+import { buildSimBriefFormFields } from '@/lib/simbrief/buildFormFields';
+import { refreshSimBriefOfp, processSimBriefCallback } from '../actions';
+import { SimBriefDispatchForm } from './SimBriefDispatchForm';
 
 function stateStyle(state: BookingState): { className: string; label: string } {
   switch (state) {
@@ -44,13 +46,32 @@ function formatBlockTime(min: number | null): string {
 
 export default async function BookingDetail({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ ofp_id?: string }>;
 }) {
   const session = await auth();
   if (!session?.user) redirect('/');
 
   const { id } = await params;
+  const { ofp_id: ofpIdParam } = await searchParams;
+
+  // Pattern Z popup callback: when the popup closes the vendored JS sends
+  // the user back here with `?ofp_id=…`. Handle it before the rest of the
+  // page renders so we redirect to the clean URL on success and the page
+  // shows the freshly cached OFP — no second click required.
+  if (ofpIdParam) {
+    try {
+      await processSimBriefCallback({ bookingId: id, ofpId: ofpIdParam });
+    } catch (err) {
+      // Surface the error in the URL so we can render a banner on the
+      // clean page after redirect. We do not throw — that would crash the
+      // page; we'd rather show what went wrong and let the user retry.
+      console.error('[Pattern Z] processSimBriefCallback failed:', err);
+    }
+    redirect(`/bookings/${id}`);
+  }
 
   const currentUser = await prisma.user.findUnique({
     where: { id: session.user.id },
@@ -91,6 +112,33 @@ export default async function BookingDetail({
   const dispatchUrl =
     booking.route.aircraft && !isFinalState
       ? buildSimBriefDispatchUrl({
+          bookingId: booking.id,
+          airline: { icao: booking.airline.icao },
+          route: { flightNumber: booking.route.flightNumber },
+          aircraft: {
+            type: booking.route.aircraft.type,
+            registration: booking.route.aircraft.registration,
+          },
+          departure: { icao: booking.route.departure.icao },
+          arrival: { icao: booking.route.arrival.icao },
+          user: { name: booking.user.name },
+        })
+      : null;
+
+  // Pattern Z is only offered when an API key is configured AND the user
+  // has a SimBrief username on file (the popup flow requires the user to
+  // already be — or be willing to log in as — a real SimBrief account).
+  // The env-check happens server-side; the client never learns whether a
+  // key is set, only whether the form renders.
+  const patternZAvailable =
+    !!process.env.SIMBRIEF_API_KEY &&
+    !!booking.user.simBriefUsername &&
+    !!booking.route.aircraft &&
+    !isFinalState;
+
+  const patternZFields =
+    patternZAvailable && booking.route.aircraft
+      ? buildSimBriefFormFields({
           bookingId: booking.id,
           airline: { icao: booking.airline.icao },
           route: { flightNumber: booking.route.flightNumber },
@@ -379,24 +427,55 @@ export default async function BookingDetail({
             <h2 className="text-sm uppercase tracking-wider text-gray-500 mb-4">
               Flight Plan
             </h2>
-            <p className="text-gray-400 mb-4">
-              Klicke auf &quot;Plan via SimBrief&quot; um deinen Flight Plan auf
-              simbrief.com zu erstellen.
-            </p>
-            {dispatchUrl && (
-              <a
-                href={dispatchUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-block px-6 py-3 bg-indigo-600 hover:bg-indigo-700 rounded font-medium transition"
-              >
-                Plan via SimBrief →
-              </a>
+            {patternZFields ? (
+              <>
+                <p className="text-gray-400 mb-4">
+                  Klicke auf &quot;Generate Flight Plan&quot;. Ein kleines
+                  Popup-Fenster öffnet sich für SimBrief — sobald der Plan
+                  fertig ist schließt es sich automatisch und du landest
+                  wieder hier.
+                </p>
+                <SimBriefDispatchForm
+                  fields={patternZFields}
+                  referralPage={`/bookings/${booking.id}`}
+                />
+                {dispatchUrl && (
+                  <p className="text-xs text-gray-500 mt-3">
+                    Popup-Blocker aktiv?{' '}
+                    <a
+                      href={dispatchUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline hover:text-gray-300"
+                    >
+                      Im neuen Tab öffnen (Pattern α)
+                    </a>{' '}
+                    und danach &quot;Refresh OFP&quot; klicken.
+                  </p>
+                )}
+              </>
+            ) : (
+              <>
+                <p className="text-gray-400 mb-4">
+                  Klicke auf &quot;Plan via SimBrief&quot; um deinen Flight
+                  Plan auf simbrief.com zu erstellen.
+                </p>
+                {dispatchUrl && (
+                  <a
+                    href={dispatchUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-block px-6 py-3 bg-indigo-600 hover:bg-indigo-700 rounded font-medium transition"
+                  >
+                    Plan via SimBrief →
+                  </a>
+                )}
+                <p className="text-xs text-gray-500 mt-3">
+                  Öffnet einen neuen Tab. Nach dem Generieren auf SimBrief klicke
+                  unten &quot;Refresh OFP&quot; um den Plan zu laden.
+                </p>
+              </>
             )}
-            <p className="text-xs text-gray-500 mt-3">
-              Öffnet einen neuen Tab. Nach dem Generieren auf SimBrief klicke
-              unten &quot;Refresh OFP&quot; um den Plan zu laden.
-            </p>
             <form
               action={refreshAction}
               className="mt-6 pt-6 border-t border-gray-800"
