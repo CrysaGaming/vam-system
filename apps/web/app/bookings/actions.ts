@@ -4,7 +4,8 @@ import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
 import { Prisma, prisma, NetworkType } from '@vam/db';
 import { requireUserWithAirline } from '@/lib/auth';
-import { parseSimBriefXml } from '@/lib/simbrief/parser';
+import { fetchSimBriefOfp } from '@/lib/simbrief/fetchOfp';
+import { buildSimBriefDispatchUrl } from '@/lib/simbrief/buildDispatchUrl';
 
 const CreateBookingSchema = z.object({
   routeId: z.string().cuid(),
@@ -16,13 +17,12 @@ const CancelBookingSchema = z.object({
   reason: z.string().trim().max(500).optional(),
 });
 
-const DispatchSimBriefSchema = z.object({
+const RefreshSimBriefOfpSchema = z.object({
   bookingId: z.string().cuid(),
 });
 
-const CaptureSimBriefOfpSchema = z.object({
+const PlanSimBriefBookingSchema = z.object({
   bookingId: z.string().cuid(),
-  ofpId: z.string().min(1).max(200),
 });
 
 export async function createBooking(
@@ -105,137 +105,13 @@ export async function cancelBooking(
   return updated;
 }
 
-export async function dispatchSimBrief(
-  input: z.infer<typeof DispatchSimBriefSchema>,
+export async function refreshSimBriefOfp(
+  input: z.infer<typeof RefreshSimBriefOfpSchema>,
 ): Promise<{
-  source: 'cache' | 'new-dispatch' | 'idempotent';
+  status: 'plan-found' | 'no-plan';
   ofpId: string | null;
-  redirectUrl: string | null;
 }> {
-  const { bookingId } = DispatchSimBriefSchema.parse(input);
-
-  const { id: userId, airlineId } = await requireUserWithAirline();
-
-  const booking = await prisma.booking.findFirst({
-    where: { id: bookingId, airlineId, userId },
-    include: {
-      route: {
-        include: {
-          departure: true,
-          arrival: true,
-          aircraft: true,
-          airline: true,
-        },
-      },
-    },
-  });
-  if (!booking) {
-    throw new Error('Booking not found or not yours');
-  }
-  if (!booking.route.aircraft) {
-    throw new Error('Route has no aircraft assigned — cannot dispatch SimBrief');
-  }
-
-  if (
-    booking.state === 'Cancelled' ||
-    booking.state === 'Completed' ||
-    booking.state === 'Expired'
-  ) {
-    throw new Error(`Cannot dispatch booking in state ${booking.state}`);
-  }
-
-  if (booking.state === 'SimBriefDispatched') {
-    if (booking.simBriefOfpId) {
-      return {
-        source: 'idempotent',
-        ofpId: booking.simBriefOfpId,
-        redirectUrl: null,
-      };
-    }
-    const redirectUrl = buildSimBriefDispatchUrl({
-      airline: booking.route.airline.icao,
-      fltnum: booking.route.flightNumber,
-      orig: booking.route.departure.icao,
-      dest: booking.route.arrival.icao,
-      type: booking.route.aircraft.type,
-      staticId: booking.simBriefStaticId ?? `vam-${booking.id}`,
-    });
-    return { source: 'idempotent', ofpId: null, redirectUrl };
-  }
-
-  // booking.state === 'Created' from here on (state guards above)
-  const cache = await prisma.flightPlanCache.findFirst({
-    where: {
-      routeId: booking.routeId,
-      aircraftType: booking.route.aircraft.type,
-      expiresAt: { gt: new Date() },
-      airlineId,
-    },
-    orderBy: { generatedAt: 'desc' },
-    select: { id: true, ofpId: true },
-  });
-
-  // Optimistic concurrency: state must still be 'Created'. If a concurrent
-  // dispatch flipped it to 'SimBriefDispatched' between our read and write,
-  // P2025 fires; we recurse, which re-loads the booking and lands in the
-  // idempotent branch above.
-  if (cache) {
-    try {
-      await prisma.booking.update({
-        where: { id: bookingId, state: 'Created' },
-        data: {
-          state: 'SimBriefDispatched',
-          flightPlanCacheId: cache.id,
-          simBriefOfpId: cache.ofpId,
-          dispatchedAt: new Date(),
-        },
-      });
-    } catch (error) {
-      if (isPrismaRecordNotFound(error)) {
-        return dispatchSimBrief({ bookingId });
-      }
-      throw error;
-    }
-    revalidatePath('/bookings');
-    return { source: 'cache', ofpId: cache.ofpId, redirectUrl: null };
-  }
-
-  const staticId = `vam-${bookingId}`;
-  const redirectUrl = buildSimBriefDispatchUrl({
-    airline: booking.route.airline.icao,
-    fltnum: booking.route.flightNumber,
-    orig: booking.route.departure.icao,
-    dest: booking.route.arrival.icao,
-    type: booking.route.aircraft.type,
-    staticId,
-  });
-
-  try {
-    await prisma.booking.update({
-      where: { id: bookingId, state: 'Created' },
-      data: {
-        state: 'SimBriefDispatched',
-        simBriefStaticId: staticId,
-        dispatchedAt: new Date(),
-      },
-    });
-  } catch (error) {
-    if (isPrismaRecordNotFound(error)) {
-      return dispatchSimBrief({ bookingId });
-    }
-    throw error;
-  }
-  revalidatePath('/bookings');
-  return { source: 'new-dispatch', ofpId: null, redirectUrl };
-}
-
-export async function captureSimBriefOfp(
-  input: z.infer<typeof CaptureSimBriefOfpSchema>,
-): Promise<{
-  ofpId: string;
-  source: 'cache-hit' | 'newly-captured';
-}> {
-  const { bookingId, ofpId } = CaptureSimBriefOfpSchema.parse(input);
+  const { bookingId } = RefreshSimBriefOfpSchema.parse(input);
 
   const { id: userId, airlineId } = await requireUserWithAirline();
 
@@ -244,60 +120,39 @@ export async function captureSimBriefOfp(
     select: {
       id: true,
       state: true,
-      simBriefOfpId: true,
-      simBriefStaticId: true,
-      flightPlanCacheId: true,
-      routeId: true,
-      route: {
-        select: {
-          aircraft: { select: { type: true } },
-        },
-      },
+      user: { select: { simBriefUsername: true } },
+      flightPlanCache: { select: { id: true } },
     },
   });
   if (!booking) {
     throw new Error('Booking not found or not yours');
   }
-  if (!booking.route.aircraft) {
-    throw new Error('Route has no aircraft assigned — cannot capture OFP');
+  if (
+    booking.state === 'Cancelled' ||
+    booking.state === 'Completed' ||
+    booking.state === 'Expired'
+  ) {
+    throw new Error(`Cannot refresh SimBrief for booking in state ${booking.state}`);
+  }
+  if (!booking.user.simBriefUsername) {
+    throw new Error('Set your SimBrief username in Settings to enable Pattern α refresh');
   }
 
-  if (booking.state !== 'SimBriefDispatched') {
-    throw new Error(
-      `Cannot capture OFP for booking in state ${booking.state}`,
-    );
-  }
+  const staticId = `vam-${booking.id}`;
+  const parsed = await fetchSimBriefOfp(booking.user.simBriefUsername, staticId);
 
-  if (booking.simBriefOfpId !== null && booking.flightPlanCacheId !== null) {
-    if (booking.simBriefOfpId === ofpId) {
-      return { ofpId: booking.simBriefOfpId, source: 'cache-hit' };
+  if (parsed === null) {
+    if (booking.flightPlanCache) {
+      await prisma.flightPlanCache.delete({
+        where: { id: booking.flightPlanCache.id },
+      });
+      await prisma.booking.update({
+        where: { id: bookingId },
+        data: { state: 'Created', dispatchedAt: null },
+      });
+      revalidatePath('/bookings');
     }
-    throw new Error(
-      `Booking already captured a different OFP (have ${booking.simBriefOfpId}, requested ${ofpId})`,
-    );
-  }
-
-  if (booking.simBriefStaticId === null) {
-    throw new Error(
-      'Booking has no dispatched static_id — was dispatchSimBrief called?',
-    );
-  }
-
-  const xmlUrl = `https://www.simbrief.com/ofp/flightplans/xml/${ofpId}.xml`;
-  const response = await fetch(xmlUrl);
-  if (!response.ok) {
-    throw new Error(
-      `Failed to fetch OFP from SimBrief: HTTP ${response.status}`,
-    );
-  }
-  const xmlText = await response.text();
-
-  const parsed = parseSimBriefXml(xmlText);
-
-  if (parsed.ofpId !== ofpId) {
-    throw new Error(
-      `OFP ID mismatch: expected ${ofpId}, parsed ${parsed.ofpId}`,
-    );
+    return { status: 'no-plan', ofpId: null };
   }
 
   const params = parsed.rawResponse.params as
@@ -305,77 +160,91 @@ export async function captureSimBriefOfp(
     | undefined;
   const xmlStaticId =
     typeof params?.static_id === 'string' ? params.static_id : null;
-  if (xmlStaticId !== booking.simBriefStaticId) {
+  if (xmlStaticId !== staticId) {
     throw new Error(
-      `OFP does not match this booking (static_id mismatch: expected ${booking.simBriefStaticId}, got ${xmlStaticId ?? 'null'})`,
+      `OFP does not match this booking (static_id mismatch: expected ${staticId}, got ${xmlStaticId ?? 'null'})`,
     );
   }
 
-  // WATCH-ITEM: race window can produce 1 orphan cache row when two captures
-  // for same booking run parallel. TTL cleans up. Future hardening: Postgres
-  // partial unique index on (ofpId, airlineId) WHERE expiresAt > NOW().
-  const existing = await prisma.flightPlanCache.findFirst({
-    where: { ofpId: parsed.ofpId, airlineId },
-    select: { id: true },
-  });
-  let cacheId: string;
-  if (existing) {
-    cacheId = existing.id;
-  } else {
-    const cacheTtlMs = 6 * 60 * 60 * 1000;
-    const cache = await prisma.flightPlanCache.create({
-      data: {
-        airlineId,
-        routeId: booking.routeId,
-        aircraftType: booking.route.aircraft.type,
-        ofpId: parsed.ofpId,
-        rawResponse: parsed.rawResponse as Prisma.InputJsonValue,
-        routeString: parsed.routeString,
-        fuelKg: parsed.fuelKg,
-        blockTimeMin: parsed.blockTimeMin,
-        expiresAt: new Date(Date.now() + cacheTtlMs),
-      },
-      select: { id: true },
+  const cacheTtlMs = 6 * 60 * 60 * 1000;
+  const cacheData = {
+    airlineId,
+    bookingId: booking.id,
+    ofpId: parsed.ofpId,
+    rawResponse: parsed.rawResponse as Prisma.InputJsonValue,
+    routeString: parsed.routeString,
+    fuelKg: parsed.fuelKg,
+    blockTimeMin: parsed.blockTimeMin,
+    expiresAt: new Date(Date.now() + cacheTtlMs),
+  };
+
+  if (booking.flightPlanCache) {
+    await prisma.flightPlanCache.update({
+      where: { id: booking.flightPlanCache.id },
+      data: cacheData,
     });
-    cacheId = cache.id;
+  } else {
+    await prisma.flightPlanCache.create({ data: cacheData });
   }
 
-  await prisma.booking.update({
-    where: { id: bookingId },
-    data: {
-      simBriefOfpId: parsed.ofpId,
-      flightPlanCacheId: cacheId,
-    },
-  });
+  if (booking.state !== 'SimBriefDispatched') {
+    await prisma.booking.update({
+      where: { id: bookingId },
+      data: { state: 'SimBriefDispatched', dispatchedAt: new Date() },
+    });
+  }
 
   revalidatePath('/bookings');
-
-  return { ofpId: parsed.ofpId, source: 'newly-captured' };
+  return { status: 'plan-found', ofpId: parsed.ofpId };
 }
 
-function buildSimBriefDispatchUrl(params: {
-  airline: string;
-  fltnum: string;
-  orig: string;
-  dest: string;
-  type: string;
-  staticId: string;
-}): string {
-  const url = new URL('https://dispatch.simbrief.com/options/custom');
-  url.searchParams.set('airline', params.airline);
-  url.searchParams.set('fltnum', params.fltnum);
-  url.searchParams.set('orig', params.orig);
-  url.searchParams.set('dest', params.dest);
-  url.searchParams.set('type', params.type);
-  url.searchParams.set('static_id', params.staticId);
-  return url.toString();
-}
+export async function planSimBriefBooking(
+  input: z.infer<typeof PlanSimBriefBookingSchema>,
+): Promise<{ url: string }> {
+  const { bookingId } = PlanSimBriefBookingSchema.parse(input);
 
-function isPrismaRecordNotFound(error: unknown): boolean {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'code' in error &&
-    (error as { code: unknown }).code === 'P2025'
-  );
+  const { id: userId, airlineId } = await requireUserWithAirline();
+
+  const booking = await prisma.booking.findFirst({
+    where: { id: bookingId, airlineId, userId },
+    include: {
+      route: {
+        include: {
+          departure: { select: { icao: true } },
+          arrival: { select: { icao: true } },
+          aircraft: { select: { type: true, registration: true } },
+        },
+      },
+      airline: { select: { icao: true } },
+      user: { select: { name: true } },
+    },
+  });
+  if (!booking) {
+    throw new Error('Booking not found or not yours');
+  }
+  if (!booking.route.aircraft) {
+    throw new Error('Route has no aircraft assigned — cannot plan SimBrief');
+  }
+  if (
+    booking.state === 'Cancelled' ||
+    booking.state === 'Completed' ||
+    booking.state === 'Expired'
+  ) {
+    throw new Error(`Cannot plan SimBrief for booking in state ${booking.state}`);
+  }
+
+  const url = buildSimBriefDispatchUrl({
+    bookingId: booking.id,
+    airline: { icao: booking.airline.icao },
+    route: { flightNumber: booking.route.flightNumber },
+    aircraft: {
+      type: booking.route.aircraft.type,
+      registration: booking.route.aircraft.registration,
+    },
+    departure: { icao: booking.route.departure.icao },
+    arrival: { icao: booking.route.arrival.icao },
+    user: { name: booking.user.name },
+  });
+
+  return { url };
 }

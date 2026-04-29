@@ -253,7 +253,6 @@ model Route {
 
   pireps Pirep[]
   bookings         Booking[]
-  flightPlanCaches FlightPlanCache[]
 
   @@unique([airlineId, flightNumber])
   @@index([departureId])
@@ -292,6 +291,7 @@ model Pirep {
   // Booking-Parent/Leg-Children-Pattern entstehen, nicht 1:n hier.
   bookingId       String?     @unique
   booking         Booking?    @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  flightPlanCache FlightPlanCache?
 
   @@index([userId, submittedAt])
   @@index([airlineId, status])
@@ -412,9 +412,6 @@ model Booking {
   // Hint für UI/Filter, kein Hard-Lock — actual Network kommt vom PIREP/LiveSession
   intendedNetwork NetworkType?
 
-  flightPlanCacheId String?
-  flightPlanCache   FlightPlanCache? @relation(fields: [flightPlanCacheId], references: [id], onDelete: SetNull)
-  simBriefOfpId     String?
   // SimBrief static_id — caller-provided trace identifier sent during
   // dispatch (format: "vam-<bookingId>"). Used for debug-tracing OFPs
   // back to bookings server-side. Deterministically derivable from
@@ -429,6 +426,7 @@ model Booking {
   cancellationReason String?
 
   pirep              Pirep?
+  flightPlanCache    FlightPlanCache?
 
   @@index([userId, state])
   @@index([airlineId, state])
@@ -436,18 +434,25 @@ model Booking {
   @@index([expiresAt])
 }
 
-// v1-Limitation: Cache-Key ist (routeId, aircraftType) — Cache ist airline-shared,
-// ignoriert per-User OFP-Personalisierung (Fuel-Policy/Units/Layout).
-// User-Identity (simBriefUsername) wird beim API-Dispatch verwendet aber NICHT als
-// Cache-Key-Komponente. Wenn User-Personalisierung in v2 problematisch wird, muss der
-// Cache-Key user- bzw. setting-hash-aware werden.
+// Pattern α Cache-Architecture — per-Booking ownership.
+// Each Booking has at most ONE FlightPlanCache (1:0..1 via @unique bookingId).
+// Lifecycle-Vorbereitung: bei PIREP-File transferiert sich der Cache vom
+// Booking zum Pirep (Phase 2 Implementation). bookingId wird auf null gesetzt,
+// pirepId wird gesetzt. Cache überlebt damit Booking-Stornierung wenn ein
+// PIREP existiert.
+//
+// Multi-Tenancy: airlineId bleibt explicit field (nicht via Booking-Join
+// derived) für direct queries + index-effizientes Filtering.
+//
+// SimBrief weather TTL — 6h hardcoded weil physikalisch, nicht airline-policy.
 model FlightPlanCache {
   id            String   @id @default(cuid())
   airlineId     String
   airline       Airline  @relation(fields: [airlineId], references: [id])
-  routeId       String
-  route         Route    @relation(fields: [routeId], references: [id])
-  aircraftType  String   // ICAO type code (A320, B738), nicht Aircraft-PK
+  bookingId     String?  @unique
+  booking       Booking? @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  pirepId       String?  @unique
+  pirep         Pirep?   @relation(fields: [pirepId], references: [id], onDelete: SetNull)
 
   ofpId         String
   rawResponse   Json
@@ -456,13 +461,8 @@ model FlightPlanCache {
   blockTimeMin  Int?
 
   generatedAt   DateTime @default(now())
-  // SimBrief weather TTL — hardcoded weil physikalisch, nicht airline-policy.
-  // app-level: generatedAt + 6h in v1.
   expiresAt     DateTime
 
-  bookings      Booking[]
-
-  @@index([routeId, aircraftType, expiresAt])
   @@index([airlineId])
   @@index([expiresAt])
 }
