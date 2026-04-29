@@ -21,7 +21,23 @@ export interface SimBriefDispatchFormProps {
    * `?ofp_id=…` handler can persist the result via processSimBriefCallback.
    */
   referralPage: string;
+  /**
+   * Submit button label. Defaults to the primary-CTA wording used when
+   * the booking has no cached OFP yet; the "plan again" call-site on a
+   * SimBriefDispatched booking passes a shorter label.
+   */
+  buttonLabel?: string;
+  /**
+   * Submit button className. Defaults to the primary-CTA indigo styling;
+   * the "plan again" call-site passes the smaller gray-secondary styling
+   * used by sibling buttons (Refresh OFP, etc.) for visual consistency.
+   */
+  buttonClassName?: string;
 }
+
+const DEFAULT_BUTTON_LABEL = 'Generate Flight Plan →';
+const DEFAULT_BUTTON_CLASSNAME =
+  'px-6 py-3 bg-indigo-600 hover:bg-indigo-700 rounded font-medium transition';
 
 /**
  * Pattern Z dispatch form (client component).
@@ -47,6 +63,8 @@ export interface SimBriefDispatchFormProps {
 export function SimBriefDispatchForm({
   fields,
   referralPage,
+  buttonLabel = DEFAULT_BUTTON_LABEL,
+  buttonClassName = DEFAULT_BUTTON_CLASSNAME,
 }: SimBriefDispatchFormProps) {
   return (
     <>
@@ -72,9 +90,9 @@ export function SimBriefDispatchForm({
             // than crash — the user can retry once it's ready.
             window.simbriefsubmit?.(referralPage);
           }}
-          className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 rounded font-medium transition"
+          className={buttonClassName}
         >
-          Generate Flight Plan →
+          {buttonLabel}
         </button>
       </form>
     </>

@@ -451,15 +451,24 @@ export default async function BookingDetail({
                   ↻ Refresh OFP
                 </button>
               </form>
-              {dispatchUrl && (
-                <a
-                  href={dispatchUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded text-sm transition"
-                >
-                  Plan again →
-                </a>
+              {patternZFields ? (
+                <SimBriefDispatchForm
+                  fields={patternZFields}
+                  referralPage={`/bookings/${booking.id}`}
+                  buttonLabel="Plan again →"
+                  buttonClassName="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded text-sm transition"
+                />
+              ) : (
+                dispatchUrl && (
+                  <a
+                    href={dispatchUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded text-sm transition"
+                  >
+                    Plan again →
+                  </a>
+                )
               )}
             </div>
           </section>
