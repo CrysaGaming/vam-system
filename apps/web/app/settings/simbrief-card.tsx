@@ -5,11 +5,19 @@ import { setSimBriefUsername } from './actions';
 
 type Props = {
   initialUsername: string | null;
+  /**
+   * Whether the deployment has SIMBRIEF_API_KEY configured. Computed
+   * server-side in settings/page.tsx so the client never sees the actual
+   * key — only whether the popup-based dispatch flow is reachable on this
+   * instance. Used purely for the availability indicator at the bottom of
+   * the card.
+   */
+  patternZAvailable: boolean;
 };
 
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
-export function SimBriefCard({ initialUsername }: Props) {
+export function SimBriefCard({ initialUsername, patternZAvailable }: Props) {
   const [currentUsername, setCurrentUsername] = useState<string | null>(
     initialUsername,
   );
@@ -64,8 +72,8 @@ export function SimBriefCard({ initialUsername }: Props) {
       </div>
       <p className="text-sm text-gray-400 mb-4">
         Trage deinen SimBrief-Benutzernamen ein, damit VAM deine generierten
-        Flight Plans abrufen kann (Pattern α). Den Benutzernamen findest du in
-        deinem{' '}
+        Flight Plans mit deinen Buchungen verknüpfen kann. Den Benutzernamen
+        findest du in deinem{' '}
         <a
           href="https://dispatch.simbrief.com/account"
           target="_blank"
@@ -117,6 +125,56 @@ export function SimBriefCard({ initialUsername }: Props) {
           <span className="font-mono text-gray-400">{currentUsername}</span>
         </p>
       )}
+
+      {/* Dispatch-Mode-Verfügbarkeit. The two-row indicator surfaces the
+          deployment-level Pattern Z env-flag plus the per-user username
+          state in one place — answers "why does my booking page show
+          Pattern α only?" without the user having to dig through the
+          booking flow. The popup-form on a booking page hides itself
+          silently when not available; this card is where the user finds
+          out why. */}
+      <div className="mt-5 pt-4 border-t border-gray-800">
+        <p className="text-xs uppercase tracking-wider text-gray-500 mb-3">
+          Verfügbare Dispatch-Modi
+        </p>
+        <ul className="space-y-1.5 text-xs">
+          <li className="flex items-baseline gap-2">
+            <span
+              className={
+                currentUsername ? 'text-green-400' : 'text-gray-600'
+              }
+              aria-hidden
+            >
+              {currentUsername ? '●' : '○'}
+            </span>
+            <span className="text-gray-400">Pattern α (Tab-Redirect)</span>
+            {!currentUsername && (
+              <span className="text-gray-600">— Username fehlt</span>
+            )}
+          </li>
+          <li className="flex items-baseline gap-2">
+            <span
+              className={
+                patternZAvailable && currentUsername
+                  ? 'text-green-400'
+                  : 'text-gray-600'
+              }
+              aria-hidden
+            >
+              {patternZAvailable && currentUsername ? '●' : '○'}
+            </span>
+            <span className="text-gray-400">Pattern Z (Popup)</span>
+            {!patternZAvailable && (
+              <span className="text-gray-600">
+                — SIMBRIEF_API_KEY nicht konfiguriert
+              </span>
+            )}
+            {patternZAvailable && !currentUsername && (
+              <span className="text-gray-600">— Username fehlt</span>
+            )}
+          </li>
+        </ul>
+      </div>
     </div>
   );
 }

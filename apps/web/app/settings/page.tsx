@@ -174,7 +174,10 @@ export default async function SettingsPage({
         {/* SimBrief */}
         <section className="mb-12">
           <h2 className="text-xl font-semibold mb-6">SimBrief</h2>
-          <SimBriefCard initialUsername={user.simBriefUsername} />
+          <SimBriefCard
+            initialUsername={user.simBriefUsername}
+            patternZAvailable={!!process.env.SIMBRIEF_API_KEY}
+          />
         </section>
 
         {/* OBS-Overlay */}
