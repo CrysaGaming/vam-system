@@ -1,73 +1,79 @@
-# Tomorrow / In-Progress
+# TOMORROW — Day 4 (30. April 2026)
 
-## Stand 2026-04-29 ~16:00
+## Day-3 Achievement (gestern)
 
-11 commits ahead of origin/cc-experiment (post Day-2 Tag-Schluss).
-Pattern α architecture decision finalized. Phase-1-Implementation in progress.
+Pattern α full-stack Phase 1 KOMPLETT auf origin/cc-experiment:
 
-## Pattern α — Architektur-Stand
+| Commit | Scope |
+|---|---|
+| `5967041` | docs: Pattern α architecture decision |
+| `323b420` | feat(booking): server-side (schema, helpers, actions) |
+| `423c9a4` | feat(ui): booking-detail page + SimBrief settings |
 
-Pattern Y (OAuth-Server-to-Server) war Fehl-Annahme von 28.04. spät. Korrigiert am 29.04. zu Pattern α (Dispatch-Redirect-Link + xml.fetcher.php). Vollständige Begründung in docs/decisions/2026-04-29-pattern-alpha.md.
+End-to-end User-Flow:
+1. `/settings` → simBriefUsername eintragen (SimBriefCard)
+2. `/bookings/[id]` → "Plan via SimBrief" Link
+3. SimBrief Tab öffnet (dispatch.simbrief.com prefilled)
+4. User generiert OFP auf SimBrief
+5. Zurück → "Refresh OFP" → server fetched via xml.fetcher.php
+6. OFP Summary inline + Booking-State transition zu SimBriefDispatched
 
-OAuth ist NICHT für MVP nötig. simBriefUsername-Manual-Eingabe ist genug für V1.
+## Day-4 Priority 1: LIVE-TEST Pattern α
 
-## Pattern α Phase 1 — Heute Tasks
+End-to-end flow validieren mit echtem SimBrief-Account.
 
-1. lib/simbrief/buildDispatchUrl.ts Helper schreiben (~80 LOC)
-2. lib/simbrief/fetchOfp.ts Helper schreiben (~80 LOC)
-3. refreshSimBriefOfp Server-Action in actions.ts erweitern (~60 LOC)
-4. UI auf Booking-Detail-Page: "Plan via SimBrief" Link + "Refresh OFP" Button + OFP-Summary inline
-5. Cleanup Pattern-Z-Code: api-code/route.ts, dispatchSimBrief, alter buildDispatchUrl
+**Vor dem Test:**
+- [ ] Web auf vam.kevindrack.de oder localhost erreichbar
+- [ ] Bot läuft (oder nicht — Bot ist nicht in Pattern α flow)
+- [ ] Test-User mit OAuth-eingerichtet (CrysaGaming z.B.)
+- [ ] Mind. 1 Test-Booking im Created state
 
-## Pattern α Phase 2 — Post-MVP
+**Test-Flow:**
+1. /settings → simBriefUsername "CrysaGaming" eintragen → Speichern
+2. SaveStatusBadge zeigt "✓ Gespeichert"? Persistiert nach reload?
+3. /bookings/[id] für ein Created Booking
+4. "Plan via SimBrief" link → öffnet dispatch.simbrief.com Tab?
+5. URL-Params korrekt? (cpt=CrysaGaming, reg=..., static_id=vam-...)
+6. SimBrief generiert OFP — flow auf SimBrief-Seite OK?
+7. Zurück zu vam.kevindrack.de/bookings/[id] → "Refresh OFP" klicken
+8. OFP Summary erscheint? (ofpId, blockTime, fuel, route)
+9. Booking-State jetzt SimBriefDispatched? (DB check oder UI badge)
+10. Erneutes Refresh: idempotent? Cache-Update?
+11. "Plan again" link funktioniert?
 
-### Override-Hierarchie (vAMSYS-Vorbild)
+**Edge-Cases watchlist:**
+- HTTP 400 von xml.fetcher.php (no plan yet) → "no-plan" status, kein crash
+- Multi-refresh schnell hintereinander → race?
+- Cancelled/Completed booking refresh → schould fail gracefully (state-final-check)
+- Cache-expiry handling (FlightPlanCache.expiresAt)
 
-Schema-Erweiterung um SimBrief-Felder auf 4 Ebenen:
-- Aircraft (per individual airframe override)
-- Fleet (per aircraft type defaults)
-- Airline (system defaults)
-- Route (per scheduled flight overrides)
-- Airport (für Alternate-Settings)
+**Bei Fehlern:** 
+- Console + server-logs sammeln
+- Edge-case in eigenes Issue/decision-doc
+- Vor Fix-Commit: reproduzieren + minimal-test
 
-16+ Felder pro Ebene: OFP-Layout, Performance-Code, Weight-Cat, ETOPS, ICAO-Equipment, PBN, Pax/Bag-Weight, OEW/MZFW/MTOW/MLW/MaxFuel, Fuel-Policies (Contingency, Reserve, MEL, ATC, WXX, Extra, Tankering), Alternate-Search-Logic.
+## Day-4 Priority 2 (Optional, je nach Live-Test)
 
-buildDispatchUrl erweitern um Inheritance-Resolution: Aircraft → Fleet → Airline → Route-Overrides → final acdata-Object.
+- **Bookings-Listing-Page** (`bookings/page.tsx`): aktuell kein Navigation-Path zu Detail-Pages außer manueller URL. Falls nötig für UX-Test, einfache RSC-Liste.
+- **OFP Summary Refactor**: extract `<OfpSummary>` helper aus booking-detail-page um Variant C (active) + Variant D (final readonly) zu deduplizieren. ~30 LOC saved, klarere Logik.
+- **Bug-Fixes** aus Live-Test
 
-Aufwand: ~3-5 Tage. Schema-Migration + UI-Pflegestelle für Owners.
+## Phase 2 Candidates (post-MVP, ranked)
 
-### Lifecycle-Pattern (phpVMS-Vorbild)
+1. **OAuth username auto-fill** (~1-2 days, blockiert ggf. extern Navigraph approval) — eliminiert manual entry friction
+2. **Lifecycle-Pattern** (~1 day) — FlightPlanCache transfer zu Pirep on file
+3. **Override-Hierarchie** (~3-5 days) — Aircraft/Fleet/Airline/Route SB defaults
+4. **Booking.scheduledDeparture field** (~0.5 day) — enables deph/depm/dxp in dispatch URL
+5. **Booking.simBriefStaticId schema cleanup** (~0.5 day) — Field jetzt redundant (deterministisch aus booking.id ableitbar)
 
-FlightPlanCache aktuell direkt an Booking gebunden (cascade delete).
+## Open Questions
 
-Refactor zu:
-- FlightPlanCache.bookingId nullable
-- FlightPlanCache.pirepId hinzufügen (nullable)
-- Bei PIREP-File: transfer FlightPlanCache von Booking zu Pirep
-- OFP überlebt Booking-Stornierung
+- **Phase 2 Reihenfolge?** Lifecycle (klein, backend-only) zuerst oder Override-Hierarchie (groß, UX-design-heavy)?
+- **Bookings-Listing nötig vor Live-Test?** Detail-Page direkt erreichbar via DB-id ist OK für Test, aber langfristig braucht's eine Liste.
+- **OAuth-flow timing?** Externe Navigraph-Approval ist Lead-time, früh starten wenn Phase-2 das umfasst.
 
-Aufwand: ~1 Tag. Schema-Migration + actions.ts adapt.
+## Notizen
 
-### OAuth-Account-Linking
-
-Optional, falls User-Friction durch manual simBriefUsername-Eingabe erkannt wird.
-
-- Navigraph-Developer-Portal-Registration via Email an dev@navigraph.com
-- NAVIGRAPH_CLIENT_ID + NAVIGRAPH_CLIENT_SECRET in .env
-- Authorization Code Flow + PKCE (RFC 7636 zwingend per Navigraph-Doku)
-- User-Schema-Erweiterung: navigraphAccessToken, navigraphRefreshToken, navigraphTokenExpiresAt, navigraphSubject
-- Routes: /api/oauth/navigraph/{start,callback,refresh}
-- Token-Refresh-Logic mit one-time-use Refresh-Token-Replacement
-
-Aufwand: ~1-2 Tage + externe Email-Wartezeit für Navigraph-Approval.
-
-## Pending Sub-Stages aus Phase 2 Service-Layer
-
-Diese sind noch offen aus dem Service-Layer-Plan vor Pattern-Z-Pivot:
-
-- Schritt 6 expireOverdueBookings (~30min, unabhängig, kann parallel)
-- .env.example mit SIMBRIEF_API_KEY-Placeholder gelöscht (Pattern α braucht keinen Key)
-
-## Branch-State
-
-cc-experiment, 11 commits ahead, KEIN Push. Working tree clean nach diesem Commit.
+- Working tree clean außer `.claude/settings.local.json` (harness, ignored)
+- Branch `cc-experiment` 0 commits ahead origin
+- Web + Bot beide ohne typecheck-Errors
