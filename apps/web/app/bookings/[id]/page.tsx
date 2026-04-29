@@ -6,6 +6,7 @@ import { buildSimBriefDispatchUrl } from '@/lib/simbrief/buildDispatchUrl';
 import { buildSimBriefFormFields } from '@/lib/simbrief/buildFormFields';
 import { refreshSimBriefOfp, processSimBriefCallback } from '../actions';
 import { SimBriefDispatchForm } from './SimBriefDispatchForm';
+import { OfpSummary } from './OfpSummary';
 
 function stateStyle(state: BookingState): { className: string; label: string } {
   switch (state) {
@@ -35,13 +36,6 @@ function stateStyle(state: BookingState): { className: string; label: string } {
         label: 'Abgelaufen',
       };
   }
-}
-
-function formatBlockTime(min: number | null): string {
-  if (min === null) return '—';
-  const h = Math.floor(min / 60);
-  const m = min % 60;
-  return h > 0 ? `${h}h ${m}min` : `${m}min`;
 }
 
 export default async function BookingDetail({
@@ -327,55 +321,7 @@ export default async function BookingDetail({
             (4) else → ready to plan */}
         {isFinalState ? (
           booking.flightPlanCache && (
-            <section className="bg-gray-900 border border-gray-800 rounded-lg p-6 mb-8 opacity-75">
-              <h2 className="text-sm uppercase tracking-wider text-gray-500 mb-4">
-                OFP Summary
-              </h2>
-              <div className="grid grid-cols-2 gap-6 mb-6">
-                <div>
-                  <p className="text-xs uppercase tracking-wider text-gray-500 mb-1">
-                    OFP ID
-                  </p>
-                  <p className="font-mono">{booking.flightPlanCache.ofpId}</p>
-                </div>
-                <div>
-                  <p className="text-xs uppercase tracking-wider text-gray-500 mb-1">
-                    Block Time
-                  </p>
-                  <p>{formatBlockTime(booking.flightPlanCache.blockTimeMin)}</p>
-                </div>
-                <div>
-                  <p className="text-xs uppercase tracking-wider text-gray-500 mb-1">
-                    Block Fuel
-                  </p>
-                  <p>
-                    {booking.flightPlanCache.fuelKg
-                      ? `${booking.flightPlanCache.fuelKg} kg`
-                      : '—'}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs uppercase tracking-wider text-gray-500 mb-1">
-                    Generiert
-                  </p>
-                  <p>
-                    {new Date(
-                      booking.flightPlanCache.generatedAt,
-                    ).toLocaleString('de-DE')}
-                  </p>
-                </div>
-              </div>
-              {booking.flightPlanCache.routeString && (
-                <div>
-                  <p className="text-xs uppercase tracking-wider text-gray-500 mb-2">
-                    Route
-                  </p>
-                  <p className="font-mono text-sm bg-gray-950 border border-gray-800 rounded p-3 break-all">
-                    {booking.flightPlanCache.routeString}
-                  </p>
-                </div>
-              )}
-            </section>
+            <OfpSummary cache={booking.flightPlanCache} />
           )
         ) : !booking.user.simBriefUsername ? (
           <section className="bg-yellow-500/5 border border-yellow-500/20 rounded-lg p-6 mb-8">
@@ -394,84 +340,40 @@ export default async function BookingDetail({
             </Link>
           </section>
         ) : booking.flightPlanCache ? (
-          <section className="bg-gray-900 border border-gray-800 rounded-lg p-6 mb-8">
-            <h2 className="text-sm uppercase tracking-wider text-gray-500 mb-4">
-              OFP Summary
-            </h2>
-            <div className="grid grid-cols-2 gap-6 mb-6">
-              <div>
-                <p className="text-xs uppercase tracking-wider text-gray-500 mb-1">
-                  OFP ID
-                </p>
-                <p className="font-mono">{booking.flightPlanCache.ofpId}</p>
-              </div>
-              <div>
-                <p className="text-xs uppercase tracking-wider text-gray-500 mb-1">
-                  Block Time
-                </p>
-                <p>{formatBlockTime(booking.flightPlanCache.blockTimeMin)}</p>
-              </div>
-              <div>
-                <p className="text-xs uppercase tracking-wider text-gray-500 mb-1">
-                  Block Fuel
-                </p>
-                <p>
-                  {booking.flightPlanCache.fuelKg
-                    ? `${booking.flightPlanCache.fuelKg} kg`
-                    : '—'}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs uppercase tracking-wider text-gray-500 mb-1">
-                  Generiert
-                </p>
-                <p>
-                  {new Date(
-                    booking.flightPlanCache.generatedAt,
-                  ).toLocaleString('de-DE')}
-                </p>
-              </div>
-            </div>
-            {booking.flightPlanCache.routeString && (
-              <div className="mb-6">
-                <p className="text-xs uppercase tracking-wider text-gray-500 mb-2">
-                  Route
-                </p>
-                <p className="font-mono text-sm bg-gray-950 border border-gray-800 rounded p-3 break-all">
-                  {booking.flightPlanCache.routeString}
-                </p>
-              </div>
-            )}
-            <div className="flex gap-3 pt-4 border-t border-gray-800">
-              <form action={refreshAction}>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded text-sm transition"
-                >
-                  ↻ Refresh OFP
-                </button>
-              </form>
-              {patternZFields ? (
-                <SimBriefDispatchForm
-                  fields={patternZFields}
-                  referralPage={`/bookings/${booking.id}`}
-                  buttonLabel="Plan again →"
-                  buttonClassName="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded text-sm transition"
-                />
-              ) : (
-                dispatchUrl && (
-                  <a
-                    href={dispatchUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
+          <OfpSummary
+            cache={booking.flightPlanCache}
+            actions={
+              <>
+                <form action={refreshAction}>
+                  <button
+                    type="submit"
                     className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded text-sm transition"
                   >
-                    Plan again →
-                  </a>
-                )
-              )}
-            </div>
-          </section>
+                    ↻ Refresh OFP
+                  </button>
+                </form>
+                {patternZFields ? (
+                  <SimBriefDispatchForm
+                    fields={patternZFields}
+                    referralPage={`/bookings/${booking.id}`}
+                    buttonLabel="Plan again →"
+                    buttonClassName="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded text-sm transition"
+                  />
+                ) : (
+                  dispatchUrl && (
+                    <a
+                      href={dispatchUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded text-sm transition"
+                    >
+                      Plan again →
+                    </a>
+                  )
+                )}
+              </>
+            }
+          />
         ) : (
           <section className="bg-gray-900 border border-gray-800 rounded-lg p-6 mb-8">
             <h2 className="text-sm uppercase tracking-wider text-gray-500 mb-4">
