@@ -7,6 +7,7 @@ import { OverlayCard } from './overlay-card';
 import { getOrCreateOverlayToken } from './actions';
 import { OverlayPreferences } from './overlay-preferences';
 import { getOverlayPreferences } from './overlay-actions';
+import { SimBriefCard } from './simbrief-card';
 
 export default async function SettingsPage({
   searchParams,
@@ -30,6 +31,7 @@ export default async function SettingsPage({
       vatsimVerifiedAt: true,
       ivaoVid: true,
       ivaoVerifiedAt: true,
+      simBriefUsername: true,
     },
   });
 
@@ -167,6 +169,12 @@ export default async function SettingsPage({
               canDisconnect={true}
             />
           </div>
+        </section>
+
+        {/* SimBrief */}
+        <section className="mb-12">
+          <h2 className="text-xl font-semibold mb-6">SimBrief</h2>
+          <SimBriefCard initialUsername={user.simBriefUsername} />
         </section>
 
         {/* OBS-Overlay */}
