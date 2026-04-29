@@ -1,19 +1,23 @@
 # TOMORROW — Day 4 (30. April 2026)
 
-## Day-3 Achievement (gestern, ~9.5h)
+## Day-3 Achievement (gestern, ~10h)
 
-Drei Patterns parallel evaluiert + zwei davon end-to-end shipped.
-7 Commits auf origin/cc-experiment:
+10 Commits auf origin/cc-experiment. Drei Patterns evaluiert, zwei
+end-to-end shipped, plus die größten UX-Lücken aus dem ursprünglichen
+Day-4-plan schon abgearbeitet.
 
 | Commit    | Scope                                                          |
 | --------- | -------------------------------------------------------------- |
 | `5967041` | docs: Pattern α decision                                       |
 | `323b420` | feat(booking): Pattern α server-side (schema, helpers, actions)|
 | `423c9a4` | feat(ui): Pattern α booking-detail page + SimBrief settings    |
-| `7ab5ea1` | docs: TOMORROW.md update (now superseded by this file)         |
+| `7ab5ea1` | docs: TOMORROW.md update (superseded zweimal)                  |
 | `dbb0022` | feat: complete Pattern α baseline — seed ICAO + booking creation|
 | `0ca3491` | feat(simbrief): Pattern Z Phase 1 — server-side hashing routes |
 | `11376e3` | feat(simbrief): Pattern Z Phase 2 — UI form + callback         |
+| `c8d6f9d` | docs: TOMORROW.md Day-4 plan after Pattern Z ship              |
+| `ebbf232` | feat(simbrief): Pattern Z callback error banner                |
+| `cf6478d` | feat(bookings): listing page + dashboard navigation            |
 
 ### Pattern α (fallback path, fully working)
 
@@ -21,23 +25,35 @@ Tab-redirect dispatch via `dispatch.simbrief.com` + xml.fetcher.php
 retrieval. Three clicks, no popup, full-tab. Works without any external
 credentials. Activates automatically when Pattern Z is unavailable.
 
-### Pattern Z (primary path with Partner-API-Key, fully working)
+### Pattern Z (primary path with Partner-API-Key, fully working + polished)
 
-Popup-based dispatch via the SimBrief Partner-API. One click, mini popup
+Popup-based dispatch via die SimBrief Partner-API. One click, mini popup
 (600×315) auto-closes after generation, callback via `?ofp_id=…`,
 server-side static_id validation, idempotent callback handler. API key
-stays server-side per SimBrief's own guidance.
+stays server-side per SimBrief's own guidance. Failures werden jetzt als
+Red-banner mit Schließen-link auf der Page angezeigt statt nur in
+console.
 
 ### Pattern Y (Navigraph OAuth + private `simbrief` scope, deferred)
 
-Documented in `docs/decisions/2026-04-29-pattern-z-final.md` as the
-roadmap for the silent vAMSYS-style flow. Not implemented — requires
-Navigraph dev approval, email to dev@navigraph.com pending.
+Documented in `docs/decisions/2026-04-29-pattern-z-final.md` als der
+Roadmap für den silent vAMSYS-style flow. Not implemented — requires
+Navigraph dev approval, email an dev@navigraph.com pending.
+
+### Bonus (was ursprünglich Day-4 Priority 2 war)
+
+- ✓ Callback-Error-Banner shipped (`ebbf232`) — Pattern-Z-Fehler werden
+  jetzt als rotes Banner inline gerendert, nicht mehr als
+  `console.error` versteckt. Strip-link entfernt den Query-Param sauber.
+- ✓ Bookings-Listing-Page shipped (`cf6478d`) — `/bookings` ist jetzt
+  navigierbar mit Aktiv/Abgeschlossen-Split. Dashboard hat einen
+  Quick-Action-Tile dorthin. Schließt die Navigations-Lücke die das
+  Live-Testing blockiert hat.
 
 ## Day-4 Priority 1 — LIVE-TEST both patterns
 
 End-to-end mit echtem SimBrief-Account validieren. Pattern Z war noch
-nie live getestet (nur typecheck), Pattern α bisher auch nicht.
+nie live getestet (nur typecheck), Pattern α auch nicht.
 
 ### Vor dem Test
 
@@ -45,12 +61,13 @@ nie live getestet (nur typecheck), Pattern α bisher auch nicht.
 - [ ] DB hat seed-Daten (DLH airline, 12 routes, 6 aircraft)
 - [ ] Test-User CrysaGaming OAuth-eingerichtet, airlineId gesetzt
 - [ ] `.env` hat `SIMBRIEF_API_KEY` gesetzt (für Pattern Z)
-- [ ] Mind. 1 Booking im Created state
+- [ ] Mind. 1 Booking im Created state — über `/bookings/new` oder
+      direkt aus `/bookings` Listing erreichbar
 
 ### Pattern Z Test-Flow (primary)
 
 1. `/settings` → simBriefUsername "CrysaGaming" eintragen → speichern
-2. `/bookings/new` → Route + Network wählen → erstellen
+2. `/bookings` → "Neue Buchung" → Route + Network wählen → erstellen
 3. Auf Booking-Detail-Page: "Generate Flight Plan" Button (nicht "Plan via SimBrief")
 4. Click → Mini-Popup öffnet (600×315 px)
 5. Wenn nicht in SimBrief eingeloggt: Login-form im Popup → eingeben
@@ -61,6 +78,8 @@ nie live getestet (nur typecheck), Pattern α bisher auch nicht.
 10. Redirect zu `/bookings/[id]` (clean URL)
 11. OFP Summary erscheint inline (ofpId, blockTime, fuel, route)
 12. Booking-State jetzt `SimBriefDispatched`
+13. Zurück zu `/bookings` → Listing zeigt das Booking unter Aktiv mit
+    "OFP cached" Pill
 
 ### Pattern α Test-Flow (fallback)
 
@@ -82,18 +101,24 @@ Tab-link statt der Z-Form.
       simbrief.apiv1.js erscheint? Fallback-link "Im neuen Tab öffnen
       (Pattern α)" funktioniert?
 - [ ] **Pattern Z static_id mismatch:** Manuell `?ofp_id=…` einer
-      anderen Booking anhängen → server lehnt mit static_id-Fehler
-      ab. Console-error sichtbar, page renderet trotzdem.
+      anderen Booking anhängen → server lehnt ab. Red banner zeigt
+      "OFP does not match this booking …" mit Schließen-link.
 - [ ] **Pattern Z double-callback:** Browser-reload auf `?ofp_id=…`
       URL → idempotent (kein duplicate cache row).
 - [ ] **Pattern Z malformed ofp_id:** `?ofp_id=hacked` → Zod regex
-      lehnt ab, kein 500.
+      lehnt ab, Banner zeigt validation-error, kein 500.
+- [ ] **Pattern Z banner dismiss:** Schließen-link strippt
+      `ofp_error` query-param sauber, andere params (falls künftige)
+      bleiben erhalten.
 - [ ] **Pattern α 400-no-plan:** Refresh wenn noch nichts generiert →
       "no-plan" status, kein crash, cache wird gelöscht falls existiert.
 - [ ] **Cancelled booking refresh:** sowohl Pattern α als auch Z
       lehnen mit "Cannot refresh in state Cancelled" ab.
 - [ ] **Cache-expiry:** FlightPlanCache.expiresAt nach 6h → Refresh
       regeneriert?
+- [ ] **Bookings-Listing scoping:** Anderer User mit anderer airlineId
+      → sieht seine eigenen Bookings, nicht meine. Multi-tenant boundary
+      hält auf der Listing-Page.
 
 ### Bei Fehlern
 
@@ -101,41 +126,36 @@ Tab-link statt der Z-Form.
 - Edge-case dokumentieren in eigenem decision-doc
 - Vor Fix-Commit: reproduzieren + minimal repro
 
-## Day-4 Priority 2 — Robustness / Polish (je nach Zeit)
-
-### Callback-Error-Banner (Pattern Z UX-Lücke)
-
-Aktuell: wenn `processSimBriefCallback` fehlschlägt, nur `console.error`,
-User sieht nichts. Should: Error-banner auf der Page nach Redirect.
-
-Plan:
-- `?ofp_callback_error=…` query param appended on failure
-- Page rendert dismissable banner wenn param gesetzt
-- Banner-content: human-readable error message
+## Day-4 Priority 2 — Restliche Polish-Items
 
 ### Settings-UI: Pattern Z Verfügbarkeit anzeigen
 
-`SimBriefCard` zeigt aktuell nur den simBriefUsername. Ergänzen um:
-- Status-Indicator: "Pattern Z (Popup) verfügbar" wenn API-Key set,
-  sonst "Pattern α (Tab-Redirect) verfügbar".
-- Hilft Admins zu verstehen welcher Path aktiv ist.
+`SimBriefCard` zeigt aktuell nur den simBriefUsername. Ergänzen um
+einen Status-Indicator: "Pattern Z (Popup) verfügbar" wenn API-Key
+gesetzt, sonst "Pattern α (Tab-Redirect) verfügbar". Hilft Admins zu
+verstehen welcher Path aktiv ist. Env-check muss server-seitig
+passieren — analog zu `patternZAvailable` in der booking-detail-page.
 
-### Bookings-Listing-Page
+### "Plan again" für SimBriefDispatched-Bookings
 
-`/bookings` ist aktuell nicht navigierbar — User muss Detail-Page
-URL kennen. Einfache RSC-Liste mit links zu Detail.
+Auf der Detail-Page wenn schon ein OFP cached ist: der "Plan again →"
+Tab-link nutzt aktuell Pattern α auch wenn Pattern Z verfügbar wäre.
+Sollte symmetrisch sein zur "Generate Flight Plan" Variante. Plan:
+denselben patternZFields-Pfad re-nutzen statt einer separater Variant.
 
 ### OFP Summary refactor
 
-`<OfpSummary>` helper extrahieren aus booking-detail-page (variant
-C+D dedup). ~30 LOC saved, klarere Logik.
+`<OfpSummary>` Component extrahieren aus booking-detail-page (variant
+C+D dedup). ~30 LOC saved, klarere Logik, prep für mögliche Pirep-page
+Re-use.
 
 ## Day-4 Priority 3 — Pattern Y email vorbereiten
 
-Wenn Pattern Z Live-Test gut läuft + UX akzeptabel ist, kann Pattern
-Y warten oder kann jetzt parallel gestartet werden.
+Wenn Pattern Z Live-Test gut läuft + UX akzeptabel ist, kann Pattern Y
+warten oder kann jetzt parallel gestartet werden.
 
 Email-Draft an `dev@navigraph.com`:
+
 - Project: VAM-System (vam.kevindrack.de), multi-tenant VA-management
 - Stack: Next.js 16 + Prisma + PostgreSQL
 - Request: OAuth Client ID + Secret + `simbrief` scope
@@ -160,16 +180,17 @@ Falls 1-2 Wochen kein Reply: forum.navigraph.com Post als Backup-Channel
 - **Pattern Z Live-Test bestätigt UX gut?** Wenn ja: Pattern Y wird "nice
   to have" statt "must have". Wenn UX schlecht (Popup zu nervig): Pattern
   Y wird Priority.
-- **Bookings-Listing nötig?** Für Live-Test reicht direkter URL-Zugriff;
-  langfristig brauchen wir Navigation.
-- **`Booking.simBriefStaticId` Field entfernen?** War für Phase-1
-  Pattern α gedacht aber static_id ist jetzt deterministisch aus
-  `booking.id` ableitbar. Schema-cleanup commit candidat.
+- **`Booking.simBriefStaticId` Field entfernen?** War für Phase-1 Pattern
+  α gedacht aber static_id ist jetzt deterministisch aus `booking.id`
+  ableitbar. Schema-cleanup commit candidate.
+- **`stateStyle` extrahieren?** Aktuell dupliziert in `bookings/[id]/page.tsx`
+  und `bookings/page.tsx` — zwei Aufrufer reichen noch nicht für Hoist
+  (siehe `cf6478d` Commit-message). Beim dritten Caller hochziehen.
 
 ## Notizen
 
-- Working tree clean (alle Pattern-Z-Files committed in Phase 1+2)
+- Working tree clean (alle Day-3 Files committed)
 - Branch `cc-experiment` 0 commits ahead origin nach Push
 - Web typecheck clean
-- 7 Commits Day-3, alle gepusht
+- 10 Commits Day-3, alle gepusht
 - `.claude/settings.local.json` (harness) bleibt untracked
