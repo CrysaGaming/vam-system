@@ -71,19 +71,109 @@ Navigraph dev approval, email an dev@navigraph.com pending.
   `actions`-Slot — actions present ⇒ live, actions absent ⇒ muted.
   page.tsx 599 → 501 LOC.
 
+## Day-4 Achievement (heute früh, ~03-04 Uhr Berlin)
+
+Browser-automation infrastructure aufgebaut + Live-Test aller Day-3-shipped
+Features end-to-end durchgeführt. Pattern Z + Pattern α beide in echter
+Browser-Umgebung verifiziert. Plus eine 4h-Hydration-Bug-Session die kein
+Code-Bug war sondern HMR-State-Corruption — wertvolles Tooling-Learning.
+
+### Browser-automation stack now live
+
+- **Claude in Chrome** Extension gepaired mit deviceId
+  `eb70f2f2-ca49-488d-940a-6a3f91775b40`, alle 15 permissions inkl.
+  debugger + nativeMessaging + scripting
+- **Playwright MCP** lokal installiert (`@playwright/mcp@0.0.71`) mit
+  custom `--user-data-dir C:\Users\kevin\.cache\playwright-mcp` — default
+  scheiterte mit EPERM weil Claude Desktop aus `C:\Windows\System32`
+  startet
+- Beide connectors per-conversation toggelbar via "+" → Konnektoren
+  dropdown im chat-input
+- Per-Domain-Approval-Queue von Anthropic verifiziert (one approval per
+  new domain — `localhost`, `vam.kevindrack.de`)
+- Erlaubt Live-DOM-Inspection, JavaScript exec, Network-Capture,
+  Screenshots — alles was für Hydration-Bug-Untersuchung nötig war
+
+### Live-Test Results
+
+Booking LH100 EDDF→EDDM, OFP `EDDFEDDM_XML_1777505352` (5138 kg block
+fuel, 1h 5min, route `CIND2D CINDY Z74 HAREM T104 ROKIL ROKI1A`):
+
+- ✅ Pattern Z full popup-flow end-to-end (User manuell, 19:44→19:46:58 =
+  2 min inkl. erstmaliger SimBrief-Login)
+- ✅ Pattern α refresh-via-static_id via "↻ Refresh OFP" Button: Server-
+  action holt OFP korrekt von SimBrief mit `static_id=vam-cmokch0oy0…`
+  (gleiche OFP zurück weil nichts neu generiert — erwartetes Verhalten)
+- ✅ Pattern-Z error-banner via `?ofp_error=callback_failed_test`: roter
+  Banner mit Code als Text + Schließen-Link der Param strippt
+- ✅ Plan-again Pattern-Z Symmetry: beide Buttons im OfpSummary-actions-
+  slot rendern mit identischem gray-styling (`px-4 py-2 bg-gray-800
+  hover:bg-gray-700 rounded text-sm`), kein indigo-default mehr
+- ✅ Settings-Page Pattern α + Z indicators beide grün, env-check works
+- ✅ Bookings-Listing multi-tenant scoped, "1 Booking gesamt · 1 aktiv"
+  Counter
+- ✅ OfpSummary refactor: alle 4 headline-fields (ofpId, blockTime,
+  blockFuel, generatedAt) + route + 7d-expiry-info rendern korrekt;
+  muted/active variants funktionieren
+
+### Hydration-Bug debug session — kein Code-Bug, HMR-state-corruption
+
+Während Live-Test trat eine persistente Hydration-Mismatch in der
+SimBriefDispatchForm (Plan-again CTA in OfpSummary actions) auf:
+
+- Server SSR-output: `<button class="px-4 py-2 bg-gray-800 ...">Plan
+  again →</button>` (override props korrekt applied)
+- Client nach Hydration: `<button class="px-6 py-3 bg-indigo-600 ...">
+  Generate Flight Plan →</button>` (defaults, override dropped)
+
+Vollständige Diagnose-Kette:
+
+1. Source-Code auf Disk: korrekt (page.tsx Z356 hat overrides,
+   SimBriefDispatchForm.tsx hat defaults+override default-param-pattern)
+2. `.next/dev` chunks frisch (nach `rm -rf .next && pnpm dev` Restart)
+3. Compiled function-signature im client-bundle: korrekt
+   (`{ ..., buttonLabel = DEFAULT_BUTTON_LABEL, buttonClassName =
+   DEFAULT_BUTTON_CLASSNAME }`)
+4. Compiled JSX im client-bundle: korrekt (`className: buttonClassName,
+   children: buttonLabel` — direkt aus props, kein Hardcode)
+5. RSC-Payload im HTML: korrekt (`"buttonLabel":"Plan again →"`)
+6. React-fiber `memoizedProps` via DOM `__reactFiber$`-key: korrekt
+   (zeigt `buttonLabel: "Plan again →"` als prop empfangen)
+7. Output trotzdem defaults: **logisch unmöglich nach JS-Semantik**
+
+Workaround **frischer Browser-Tab**: der ursprünglich-broken Tab konnte
+sich nie erholen — React's Hydration ist nach dem ersten Mismatch in
+einen state-corruption-Modus geraten, in dem auch nach `.next`-cleaning,
+dev-server-Restart und multiplen `location.reload()` weiter Defaults
+gerendert wurden. Frische Tab-Instanz lädt fresh chunks + frischen React-
+state und rendert sofort korrekt.
+
+**Debugging-Reihenfolge bei Hydration-Errors in dev-mode (für nächstes
+Mal)**:
+
+1. **Frischen Browser-Tab öffnen** statt nur Reload
+2. Wenn weiter broken: `rm -rf apps/web/.next` + dev-server-Restart
+3. Wenn weiter broken: production-build (`pnpm build && pnpm start`)
+   prüfen — wenn dort gone, ist's dev-mode-Tooling-Issue
+4. Source-Code auf Disk → compiled chunk → RSC-payload → React-fiber-
+   props ist die definitive Diagnose-Reihenfolge
+
 ## Day-4 Priority 1 — LIVE-TEST both patterns
 
 End-to-end mit echtem SimBrief-Account validieren. Pattern Z war noch
 nie live getestet (nur typecheck), Pattern α auch nicht.
 
+> **Status nach Day-4 Session**: Happy-Path beider Patterns + Symmetry +
+> Error-Banner verifiziert (siehe Day-4 Achievement Section oben). Edge-
+> Cases unten überwiegend noch offen.
+
 ### Vor dem Test
 
-- [ ] Web läuft (lokal `pnpm --filter @vam/web dev` oder vam.kevindrack.de)
-- [ ] DB hat seed-Daten (DLH airline, 12 routes, 6 aircraft)
-- [ ] Test-User CrysaGaming OAuth-eingerichtet, airlineId gesetzt
-- [ ] `.env` hat `SIMBRIEF_API_KEY` gesetzt (für Pattern Z)
-- [ ] Mind. 1 Booking im Created state — über `/bookings/new` oder
-      direkt aus `/bookings` Listing erreichbar
+- [x] Web läuft (`pnpm --filter @vam/web dev` auf vam.kevindrack.de:3000)
+- [x] DB hat seed-Daten (DLH airline, 12 routes, 6 aircraft)
+- [x] Test-User CrysaGaming OAuth-eingerichtet, airlineId gesetzt
+- [x] `.env` hat `SIMBRIEF_API_KEY` gesetzt (Pattern Z available)
+- [x] Booking LH100 EDDF→EDDM existiert (cmokch0oy0004yomk4ogno6wu)
 
 ### Pattern Z Test-Flow (primary)
 
@@ -128,9 +218,9 @@ Tab-link statt der Z-Form.
       URL → idempotent (kein duplicate cache row).
 - [ ] **Pattern Z malformed ofp_id:** `?ofp_id=hacked` → Zod regex
       lehnt ab, Banner zeigt validation-error, kein 500.
-- [ ] **Pattern Z banner dismiss:** Schließen-link strippt
+- [x] **Pattern Z banner dismiss:** Schließen-link strippt
       `ofp_error` query-param sauber, andere params (falls künftige)
-      bleiben erhalten.
+      bleiben erhalten. ✓ verifiziert mit `?ofp_error=callback_failed_test`.
 - [ ] **Pattern α 400-no-plan:** Refresh wenn noch nichts generiert →
       "no-plan" status, kein crash, cache wird gelöscht falls existiert.
 - [ ] **Cancelled booking refresh:** sowohl Pattern α als auch Z
@@ -182,9 +272,13 @@ Falls 1-2 Wochen kein Reply: forum.navigraph.com Post als Backup-Channel
 
 ## Open Questions
 
-- **Pattern Z Live-Test bestätigt UX gut?** Wenn ja: Pattern Y wird "nice
-  to have" statt "must have". Wenn UX schlecht (Popup zu nervig): Pattern
-  Y wird Priority.
+- ~~**Pattern Z Live-Test bestätigt UX gut?**~~ ✓ **Beantwortet Day-4**:
+  Popup-Flow von Click → OFP cached war 2 min (User manuell, mit Login).
+  Auto-close + clean-URL-redirect funktioniert. Plan-again-Symmetry +
+  Refresh-OFP-Buttons sehen visuell konsistent aus. Pattern Y kann
+  damit als "nice-to-have" für später bleiben — kein Blocker für MVP.
+  Pattern Y bleibt nice-to-have für: silent OFP ohne SimBrief-Login,
+  vAMSYS-style Komfort. Kein MVP-Blocker.
 - **`Booking.simBriefStaticId` Field entfernen?** War für Phase-1 Pattern
   α gedacht aber static_id ist jetzt deterministisch aus `booking.id`
   ableitbar. Schema-cleanup commit candidate.
@@ -194,8 +288,29 @@ Falls 1-2 Wochen kein Reply: forum.navigraph.com Post als Backup-Channel
 
 ## Notizen
 
-- Working tree clean (alle Day-3 Files committed)
-- Branch `cc-experiment` 0 commits ahead origin nach Push
-- Web typecheck clean
-- 14 Commits Day-3, alle gepusht
+- Working tree dirty: TOMORROW.md modified (this commit), CLAUDE.md just
+  committed (`086573c` — stop-policy + hosts-mapping)
+- Branch `cc-experiment` HEAD nach diesem Commit ahead `origin/cc-experiment`
+  bis push
+- Web typecheck clean (last verified Day-3)
+- Day-3: 14 Commits gepusht; Day-4 so far: 1 Commit (CLAUDE.md), dieser
+  TOMORROW.md sync wird der zweite
 - `.claude/settings.local.json` (harness) bleibt untracked
+- Browser-Automation tools (Claude in Chrome + Playwright MCP) lokal
+  konfiguriert, claude_desktop_config.json hat die paired-device-id.
+  Bei nächster Session ggf. Konnektoren wieder per "+"-Toggle aktivieren.
+
+## Day-4 Pending (next session)
+
+Nach Wahl:
+
+- **Edge-Cases durchspielen** (siehe Liste oben — Popup-blocker test,
+  static_id mismatch test, double-callback idempotency, malformed ofp_id
+  validation, cancelled-booking refresh-rejection, cache-expiry
+  regeneration, multi-tenant cross-airline-scoping). Read-only nav
+  zumeist, schnell durchspielbar.
+- **Pattern Y email** an dev@navigraph.com schreiben (Draft in Priority 3
+  oben). Längere Vorlaufzeit für Approval, also lieber früh raus.
+- **Schema cleanup**: `Booking.simBriefStaticId` Field entfernen (jetzt
+  redundant, ~0.5 day).
+- **stateStyle extrahieren**: bei drittem Caller (siehe Open Questions).
