@@ -427,6 +427,30 @@ export default async function Dashboard() {
                   </span>
                 </Link>
               )}
+
+              {/* Admin-only: Airline-Admin-Panel. Members + Settings.
+                  Requires both admin role AND airline-membership — the
+                  page gates on both, so no point showing the link to
+                  airline-less admins. */}
+              {isAdmin && user.airlineId && (
+                <Link
+                  href="/airline"
+                  className="group flex justify-between items-center p-4 rounded border bg-gray-800/50 border-gray-800 hover:bg-gray-800 transition"
+                >
+                  <div className="flex items-center gap-4">
+                    <span className="text-2xl">🏢</span>
+                    <div>
+                      <p className="font-semibold">Airline-Verwaltung</p>
+                      <p className="text-xs text-gray-400">
+                        Mitglieder + Einstellungen
+                      </p>
+                    </div>
+                  </div>
+                  <span className="text-gray-500 group-hover:translate-x-1 transition-transform">
+                    →
+                  </span>
+                </Link>
+              )}
             </div>
           </section>
         )}
