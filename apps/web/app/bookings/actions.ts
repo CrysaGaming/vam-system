@@ -11,6 +11,15 @@ import { buildSimBriefDispatchUrl } from '@/lib/simbrief/buildDispatchUrl';
 const CreateBookingSchema = z.object({
   routeId: z.string().cuid(),
   intendedNetwork: z.nativeEnum(NetworkType).optional(),
+  // ISO-8601 UTC datetime — set by client from datetime-local input
+  // converted via `new Date(value).toISOString()`. Optional. Keine
+  // past-date validation in v1 (User darf "rückwirkend" planen falls
+  // training-replay).
+  scheduledDeparture: z
+    .string()
+    .datetime()
+    .optional()
+    .transform((s) => (s ? new Date(s) : undefined)),
 });
 
 const CancelBookingSchema = z.object({
@@ -36,9 +45,10 @@ const PlanSimBriefBookingSchema = z.object({
 });
 
 export async function createBooking(
-  input: z.infer<typeof CreateBookingSchema>,
+  input: z.input<typeof CreateBookingSchema>,
 ) {
-  const { routeId, intendedNetwork } = CreateBookingSchema.parse(input);
+  const { routeId, intendedNetwork, scheduledDeparture } =
+    CreateBookingSchema.parse(input);
 
   const { id: userId, airlineId } = await requireUserWithAirline();
 
@@ -71,6 +81,7 @@ export async function createBooking(
       userId,
       routeId,
       intendedNetwork,
+      scheduledDeparture,
       expiresAt,
     },
     select: { id: true, state: true, expiresAt: true },
@@ -254,6 +265,7 @@ export async function planSimBriefBooking(
     departure: { icao: booking.route.departure.icao },
     arrival: { icao: booking.route.arrival.icao },
     user: { name: booking.user.name },
+    scheduledDeparture: booking.scheduledDeparture,
   });
 
   return { url };

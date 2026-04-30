@@ -23,6 +23,10 @@ export interface BuildFormFieldsInput {
   departure: { icao: string };
   arrival: { icao: string };
   user: { name: string | null };
+  // Optional. Wenn gesetzt, propagieren wir Datum + UTC-Zeit als
+  // SimBrief-Form-Defaults (date, deph, depm) — siehe buildDispatchUrl
+  // für die Pattern-α-Variante.
+  scheduledDeparture?: Date | null;
 }
 
 export interface SimBriefFormField {
@@ -66,6 +70,19 @@ export function buildSimBriefFormFields(
 
   if (input.user.name) {
     fields.push({ name: 'cpt', value: input.user.name });
+  }
+
+  if (input.scheduledDeparture) {
+    const dep = input.scheduledDeparture;
+    // UTC components — SimBrief expects Zulu time
+    const yyyy = dep.getUTCFullYear();
+    const mm = String(dep.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(dep.getUTCDate()).padStart(2, '0');
+    const hh = String(dep.getUTCHours()).padStart(2, '0');
+    const min = String(dep.getUTCMinutes()).padStart(2, '0');
+    fields.push({ name: 'date', value: `${yyyy}-${mm}-${dd}` });
+    fields.push({ name: 'deph', value: hh });
+    fields.push({ name: 'depm', value: min });
   }
 
   return fields;

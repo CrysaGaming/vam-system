@@ -148,6 +148,7 @@ export default async function BookingDetail({
           departure: { icao: booking.route.departure.icao },
           arrival: { icao: booking.route.arrival.icao },
           user: { name: booking.user.name },
+          scheduledDeparture: booking.scheduledDeparture,
         })
       : null;
 
@@ -175,6 +176,7 @@ export default async function BookingDetail({
           departure: { icao: booking.route.departure.icao },
           arrival: { icao: booking.route.arrival.icao },
           user: { name: booking.user.name },
+          scheduledDeparture: booking.scheduledDeparture,
         })
       : null;
 
@@ -483,6 +485,28 @@ export default async function BookingDetail({
                 {new Date(booking.expiresAt).toLocaleString('de-DE')}
               </p>
             </div>
+            {booking.scheduledDeparture && (
+              <div>
+                <p className="text-xs uppercase tracking-wider text-gray-500 mb-1">
+                  Geplante Abflugzeit
+                </p>
+                <p className="text-gray-300">
+                  {new Date(booking.scheduledDeparture).toLocaleString('de-DE', {
+                    dateStyle: 'long',
+                    timeStyle: 'short',
+                  })}
+                  <span className="ml-2 text-xs text-gray-500 font-mono">
+                    (
+                    {new Date(booking.scheduledDeparture).toLocaleString('de-DE', {
+                      timeZone: 'UTC',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                    Z)
+                  </span>
+                </p>
+              </div>
+            )}
             {booking.dispatchedAt && (
               <div>
                 <p className="text-xs uppercase tracking-wider text-gray-500 mb-1">

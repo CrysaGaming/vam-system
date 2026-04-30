@@ -8,6 +8,10 @@ export interface BuildDispatchUrlInput {
   departure: { icao: string };
   arrival: { icao: string };
   user: { name: string | null };
+  // Optional. Wenn gesetzt, propagieren wir Datum + UTC-Zeit als
+  // SimBrief-Form-Defaults (date, deph, depm). User kann auf der
+  // SimBrief-Page noch override; das ist Form-prefill, kein lock.
+  scheduledDeparture?: Date | null;
 }
 
 /**
@@ -22,8 +26,16 @@ export interface BuildDispatchUrlInput {
  * in captureSimBriefOfp (apps/web/app/bookings/actions.ts) — defense-in-depth
  * against mixed-up ofpIds.
  *
- * Deferred to Phase 2 (Override-Hierarchie):
- * - deph/depm/dxp: Booking has no scheduledDeparture field yet.
+ * Departure scheduling: when `scheduledDeparture` is set, we forward
+ * `date` (YYYY-MM-DD), `deph` (UTC hour 0-23) and `depm` (UTC minute 0-59)
+ * as SimBrief form-prefill. The User can still adjust on the SimBrief
+ * options page before generating — this is a default, not a lock.
+ * SimBrief's own time-handling expects UTC ("Zulu") values for deph/depm,
+ * which is convenient because our DB stores DateTime in UTC anyway.
+ *
+ * Deferred to Phase 2:
+ * - dxp (dispatch extra fuel buffer): different concept (fuel-time, not
+ *   schedule-time), per-Aircraft/Airline rather than per-Booking.
  * - pax/cargo, fuel policies, ICAO equipment, PBN: per Aircraft/Fleet/Airline.
  * - route (routing string): Route model has no routing field yet.
  *
@@ -36,8 +48,9 @@ export interface BuildDispatchUrlInput {
  *   departure: { icao: 'EDDF' },
  *   arrival: { icao: 'EGLL' },
  *   user: { name: 'Kevin Drack' },
+ *   scheduledDeparture: new Date('2026-05-01T14:30:00Z'),
  * })
- * // → ".../options/custom?airline=DLH&fltnum=400&type=A320&orig=EDDF&dest=EGLL&reg=D-AIQA&cpt=Kevin+Drack&static_id=vam-cl9abc"
+ * // → ".../options/custom?airline=DLH&fltnum=400&type=A320&orig=EDDF&dest=EGLL&reg=D-AIQA&cpt=Kevin+Drack&date=2026-05-01&deph=14&depm=30&static_id=vam-cl9abc"
  */
 export function buildSimBriefDispatchUrl(input: BuildDispatchUrlInput): string {
   const params = new URLSearchParams();
@@ -50,6 +63,20 @@ export function buildSimBriefDispatchUrl(input: BuildDispatchUrlInput): string {
   if (input.user.name) {
     params.set('cpt', input.user.name);
   }
+
+  if (input.scheduledDeparture) {
+    const dep = input.scheduledDeparture;
+    // Date components in UTC — SimBrief expects Zulu time
+    const yyyy = dep.getUTCFullYear();
+    const mm = String(dep.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(dep.getUTCDate()).padStart(2, '0');
+    const hh = String(dep.getUTCHours()).padStart(2, '0');
+    const min = String(dep.getUTCMinutes()).padStart(2, '0');
+    params.set('date', `${yyyy}-${mm}-${dd}`);
+    params.set('deph', hh);
+    params.set('depm', min);
+  }
+
   params.set('static_id', `vam-${input.bookingId}`);
 
   return `${BASE_URL}?${params.toString()}`;

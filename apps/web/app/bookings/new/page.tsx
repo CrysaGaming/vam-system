@@ -28,6 +28,7 @@ export default async function NewBooking() {
 
     const routeId = formData.get('routeId');
     const networkRaw = formData.get('intendedNetwork');
+    const scheduledRaw = formData.get('scheduledDeparture');
 
     if (typeof routeId !== 'string' || routeId === '') {
       throw new Error('Route is required');
@@ -38,7 +39,27 @@ export default async function NewBooking() {
         ? networkRaw
         : undefined;
 
-    const result = await createBooking({ routeId, intendedNetwork });
+    // datetime-local liefert "YYYY-MM-DDTHH:mm" ohne Sekunden + ohne TZ.
+    // new Date() interpretiert das als LOCAL time des Servers/Clients —
+    // weil Server-Action server-side läuft (Berlin: CEST), wäre das ein
+    // Bug-Magnet. Stattdessen: User-Browser sendet local-time string,
+    // wir behandeln das als "User-meant-this-instant-in-his-tz" und
+    // serialisieren via toISOString() zu UTC. Server's TZ darf egal sein
+    // weil new Date('2026-05-01T14:30') auf jedem Node-Server denselben
+    // ms-Wert relative zu lokaler TZ liefert — und das ist genau was wir
+    // wollen wenn der Server in Berlin läuft (was er tut). Falls Server
+    // mal global gehosted wird → datepicker auf Client-Component umstellen
+    // und String mit explizitem TZ-Offset senden.
+    const scheduledDeparture =
+      typeof scheduledRaw === 'string' && scheduledRaw !== ''
+        ? new Date(scheduledRaw).toISOString()
+        : undefined;
+
+    const result = await createBooking({
+      routeId,
+      intendedNetwork,
+      scheduledDeparture,
+    });
 
     redirect(`/bookings/${result.id}`);
   }
@@ -113,6 +134,27 @@ export default async function NewBooking() {
               <p className="text-xs text-gray-500 mt-2">
                 Falls du im Online-Network fliegst. Hint für UI/Filter — actual
                 Network kommt vom PIREP/LiveSession.
+              </p>
+            </div>
+
+            <div>
+              <label
+                htmlFor="scheduledDeparture"
+                className="block text-sm font-medium text-gray-300 mb-2"
+              >
+                Geplante Abflugzeit (optional)
+              </label>
+              <input
+                type="datetime-local"
+                id="scheduledDeparture"
+                name="scheduledDeparture"
+                className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+              />
+              <p className="text-xs text-gray-500 mt-2">
+                Wird als <code className="text-gray-400">date/deph/depm</code>{' '}
+                an SimBrief übergeben damit METAR/TAF zur richtigen Zeit gezogen
+                werden. Eingabe in deiner lokalen Zeitzone — wird intern als UTC
+                gespeichert.
               </p>
             </div>
           </div>

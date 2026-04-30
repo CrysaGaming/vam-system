@@ -412,6 +412,14 @@ model Booking {
   // Hint für UI/Filter, kein Hard-Lock — actual Network kommt vom PIREP/LiveSession
   intendedNetwork NetworkType?
 
+  // Geplante Abflugzeit (UTC). Optional — wenn null, dispatcht User ohne
+  // schedule (SimBrief defaultet auf "next available departure"). Wenn
+  // gesetzt, propagieren wir es als deph/depm/date in den Pattern α + Z
+  // Dispatch-URLs damit SimBrief mit der richtigen METAR/TAF und Tageszeit
+  // plant. v1: immutable nach booking-creation. Edit-flow käme mit dem
+  // Booking-Edit-Pattern Phase 2.
+  scheduledDeparture DateTime?
+
   dispatchedAt      DateTime?
 
   createdAt          DateTime  @default(now())
