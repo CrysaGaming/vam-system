@@ -4,12 +4,14 @@ import { prisma } from '@vam/db';
 import Link from 'next/link';
 import { ConnectionCard } from './connection-card';
 import { OverlayCard } from './overlay-card';
-import { getOrCreateOverlayToken, getAirlineSimBriefOverlay, listAirlineFleets } from './actions';
+import { getOrCreateOverlayToken, getAirlineSimBriefOverlay, listAirlineFleets, listAirlineAircraft, listAirlineRoutes } from './actions';
 import { OverlayPreferences } from './overlay-preferences';
 import { getOverlayPreferences } from './overlay-actions';
 import { SimBriefCard } from './simbrief-card';
 import { AirlineOverlayCard } from './airline-overlay-card';
 import { FleetOverlayCard } from './fleet-overlay-card';
+import { AircraftOverlayCard } from './aircraft-overlay-card';
+import { RouteOverlayCard } from './route-overlay-card';
 
 export default async function SettingsPage({
   searchParams,
@@ -53,6 +55,11 @@ export default async function SettingsPage({
   // SimBrief Fleet-Overlays (Ebene 2). Empty array if user has no airline
   // — same hide-card semantic as airlineOverlay null.
   const fleets = await listAirlineFleets();
+
+  // SimBrief Aircraft-Overlays (Ebene 3) + Route-Overlays (Ebene 4).
+  // Both edit-only — the rows exist independently of overlay state.
+  const aircraft = await listAirlineAircraft();
+  const routes = await listAirlineRoutes();
 
   const statusBanner =
     params.status === 'success' && params.provider
@@ -213,6 +220,26 @@ export default async function SettingsPage({
           {airlineOverlay !== null && (
             <div className="mt-6">
               <FleetOverlayCard initial={fleets} />
+            </div>
+          )}
+
+          {/*
+            Aircraft-Overlays (Ebene 3) — edit-only, list of existing
+            airline aircraft with overlay editor inline.
+          */}
+          {airlineOverlay !== null && (
+            <div className="mt-6">
+              <AircraftOverlayCard initial={aircraft} />
+            </div>
+          )}
+
+          {/*
+            Route-Overlays (Ebene 4, höchste Präzedenz) — edit-only,
+            list of all airline routes with overlay editor inline.
+          */}
+          {airlineOverlay !== null && (
+            <div className="mt-6">
+              <RouteOverlayCard initial={routes} />
             </div>
           )}
         </section>

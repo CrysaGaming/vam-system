@@ -361,3 +361,215 @@ export async function deleteFleetSimBriefOverlay(
 
   return { success: true };
 }
+
+/* ---------------------------------------------------------------- *
+ * AIRCRAFT-LEVEL OVERLAY (Ebene 3 in der Override-Hierarchie)      *
+ * ---------------------------------------------------------------- *
+ * Aircraft rows exist independently of overlays (created via       *
+ * fleet management / seed). Overlay is an optional JSON column on  *
+ * the existing Aircraft row, so we list+edit but never create or   *
+ * delete from this UI — that would interfere with the airline's    *
+ * actual fleet roster.                                             *
+ * ---------------------------------------------------------------- */
+
+interface AircraftSummary {
+  id: string;
+  registration: string;
+  type: string;
+  overlay: SimBriefOverlay;
+  populatedCount: number;
+}
+
+export async function listAirlineAircraft(): Promise<AircraftSummary[]> {
+  const session = await auth();
+  if (!session?.user?.id) return [];
+
+  const user = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { airlineId: true },
+  });
+  if (!user?.airlineId) return [];
+
+  const aircraft = await prisma.aircraft.findMany({
+    where: { airlineId: user.airlineId },
+    orderBy: { registration: 'asc' },
+    select: {
+      id: true,
+      registration: true,
+      type: true,
+      simBriefOverlay: true,
+    },
+  });
+
+  return aircraft.map((a) => {
+    const overlay = parseSimBriefOverlay(a.simBriefOverlay);
+    return {
+      id: a.id,
+      registration: a.registration,
+      type: a.type,
+      overlay,
+      populatedCount: Object.keys(overlay).length,
+    };
+  });
+}
+
+/**
+ * Updates the simBriefOverlay JSON column on an Aircraft row,
+ * scoped to the user's airline. The aircraft row itself is not
+ * created or deleted by this action.
+ *
+ * Empty overlay (`{}`) is a valid "clear all overrides" signal —
+ * persisted as `{}` rather than null to distinguish "user cleared"
+ * from "never set" in the audit trail.
+ */
+export async function updateAircraftSimBriefOverlay(
+  aircraftId: string,
+  input: SimBriefOverlay,
+): Promise<
+  | { success: true }
+  | { success: false; error: string; issues?: z.ZodIssue[] }
+> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { success: false, error: 'unauthorized' };
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { airlineId: true },
+  });
+  if (!user?.airlineId) {
+    return { success: false, error: 'no_airline' };
+  }
+
+  // Cross-airline scope-guard before write — same pattern as
+  // deleteFleetSimBriefOverlay. Without this, knowing an aircraft
+  // id from another airline would let a user write its overlay.
+  const aircraft = await prisma.aircraft.findUnique({
+    where: { id: aircraftId },
+    select: { airlineId: true },
+  });
+  if (!aircraft) return { success: false, error: 'not_found' };
+  if (aircraft.airlineId !== user.airlineId) {
+    return { success: false, error: 'forbidden' };
+  }
+
+  const parsed = SimBriefOverlaySchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: 'invalid_input',
+      issues: parsed.error.issues,
+    };
+  }
+
+  await prisma.aircraft.update({
+    where: { id: aircraftId },
+    data: { simBriefOverlay: parsed.data },
+  });
+
+  revalidatePath('/bookings');
+  revalidatePath('/settings');
+
+  return { success: true };
+}
+
+/* ---------------------------------------------------------------- *
+ * ROUTE-LEVEL OVERLAY (Ebene 4, höchste precedence)                *
+ * ---------------------------------------------------------------- *
+ * Same edit-only model as Aircraft — Route rows exist for the      *
+ * airline's schedule and are not managed via this UI.              *
+ * ---------------------------------------------------------------- */
+
+interface RouteSummary {
+  id: string;
+  flightNumber: string;
+  departureIcao: string;
+  arrivalIcao: string;
+  overlay: SimBriefOverlay;
+  populatedCount: number;
+}
+
+export async function listAirlineRoutes(): Promise<RouteSummary[]> {
+  const session = await auth();
+  if (!session?.user?.id) return [];
+
+  const user = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { airlineId: true },
+  });
+  if (!user?.airlineId) return [];
+
+  const routes = await prisma.route.findMany({
+    where: { airlineId: user.airlineId },
+    orderBy: { flightNumber: 'asc' },
+    select: {
+      id: true,
+      flightNumber: true,
+      simBriefOverlay: true,
+      departure: { select: { icao: true } },
+      arrival: { select: { icao: true } },
+    },
+  });
+
+  return routes.map((r) => {
+    const overlay = parseSimBriefOverlay(r.simBriefOverlay);
+    return {
+      id: r.id,
+      flightNumber: r.flightNumber,
+      departureIcao: r.departure.icao,
+      arrivalIcao: r.arrival.icao,
+      overlay,
+      populatedCount: Object.keys(overlay).length,
+    };
+  });
+}
+
+export async function updateRouteSimBriefOverlay(
+  routeId: string,
+  input: SimBriefOverlay,
+): Promise<
+  | { success: true }
+  | { success: false; error: string; issues?: z.ZodIssue[] }
+> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { success: false, error: 'unauthorized' };
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { airlineId: true },
+  });
+  if (!user?.airlineId) {
+    return { success: false, error: 'no_airline' };
+  }
+
+  const route = await prisma.route.findUnique({
+    where: { id: routeId },
+    select: { airlineId: true },
+  });
+  if (!route) return { success: false, error: 'not_found' };
+  if (route.airlineId !== user.airlineId) {
+    return { success: false, error: 'forbidden' };
+  }
+
+  const parsed = SimBriefOverlaySchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: 'invalid_input',
+      issues: parsed.error.issues,
+    };
+  }
+
+  await prisma.route.update({
+    where: { id: routeId },
+    data: { simBriefOverlay: parsed.data },
+  });
+
+  revalidatePath('/bookings');
+  revalidatePath('/settings');
+
+  return { success: true };
+}
