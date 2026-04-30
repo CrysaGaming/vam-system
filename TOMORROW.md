@@ -249,6 +249,68 @@ Date returns aber Caller string sendet.
 6. Optional: full popup-flow durchziehen, schauen ob SimBrief-Page
    wirklich mit der Zeit prefillt
 
+### Live-UI-Test ✓ shipped (~12:00 Berlin)
+
+User startete dev + bot wieder, Live-UI-Test sofort durchgezogen — alle
+6 verification-points grün in ~4 min wall-clock (EST 15 min).
+
+**Test-flow:**
+
+1. Cancel Booking-2 via direct DB (active-slot frei machen)
+2. Browser: `/bookings/new` form ausfüllen via Playwright MCP:
+   - Route: LH918 EDDF→EGLL (A320 D-AIZA)
+   - scheduledDeparture: `2026-05-01T14:30` (Berlin CEST local)
+3. Submit → redirect zu `/bookings/cmolbcr9p0001piufmojicl1q`
+
+**Verification-results (alle ✓):**
+
+| Check | Expected | Got |
+|-------|----------|-----|
+| Detail-Page "Geplante Abflugzeit" rendert | local + Zulu suffix | "1. Mai 2026 um 14:30 (12:30Z)" ✓ |
+| TZ-conversion Berlin→UTC | 14:30 CEST → 12:30 UTC | DB hat `2026-05-01T12:30:00.000Z` ✓ |
+| Pattern α URL `date` param | `2026-05-01` | `2026-05-01` ✓ |
+| Pattern α URL `deph` param | `12` (UTC hour) | `12` ✓ |
+| Pattern α URL `depm` param | `30` | `30` ✓ |
+| Pattern Z hidden inputs | date, deph, depm präsent | alle 3 mit korrekten values ✓ |
+| Total Pattern α params | 11 | 11 ✓ |
+| Total Pattern Z hidden inputs | 11 (matching) | 11 ✓ |
+
+**Pattern Symmetry**: Pattern α URL + Pattern Z form-fields haben
+identical 11 keys (airline, cpt, date, deph, depm, dest, fltnum, orig,
+reg, static_id, type) — bestätigt dass `buildDispatchUrl.ts` und
+`buildFormFields.ts` den gleichen output-shape produzieren.
+
+**Calibration update**: Live-UI-Test durch existierende Browser-Tooling
+(Playwright MCP + Claude in Chrome already paired) ging schneller als
+gedacht. Faktor 0.27 (4min/15min EST). Browser-Form-Submission +
+DOM-Inspection via JavaScript ist sehr effizient.
+
+**DB-state nach Live-Test:**
+
+```
+Booking-1 (cmokch0oy0004yomk4ogno6wu): Cancelled, LH100 EDDF→EDDM
+  cache: EDDFEDDM_XML_1777505352 (preserved)
+  scheduledDeparture: null
+
+Booking-2 (cmol8er560001plyse3jr512o): Cancelled, LH200 EDDF→EDDB
+  cache: EDDFEDDB_XML_1777539409 (preserved)
+  scheduledDeparture: null
+  cancelledAt: 2026-04-30T09:59:05Z (Live-Test fixture-prep)
+
+Booking-3 (cmolbcr9p0001piufmojicl1q): Created, LH918 EDDF→EGLL
+  cache: null (no plan generated yet)
+  scheduledDeparture: 2026-05-01T12:30:00Z ⭐ (test fixture)
+```
+
+Booking-3 bleibt als Test-Fixture für künftige scheduledDeparture-related
+Tests (z.B. "OFP refresh 1 day before scheduled departure shows correct
+METAR").
+
+**Optional next-level test (deferred, user decision)**: Tatsächlich
+Pattern-Z-popup-flow durchziehen mit Booking-3 → schauen ob die
+SimBrief-Page wirklich den 12:30Z slot prefilled. Würde ~3 min mit
+User-Login dauern.
+
 ### Schema-Cleanup (baeb8e4)
 
 Field `Booking.simBriefStaticId` aus dem schema gedroppt.
