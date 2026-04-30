@@ -36,6 +36,7 @@ import { z } from 'zod';
  *                 addedfuel(+units), tankering, taxifuel, fuelfactor
  * - routing:      altn, fl, route, origrwy, destrwy
  * - taxi:         taxiout, taxiin
+ * - output:       pounds (display unit toggle)
  *
  * Future fields can be appended without migrations. If a value comes
  * through that this schema doesn't recognise, Zod's default behaviour
@@ -109,6 +110,19 @@ export const SimBriefOverlaySchema = z
     origrwy: z.string().min(1).max(10).optional(),
     /** Arrival runway. */
     destrwy: z.string().min(1).max(10).optional(),
+
+    // — Output formatting —
+    /**
+     * Display unit toggle for the generated OFP.
+     * 0 = kilograms, 1 = pounds. SimBrief's account-level default
+     * applies when this is unset, which can flip between requests
+     * (we observed kg ↔ lbs differences between OFPs of the same
+     * booking when no explicit value was sent — Day-4 discovery).
+     * Set this explicitly when consistent display matters, e.g.
+     * for an EU-operator running an A320 fleet (kg) or a US carrier
+     * running a 737 fleet (lbs).
+     */
+    pounds: z.union([z.literal(0), z.literal(1)]).optional(),
   })
   // .strict() would reject unknown fields; we use the default ('strip')
   // so future SimBrief params written by a newer schema version don't
