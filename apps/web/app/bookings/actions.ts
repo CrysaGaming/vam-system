@@ -382,3 +382,89 @@ export async function processSimBriefCallback(
   // navigation here. Live-verified Day-4-cont Phase A.
   return { ofpId: parsed.ofpId };
 }
+
+const CloneBookingSchema = z.object({
+  bookingId: z.string().cuid(),
+});
+
+/**
+ * Clone an existing booking — creates a new Booking with the same route
+ * (and indirectly aircraft via route.aircraft), intendedNetwork, but
+ * resets transient fields:
+ *   - state → Created (default)
+ *   - scheduledDeparture → null (user re-decides timing)
+ *   - dispatchedAt → null
+ *   - cancelledAt/cancellationReason → null
+ *   - expiresAt → now + 7d (fresh TTL)
+ *
+ * Reuses the active-booking-guard from createBooking so the user can't
+ * clone while another active flight is pending.
+ *
+ * Scope: source booking must be owned by current user AND in their
+ * airline (defense-in-depth — userId-check alone would suffice but
+ * airlineId-mismatch is a corruption-state we want to surface).
+ *
+ * Returns the new booking id so the caller can redirect to the detail
+ * page. Caller is expected to then navigate the user to the new
+ * booking's edit-flow (currently just /bookings/[newId]).
+ */
+export async function cloneBooking(
+  input: z.input<typeof CloneBookingSchema>,
+) {
+  const { bookingId } = CloneBookingSchema.parse(input);
+
+  const { id: userId, airlineId } = await requireUserWithAirline();
+
+  const source = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    select: {
+      id: true,
+      userId: true,
+      airlineId: true,
+      routeId: true,
+      intendedNetwork: true,
+    },
+  });
+
+  if (!source || source.userId !== userId || source.airlineId !== airlineId) {
+    throw new Error('Booking not found');
+  }
+
+  // Same active-booking constraint as createBooking — prevent the user
+  // from accumulating multiple in-flight clones. They must cancel/
+  // complete the current active one first.
+  const existing = await prisma.booking.findFirst({
+    where: {
+      userId,
+      airlineId,
+      state: { in: ['Created', 'SimBriefDispatched'] },
+    },
+    select: { id: true },
+  });
+  if (existing) {
+    throw new Error(
+      'Du hast bereits ein aktives Booking. Storniere oder beende es zuerst.',
+    );
+  }
+
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+  const booking = await prisma.booking.create({
+    data: {
+      airlineId,
+      userId,
+      routeId: source.routeId,
+      intendedNetwork: source.intendedNetwork,
+      // scheduledDeparture intentionally omitted → null. User picks a
+      // new departure time (or none) on the new booking. Cloning
+      // typically means "same flight tomorrow", so the original time
+      // is rarely relevant.
+      expiresAt,
+    },
+    select: { id: true },
+  });
+
+  revalidatePath('/bookings');
+
+  return { id: booking.id };
+}

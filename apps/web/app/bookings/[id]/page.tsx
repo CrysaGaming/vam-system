@@ -9,7 +9,7 @@ import {
   parseSimBriefOverlay,
   resolveSimBriefOverlay,
 } from '@/lib/simbrief/overlay';
-import { refreshSimBriefOfp, processSimBriefCallback } from '../actions';
+import { refreshSimBriefOfp, processSimBriefCallback, cloneBooking } from '../actions';
 import { SimBriefDispatchForm } from './SimBriefDispatchForm';
 import { OfpSummary } from '@/components/OfpSummary';
 import { CancelBookingDialog } from './CancelBookingDialog';
@@ -218,6 +218,11 @@ export default async function BookingDetail({
     'use server';
     await refreshSimBriefOfp({ bookingId });
   }
+  async function cloneAction() {
+    'use server';
+    const result = await cloneBooking({ bookingId });
+    redirect(`/bookings/${result.id}`);
+  }
 
   return (
     <main className="min-h-screen bg-gray-950 text-white p-8">
@@ -375,9 +380,36 @@ export default async function BookingDetail({
             (3) cache exists → OFP summary + Refresh + Re-plan
             (4) else → ready to plan */}
         {isFinalState ? (
-          booking.flightPlanCache && (
-            <OfpSummary cache={booking.flightPlanCache} />
-          )
+          <>
+            {booking.flightPlanCache && (
+              <OfpSummary cache={booking.flightPlanCache} />
+            )}
+            {/* Clone-Action — Final-state bookings sind "done". Der User
+                will diesen Flug oft nochmal fliegen (z.B. Daily-Routine
+                oder PIREP wurde gefiled, neuer Booking für morgen). Der
+                Button erstellt eine Kopie mit gleicher Route + intended
+                Network, aber genullt scheduledDeparture (User wählt neue
+                Zeit). Active-booking-guard in cloneBooking() blockiert
+                falls der User noch ein offenes Booking hat. */}
+            <section className="mt-8 bg-gray-900 border border-gray-800 rounded-lg p-6">
+              <h2 className="text-sm uppercase tracking-wider text-gray-500 mb-3">
+                Diesen Flug nochmal fliegen
+              </h2>
+              <p className="text-gray-400 text-sm mb-4">
+                Erstellt eine Kopie mit gleicher Route und Aircraft.
+                Geplante Abflugzeit wird zurückgesetzt — du wählst eine
+                neue Zeit (oder lässt sie leer).
+              </p>
+              <form action={cloneAction}>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded text-sm font-medium transition"
+                >
+                  ↻ Booking klonen
+                </button>
+              </form>
+            </section>
+          </>
         ) : !booking.user.simBriefUsername ? (
           <section className="bg-yellow-500/5 border border-yellow-500/20 rounded-lg p-6 mb-8">
             <h2 className="text-sm uppercase tracking-wider text-yellow-400 mb-3">
