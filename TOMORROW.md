@@ -249,6 +249,80 @@ Date returns aber Caller string sendet.
 6. Optional: full popup-flow durchziehen, schauen ob SimBrief-Page
    wirklich mit der Zeit prefillt
 
+## Day-4 Continued — PIREP-Detail OFP-Display (~12:39-13:07 Berlin)
+
+Phase 2 #2 follow-up shipped. Renders the FlightPlanCache that
+transferred from Booking → Pirep (via Lifecycle Phase 2 #2 in `19780c4`)
+as a muted `OfpSummary` card on the PIREP-detail page. Closes the
+visuelle Lifecycle-Loop "OFP folgt der Buchung bis ins finale PIREP".
+
+| Commit    | Scope                                                      |
+| --------- | ---------------------------------------------------------- |
+| `74e4041` | feat(pireps): render transferred OFP on PIREP detail page  |
+
+### Time-Tracking Calibration (refactor + additive)
+
+Erstes Datapoint mit refactor-component. Faktor ~0.49 statt der 0.27
+der pure-additive features — file-move + cross-route import-updates
+fügen ~2x die ersparte Zeit der reinen Code-Edits zurück.
+
+| Step                          | EST     | ACT      | Faktor |
+| ----------------------------- | ------- | -------- | ------ |
+| 1. Scope-discovery (read)     |  8 min  |  ~3 min  | 0.38   |
+| 2. Reuse-strategy decision    |  3 min  |  ~2 min  | 0.67   |
+| 3. Move file + 3 edits        | 15 min  | ~10 min  | 0.67   |
+| 4. Typecheck + build          |  5 min  |  ~2 min  | 0.40   |
+| 5. Live-test (browser+DOM)    |  5 min  |  ~1 min  | 0.20   |
+| 6. Commit + push + sync       |  5 min  |  ~2 min  | 0.40   |
+| **TOTAL**                     | 41 min  | ~20 min  | **0.49** |
+
+**Calibration heuristic update**:
+- Pure additive features: factor ~0.27
+- Additive + refactor (file-move, cross-route imports): factor ~0.49
+- Pure refactor (no new functionality): wahrscheinlich faktor ~0.6-0.8
+
+### Architecture decisions
+
+- **OfpSummary.tsx moved** from `apps/web/app/bookings/[id]/` to
+  `apps/web/components/` (joined existing BarChart + DonutChart there).
+  Doc-comment in component already anticipated this — "consumers can
+  pass anything shaped like this... cheap to reuse outside the booking-
+  detail page later (e.g. PIREP debrief, dispatch overlay)". Two-caller
+  threshold reached → moved.
+- **Muted variant** (no `actions` slot) for PIREP-detail. Component's
+  existing convention "actions present ⇒ live, actions absent ⇒
+  archive" naturally produces historical-record styling.
+- **Position in page**: after `Bemerkungen`, before `Rejection Reason`.
+  Reading-flow becomes: identity → route → aircraft/pilot/time →
+  performance (results) → remarks (notes) → **original flight plan
+  (reference)** → rejection (if any). OFP feels like appendix material
+  which fits the "historical record" framing.
+- **No empty state** when `flightPlanCache` is null. Most PIREPs will
+  not have an attached plan (standalone-PIREP path or no SimBrief plan
+  at booking time). Absence is non-noteworthy → just don't render.
+
+### Test-fixture reuse
+
+Booking-3 + Pirep-cmolcdmn70004piuf0gh7a864 + fake-cache
+LIFECYCLE_TEST_FIXTURE_001 from #2 ship still exist as fixtures. Live-
+test was simply navigating to the existing PIREP-URL and confirming the
+OFP Summary section renders below Bemerkungen with all 5 fields
+populated. No new fixture-prep needed → very efficient verify-step.
+
+### Phase 2 #2 lifecycle now visually-complete
+
+Three end-to-end features compose the Lifecycle visualization now:
+1. **Booking-Detail** (Phase 1, Day-3): renders cache during active phase
+   in *live* OfpSummary variant (with Refresh + Plan-again actions)
+2. **Booking-Detail final-state** (Phase 1, Day-3): renders cache for
+   Cancelled/Expired bookings in *muted* variant (read-only archive)
+3. **PIREP-Detail** (this commit, Day-4): renders the *transferred* cache
+   for Completed bookings → filed PIREPs in *muted* variant
+
+The user can now follow an OFP through its entire lifecycle visually:
+booking → dispatched → completed → PIREP-filed, with the same OFP
+data rendered everywhere via one shared component.
+
 ## Day-4 Continued — Phase 2 #2 Lifecycle (~12:23-12:32 Berlin)
 
 Phase 2 Feature #2 (`FlightPlanCache → Pirep on submit`) shipped. Atomic
