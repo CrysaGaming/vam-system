@@ -1,6 +1,7 @@
 import { auth } from '@/auth';
 import { redirect, notFound } from 'next/navigation';
 import { prisma, BookingState } from '@vam/db';
+import { z } from 'zod';
 import Link from 'next/link';
 import { buildSimBriefDispatchUrl } from '@/lib/simbrief/buildDispatchUrl';
 import { buildSimBriefFormFields } from '@/lib/simbrief/buildFormFields';
@@ -66,10 +67,29 @@ export default async function BookingDetail({
       await processSimBriefCallback({ bookingId: id, ofpId: ofpIdParam });
     } catch (err) {
       console.error('[Pattern Z] processSimBriefCallback failed:', err);
+      // Convert known error shapes to user-friendly strings. Zod's default
+      // err.message is a JSON.stringified issues array which surfaces raw
+      // schema internals to the user — not appropriate for the URL banner.
+      // Map specific Zod field-failures to plain-language messages; fall
+      // back to err.message for thrown Errors (static_id mismatch, fetch
+      // status, state guard) which are already short human-readable.
+      let raw: string;
+      if (err instanceof z.ZodError) {
+        const first = err.issues[0];
+        const field = first?.path.join('.') || 'input';
+        raw =
+          field === 'ofpId'
+            ? 'Invalid SimBrief OFP-ID format in callback URL'
+            : field === 'bookingId'
+              ? 'Invalid booking ID in callback URL'
+              : `Invalid ${field}: ${first?.message ?? 'unknown'}`;
+      } else if (err instanceof Error) {
+        raw = err.message;
+      } else {
+        raw = 'Unknown error';
+      }
       // Cap message length to avoid pushing pathological errors into the
-      // URL bar. The known error throws (zod, static_id mismatch, fetch
-      // status, state guard) are all short human-readable strings.
-      const raw = err instanceof Error ? err.message : 'Unknown error';
+      // URL bar.
       callbackError = raw.slice(0, 200);
     }
     redirect(
