@@ -831,11 +831,21 @@ Tab-link statt der Z-Form.
       schlägt zu mit "Cannot accept SimBrief callback for booking in
       state Cancelled". UI rendert read-only OfpSummary ohne actions
       (kein Refresh-button mehr exposed). Defense-in-depth verifiziert.
-- [ ] **Cache-expiry:** FlightPlanCache.expiresAt nach 6h → Refresh
-      regeneriert?
-- [ ] **Bookings-Listing scoping:** Anderer User mit anderer airlineId
-      → sieht seine eigenen Bookings, nicht meine. Multi-tenant boundary
-      hält auf der Listing-Page.
+- [x] **Cache-expiry:** ✓ verifiziert Day-4-cont Group 2 als
+      stale-indicator (`007e54f`). Yellow "⚠ Abgelaufen" Badge erscheint
+      auf OFP Summary header wenn `cache.expiresAt < Date.now()`. Live-
+      tested durch DB-Manipulation der `expiresAt` auf past-timestamp,
+      Badge rendert mit korrektem title-tooltip. Refresh + Plan-again
+      regeneriert die cache row und expiresAt geht zurück auf +6h. UX-
+      verbesserung statt nur behavior-verify.
+- [x] **Bookings-Listing scoping:** ✓ verifiziert Day-4-cont Group 2
+      via DB-level multi-tenant test (`scratch/multi-tenant-test.ts`).
+      Beide Angriffsvektoren scopen zu 0 bookings: Attack A (different
+      airline) und Attack B (same airline, different user). Sanity-check
+      mit echtem owner returnt erwartete 5 bookings. Test legt Test-User
+      + Test-Airline an, runt die exakt gleichen Prisma-where-clauses
+      wie page.tsx L70-79, cleant alles wieder weg. defense-in-depth
+      `userId AND airlineId` scoping bestätigt.
 
 ### Bei Fehlern
 
