@@ -4,7 +4,13 @@ import { prisma } from '@vam/db';
 import Link from 'next/link';
 import { ConnectionCard } from './connection-card';
 import { OverlayCard } from './overlay-card';
-import { getOrCreateOverlayToken, getAirlineSimBriefOverlay, listAirlineFleets, listAirlineAircraft, listAirlineRoutes } from './actions';
+import {
+  getOrCreateOverlayToken,
+  getAirlineSimBriefOverlay,
+  listAirlineFleets,
+  listAirlineAircraft,
+  listAirlineRoutes,
+} from './actions';
 import { OverlayPreferences } from './overlay-preferences';
 import { getOverlayPreferences } from './overlay-actions';
 import { SimBriefCard } from './simbrief-card';
@@ -13,7 +19,19 @@ import { FleetOverlayCard } from './fleet-overlay-card';
 import { AircraftOverlayCard } from './aircraft-overlay-card';
 import { RouteOverlayCard } from './route-overlay-card';
 import { CollapsibleSection } from './_collapsible-section';
+import { SettingsTabs } from './settings-tabs';
 
+/**
+ * Settings page — refactored from a long single-column layout into 4
+ * tabs (#15). Server-rendering pattern unchanged: this page does all
+ * the data-fetching, then composes per-tab JSX trees and hands them
+ * as ReactNode props to <SettingsTabs/>. The client component handles
+ * the visibility-toggle + URL-hash deep-linking.
+ *
+ * Tab-content unchanged from the pre-refactor layout — the cards and
+ * sections inside each tab are the same components, just grouped and
+ * relabeled. No internal-component logic touched.
+ */
 export default async function SettingsPage({
   searchParams,
 }: {
@@ -80,6 +98,180 @@ export default async function SettingsPage({
             }
           : null;
 
+  // === Per-tab content as JSX trees. The status banner is rendered
+  //     above the tab-bar (not inside any tab) so connection-status
+  //     messages remain visible regardless of which tab is open. ===
+
+  const profileContent = (
+    <section className="bg-gray-900 border border-gray-800 rounded-lg p-6">
+      <h2 className="text-sm uppercase tracking-wider text-gray-500 mb-4">
+        Profil
+      </h2>
+      <div className="flex items-center gap-4">
+        {user.image ? (
+          <img
+            src={user.image}
+            alt={user.name ?? 'Avatar'}
+            className="w-16 h-16 rounded-full border border-gray-700"
+          />
+        ) : (
+          <div className="w-16 h-16 rounded-full bg-gray-800 border border-gray-700" />
+        )}
+        <div>
+          <p className="text-lg font-semibold">{user.name ?? 'Unbenannt'}</p>
+          <p className="text-sm text-gray-400">{user.email}</p>
+        </div>
+      </div>
+    </section>
+  );
+
+  const connectionsContent = (
+    <section className="bg-gray-900 border border-gray-800 rounded-lg p-6">
+      <h2 className="text-sm uppercase tracking-wider text-gray-500 mb-4">
+        Account-Verknüpfungen
+      </h2>
+      <p className="text-sm text-gray-400 mb-6">
+        Verknüpfe deine Netzwerk-Accounts um Live-Tracking, Flight-Stats und
+        automatische PIREP-Erkennung zu aktivieren.
+      </p>
+
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '1rem',
+        }}
+      >
+        <ConnectionCard
+          provider="discord"
+          name="Discord"
+          icon="💬"
+          colorClass="bg-indigo-500"
+          connected={!!user.discordId}
+          accountId={user.discordId}
+          verified={true}
+          note="Über Discord verbunden — wird für Login verwendet"
+          canDisconnect={false}
+        />
+
+        <ConnectionCard
+          provider="vatsim"
+          name="VATSIM"
+          icon="✈️"
+          colorClass="bg-blue-500"
+          connected={!!user.vatsimCid}
+          accountId={user.vatsimCid?.toString() ?? null}
+          verified={!!user.vatsimVerifiedAt}
+          verifiedAt={user.vatsimVerifiedAt}
+          canDisconnect={true}
+        />
+
+        <ConnectionCard
+          provider="ivao"
+          name="IVAO"
+          icon="🛫"
+          colorClass="bg-emerald-500"
+          connected={!!user.ivaoVid}
+          accountId={user.ivaoVid?.toString() ?? null}
+          verified={!!user.ivaoVerifiedAt}
+          verifiedAt={user.ivaoVerifiedAt}
+          canDisconnect={true}
+        />
+      </div>
+    </section>
+  );
+
+  const simbriefContent = (
+    <>
+      <SimBriefCard
+        initialUsername={user.simBriefUsername}
+        patternZAvailable={!!process.env.SIMBRIEF_API_KEY}
+        suggestedUsername={user.name}
+      />
+
+      {/*
+        Override-Hierarchie editor (Airline / Ebene 1). Only renders if
+        the user is associated with an airline — getAirlineSimBriefOverlay
+        returns null otherwise. Fleet/Aircraft/Route editors are additional
+        cards below.
+      */}
+      {airlineOverlay !== null && (
+        <div className="mt-6 space-y-3">
+          <CollapsibleSection
+            title="SimBrief Override (Airline)"
+            badge={(() => {
+              const c = Object.keys(airlineOverlay).length;
+              return `${c} ${c === 1 ? 'Override' : 'Overrides'}`;
+            })()}
+            defaultOpen={true}
+          >
+            <AirlineOverlayCard initial={airlineOverlay} />
+          </CollapsibleSection>
+
+          <CollapsibleSection
+            title="SimBrief Override (Fleet)"
+            badge={`${fleets.length} ${fleets.length === 1 ? 'Eintrag' : 'Einträge'}`}
+            defaultOpen={false}
+          >
+            <FleetOverlayCard initial={fleets} />
+          </CollapsibleSection>
+
+          <CollapsibleSection
+            title="SimBrief Override (Aircraft)"
+            badge={(() => {
+              const withOverrides = aircraft.filter(
+                (a) => a.populatedCount > 0,
+              ).length;
+              return `${withOverrides} / ${aircraft.length} mit Overrides`;
+            })()}
+            defaultOpen={false}
+          >
+            <AircraftOverlayCard initial={aircraft} />
+          </CollapsibleSection>
+
+          <CollapsibleSection
+            title="SimBrief Override (Route)"
+            badge={(() => {
+              const withOverrides = routes.filter(
+                (r) => r.populatedCount > 0,
+              ).length;
+              return `${withOverrides} / ${routes.length} mit Overrides`;
+            })()}
+            defaultOpen={false}
+          >
+            <RouteOverlayCard initial={routes} />
+          </CollapsibleSection>
+        </div>
+      )}
+    </>
+  );
+
+  const overlayContent = (
+    <>
+      <section className="bg-gray-900 border border-gray-800 rounded-lg p-6">
+        <h2 className="text-sm uppercase tracking-wider text-gray-500 mb-4">
+          OBS-Overlay
+        </h2>
+        <p className="text-sm text-gray-400 mb-6">
+          Live-Flugdaten für Twitch/YouTube-Streams. URL als Browser-Source
+          in OBS einfügen, zeigt während des Fluges automatisch deine
+          Live-Daten an.
+        </p>
+        <OverlayCard token={overlayToken} />
+      </section>
+
+      <section className="mt-8">
+        <OverlayPreferences
+          initialLayout={overlayPrefs.layout}
+          initialCardPosition={overlayPrefs.cardPosition}
+          initialColors={overlayPrefs.phaseColors}
+          callsign={user.name}
+          overlayUrl={`${process.env.NEXTAUTH_URL ?? 'https://vam.kevindrack.de'}/overlay/${overlayToken}`}
+        />
+      </section>
+    </>
+  );
+
   return (
     <main className="min-h-screen bg-gray-950 text-white p-8">
       <div className="max-w-4xl mx-auto">
@@ -110,173 +302,12 @@ export default async function SettingsPage({
           </div>
         )}
 
-        {/* Profil-Übersicht */}
-        <section className="bg-gray-900 border border-gray-800 rounded-lg p-6 mb-8">
-          <h2 className="text-sm uppercase tracking-wider text-gray-500 mb-4">
-            Profil
-          </h2>
-          <div className="flex items-center gap-4">
-            {user.image ? (
-              <img
-                src={user.image}
-                alt={user.name ?? 'Avatar'}
-                className="w-16 h-16 rounded-full border border-gray-700"
-              />
-            ) : (
-              <div className="w-16 h-16 rounded-full bg-gray-800 border border-gray-700" />
-            )}
-            <div>
-              <p className="text-lg font-semibold">{user.name ?? 'Unbenannt'}</p>
-              <p className="text-sm text-gray-400">{user.email}</p>
-            </div>
-          </div>
-        </section>
-
-        {/* Account-Verknüpfungen */}
-        <section className="bg-gray-900 border border-gray-800 rounded-lg p-6">
-          <h2 className="text-sm uppercase tracking-wider text-gray-500 mb-4">
-            Account-Verknüpfungen
-          </h2>
-          <p className="text-sm text-gray-400 mb-6">
-            Verknüpfe deine Netzwerk-Accounts um Live-Tracking, Flight-Stats und
-            automatische PIREP-Erkennung zu aktivieren.
-          </p>
-
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '1rem',
-            }}
-          >
-            {/* Discord (already linked via NextAuth) */}
-            <ConnectionCard
-              provider="discord"
-              name="Discord"
-              icon="💬"
-              colorClass="bg-indigo-500"
-              connected={!!user.discordId}
-              accountId={user.discordId}
-              verified={true}
-              note="Über Discord verbunden — wird für Login verwendet"
-              canDisconnect={false}
-            />
-
-            {/* VATSIM */}
-            <ConnectionCard
-              provider="vatsim"
-              name="VATSIM"
-              icon="✈️"
-              colorClass="bg-blue-500"
-              connected={!!user.vatsimCid}
-              accountId={user.vatsimCid?.toString() ?? null}
-              verified={!!user.vatsimVerifiedAt}
-              verifiedAt={user.vatsimVerifiedAt}
-              canDisconnect={true}
-            />
-
-            {/* IVAO */}
-            <ConnectionCard
-              provider="ivao"
-              name="IVAO"
-              icon="🛫"
-              colorClass="bg-emerald-500"
-              connected={!!user.ivaoVid}
-              accountId={user.ivaoVid?.toString() ?? null}
-              verified={!!user.ivaoVerifiedAt}
-              verifiedAt={user.ivaoVerifiedAt}
-              canDisconnect={true}
-            />
-          </div>
-        </section>
-
-        {/* SimBrief */}
-        <section className="mb-12">
-          <h2 className="text-xl font-semibold mb-6">SimBrief</h2>
-          <SimBriefCard
-            initialUsername={user.simBriefUsername}
-            patternZAvailable={!!process.env.SIMBRIEF_API_KEY}
-            suggestedUsername={user.name}
-          />
-
-          {/*
-            Override-Hierarchie editor (Airline / Ebene 1). Only renders if
-            the user is associated with an airline — getAirlineSimBriefOverlay
-            returns null otherwise. Fleet/Aircraft/Route editors will be
-            additional cards once their UIs are built.
-          */}
-          {airlineOverlay !== null && (
-            <div className="mt-6 space-y-3">
-              <CollapsibleSection
-                title="SimBrief Override (Airline)"
-                badge={(() => {
-                  const c = Object.keys(airlineOverlay).length;
-                  return `${c} ${c === 1 ? 'Override' : 'Overrides'}`;
-                })()}
-                defaultOpen={true}
-              >
-                <AirlineOverlayCard initial={airlineOverlay} />
-              </CollapsibleSection>
-
-              <CollapsibleSection
-                title="SimBrief Override (Fleet)"
-                badge={`${fleets.length} ${fleets.length === 1 ? 'Eintrag' : 'Einträge'}`}
-                defaultOpen={false}
-              >
-                <FleetOverlayCard initial={fleets} />
-              </CollapsibleSection>
-
-              <CollapsibleSection
-                title="SimBrief Override (Aircraft)"
-                badge={(() => {
-                  const withOverrides = aircraft.filter(
-                    (a) => a.populatedCount > 0,
-                  ).length;
-                  return `${withOverrides} / ${aircraft.length} mit Overrides`;
-                })()}
-                defaultOpen={false}
-              >
-                <AircraftOverlayCard initial={aircraft} />
-              </CollapsibleSection>
-
-              <CollapsibleSection
-                title="SimBrief Override (Route)"
-                badge={(() => {
-                  const withOverrides = routes.filter(
-                    (r) => r.populatedCount > 0,
-                  ).length;
-                  return `${withOverrides} / ${routes.length} mit Overrides`;
-                })()}
-                defaultOpen={false}
-              >
-                <RouteOverlayCard initial={routes} />
-              </CollapsibleSection>
-            </div>
-          )}
-        </section>
-
-        {/* OBS-Overlay */}
-        <section className="bg-gray-900 border border-gray-800 rounded-lg p-6 mt-8">
-          <h2 className="text-sm uppercase tracking-wider text-gray-500 mb-4">
-            OBS-Overlay
-          </h2>
-          <p className="text-sm text-gray-400 mb-6">
-            Live-Flugdaten für Twitch/YouTube-Streams. URL als Browser-Source in OBS einfügen,
-            zeigt während des Fluges automatisch deine Live-Daten an.
-          </p>
-          <OverlayCard token={overlayToken} />
-        </section>
-
-        {/* OBS-Overlay Anpassung */}
-        <section className="mt-8">
-          <OverlayPreferences
-            initialLayout={overlayPrefs.layout}
-            initialCardPosition={overlayPrefs.cardPosition}
-            initialColors={overlayPrefs.phaseColors}
-            callsign={user.name}
-            overlayUrl={`${process.env.NEXTAUTH_URL ?? 'https://vam.kevindrack.de'}/overlay/${overlayToken}`}
-          />
-        </section>
+        <SettingsTabs
+          profileContent={profileContent}
+          connectionsContent={connectionsContent}
+          simbriefContent={simbriefContent}
+          overlayContent={overlayContent}
+        />
       </div>
     </main>
   );
