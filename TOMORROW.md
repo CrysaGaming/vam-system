@@ -249,6 +249,101 @@ Date returns aber Caller string sendet.
 6. Optional: full popup-flow durchziehen, schauen ob SimBrief-Page
    wirklich mit der Zeit prefillt
 
+## Day-4 Continued — Phase 2 #2 Lifecycle (~12:23-12:32 Berlin)
+
+Phase 2 Feature #2 (`FlightPlanCache → Pirep on submit`) shipped. Atomic
+transaction, 6/6 live-test assertions grün. Calibration-data wieder
+0.27 factor (additive feature pattern bestätigt sich).
+
+| Commit    | Scope                                                          |
+| --------- | -------------------------------------------------------------- |
+| `19780c4` | feat(pireps): Lifecycle Phase 2 — FlightPlanCache transfers to Pirep |
+
+### Time-Tracking Calibration (Feature #2)
+
+Zweite explizite Estimation-vs-Actual Messung. Feature war komplexer als
+#4 (transaction-restructure + conditional logic + multiple model touches),
+aber Faktor blieb stabil bei ~0.27.
+
+| Step                          | EST     | ACT      | Faktor |
+| ----------------------------- | ------- | -------- | ------ |
+| 1. Plan + scope-lock          |  5 min  |  ~2 min  | 0.40   |
+| 2. Convert array-tx → cb-tx   | 10 min  |  ~3 min  | 0.30   |
+| 3. Booking-lookup + link      | 15 min  |  ~5 min  | 0.33   |
+| 4. Cache-transfer + state-up  | 10 min  |  ~3 min  | 0.30   |
+| 5. Edge cases (no-match)      | 10 min  |  ~0 min  | 0.00 (just code-comments) |
+| 6. Typecheck + build          |  5 min  |  ~2 min  | 0.40 (+1 closure-narrowing fix) |
+| 7. Live-test 6 assertions     | 10 min  |  ~3 min  | 0.30   |
+| 8. Commit + push + sync       |  5 min  |  ~1 min  | 0.20   |
+| **TOTAL**                     | 70 min  | ~19 min  | **0.27** |
+
+**Scope-discovery saved time**: existing PIREP-flow at
+`apps/web/app/pireps/new/page.tsx` (286 LOC, with bot-events + rank-
+upgrade) already had transactional create + user-totals — we just
+extended the same transaction. Greenfield estimate would have been 2-3d.
+
+### Architecture decisions
+
+- **Interactive transaction** (`prisma.$transaction(async (tx) => {...})`)
+  statt array form — needed conditional cache-transfer logic. Atomicity
+  preserved: pirep.create fail → no booking complete; booking-update fail
+  → pirep rolled back.
+- **Match by route AND state** — user can file PIREP for different route
+  than active booking → standalone PIREP, booking stays active. Active-
+  booking-guard in createBooking enforces 1-per-user invariant so
+  multi-match shouldn't occur, but findFirst+orderBy gives deterministic
+  result if invariant ever drifts.
+- **Cache transfer is conditional**: nicht alle bookings haben cache.
+  No-cache booking still gets linked + completed, just no cache-mutation.
+- **Rank-upgrade outside transaction** — kept original design. Bot-events
+  are external I/O, shouldn't block atomicity on Discord-API failures.
+
+### Test-fixture flow
+
+Booking-3 was perfect fixture but had no cache. Solution: injected fake
+`FlightPlanCache` row with `ofpId=LIFECYCLE_TEST_FIXTURE_001` pointing to
+Booking-3 + transitioned Booking-3 to SimBriefDispatched. Then filed
+PIREP for LH918 via `/pireps/new` UI. Fake-cache row (ID `cmolccdn50001g2dnq023ad2e`)
+remains in DB attached to the PIREP — useful für eventual PIREP-detail
+OFP-display feature (Phase 2 follow-up).
+
+### Live-test 6/6 assertions
+
+| Check | Result |
+|-------|--------|
+| `Pirep.bookingId === Booking-3.id` | ✓ |
+| `Booking-3.state === Completed` | ✓ |
+| `FlightPlanCache.bookingId === null` | ✓ |
+| `FlightPlanCache.pirepId === newPirep.id` | ✓ |
+| `Booking.flightPlanCache` lookup → null | ✓ |
+| `Pirep.flightPlanCache` lookup → cache | ✓ |
+
+Browser sanity check: Booking-3 detail page renders "Abgeschlossen"
+state with metadata only (Erstellt, Läuft ab, Geplante Abflugzeit,
+Dispatched), no Flight Plan section since cache transferred away.
+
+### DB-state nach Lifecycle-Ship
+
+```
+Booking-1 (cmokch0oy0004yomk4ogno6wu): Cancelled, LH100 EDDF→EDDM
+  cache: EDDFEDDM_XML_1777505352 (preserved on cancelled booking)
+  scheduledDeparture: null
+
+Booking-2 (cmol8er560001plyse3jr512o): Cancelled, LH200 EDDF→EDDB
+  cache: EDDFEDDB_XML_1777539409 (preserved on cancelled booking)
+  scheduledDeparture: null
+  cancelledAt: 2026-04-30T09:59:05Z
+
+Booking-3 (cmolbcr9p0001piufmojicl1q): Completed, LH918 EDDF→EGLL
+  cache: null (transferred to PIREP via Lifecycle Phase 2)
+  scheduledDeparture: 2026-05-01T12:30:00Z (preserved post-completion)
+  pirep: cmolcdmn70004piuf0gh7a864
+
+Pirep cmolcdmn70004piuf0gh7a864: LH918, Submitted, 78min, 5200kg fuel
+  bookingId: cmolbcr9p0001piufmojicl1q (linked)
+  flightPlanCache: cmolccdn50001g2dnq023ad2e (transferred fixture)
+```
+
 ### Live-UI-Test ✓ shipped (~12:00 Berlin)
 
 User startete dev + bot wieder, Live-UI-Test sofort durchgezogen — alle
@@ -621,13 +716,21 @@ Falls 1-2 Wochen kein Reply: forum.navigraph.com Post als Backup-Channel
 ## Phase 2 Candidates (post-MVP, ranked)
 
 1. **OAuth username auto-fill** (~1-2 days) — eliminiert manual entry friction
-2. **Lifecycle-Pattern** (~1 day) — FlightPlanCache → Pirep on file
+2. ~~**Lifecycle-Pattern**~~ ✓ shipped `19780c4` (~19min ACT — calibration consistent: factor 0.27)
 3. **Override-Hierarchie** (~3-5 days) — Aircraft/Fleet/Airline/Route SB defaults
-4. ~~**Booking.scheduledDeparture field** (~0.5 day)~~ ✓ shipped `c74672d` (~35min ACT — calibration: additive features faster than EST suggested)
+4. ~~**Booking.scheduledDeparture field** (~0.5 day)~~ ✓ shipped `c74672d` (~35min ACT)
 5. **Pattern Y implementation** (~2-3 days) — once Navigraph credentials approved
+
+**Phase 2 follow-ups (created during Lifecycle ship):**
+
+- **PIREP-Detail OFP-Display** — render the transferred FlightPlanCache
+  on `/pireps/[id]` page. Schema relation already works (verified live —
+  `Pirep.flightPlanCache` lookup returns the cache). Needs UI: probably
+  reuse `OfpSummary` component in muted variant. ~1h estimate.
 
 > Removed Day-4-continued: ~~Booking.simBriefStaticId schema cleanup~~
 > shipped als `baeb8e4`. ~~Booking.scheduledDeparture~~ shipped als `c74672d`.
+> ~~Lifecycle FlightPlanCache→Pirep~~ shipped als `19780c4`.
 
 ## Open Questions
 
