@@ -64,6 +64,11 @@ export default async function Dashboard() {
   const isApprover =
     !!user.role && ['admin', 'instructor'].includes(user.role.name);
 
+  // Admin-only flag for higher-privilege actions (role-management,
+  // future airline-admin-panel etc). Instructor is approver but not
+  // admin — finer distinction than isApprover.
+  const isAdmin = user.role?.name === 'admin';
+
   const pendingCount =
     isApprover && user.airlineId
       ? await prisma.pirep.count({
@@ -399,6 +404,29 @@ export default async function Dashboard() {
                   →
                 </span>
               </Link>
+
+              {/* Admin-only: Role management. Instructor sees Stats +
+                  PIREPs but not this — role-mgmt is global config and
+                  needs the highest privilege gate. */}
+              {isAdmin && (
+                <Link
+                  href="/admin/roles"
+                  className="group flex justify-between items-center p-4 rounded border bg-gray-800/50 border-gray-800 hover:bg-gray-800 transition"
+                >
+                  <div className="flex items-center gap-4">
+                    <span className="text-2xl">🔐</span>
+                    <div>
+                      <p className="font-semibold">Rollen-Verwaltung</p>
+                      <p className="text-xs text-gray-400">
+                        Globale Rollen + Permissions
+                      </p>
+                    </div>
+                  </div>
+                  <span className="text-gray-500 group-hover:translate-x-1 transition-transform">
+                    →
+                  </span>
+                </Link>
+              )}
             </div>
           </section>
         )}
