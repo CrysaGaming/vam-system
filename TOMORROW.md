@@ -399,8 +399,18 @@ Nach User-Wahl, frischer Kopf:
   written). Bleibt nichts mehr offen in dieser Kategorie.
 - **stateStyle extrahieren**: bei drittem Caller (siehe Open Questions —
   aktuell nur 2 Caller).
-- **Hydration-Bug Production Verification**: das Day-4-early dokumen-
-  tierte HMR-state-corruption sollte mit `pnpm build && pnpm start`
-  nicht mehr reproduzieren. Ein einmaliger Production-Build-Smoketest
-  würde das verifizieren — und prüfen ob die explicit-prisma-exports
-  und Zod-error-mapping production-clean compilen.
+- **Hydration-Bug Production Verification** ✓ shipped als Day-4-cont
+  Phase B: `pnpm build` + `pnpm start` auf port 3000, browser-smoke-tests
+  durch alle Day-4-fixes. Ergebnisse:
+  - ✅ Booking-detail rendert clean (OFP ID, Block Fuel, Block Time
+    alle korrekt)
+  - ✅ **Plan-again button rendert mit gray override (`px-4 py-2 bg-
+    gray-800`) statt indigo defaults** — bestätigt final dass der
+    Day-4-early Hydration-Bug ein dev-mode-only HMR-state-corruption
+    issue war, kein Code-Bug
+  - ✅ Zod-error mapping production-clean (`?ofp_id=hacked` →
+    "Invalid SimBrief OFP-ID format in callback URL", nicht raw JSON)
+  - ✅ Settings-page rendert mit Pattern Z + Pattern α indicators
+  - ✅ Bookings-listing rendert (1 Booking, "Meine Bookings"-headline)
+  - ✅ Schema-migration (dropped simBriefStaticId column) bricht
+    nichts production-time
