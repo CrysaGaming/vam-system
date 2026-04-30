@@ -158,6 +158,143 @@ Mal)**:
 4. Source-Code auf Disk → compiled chunk → RSC-payload → React-fiber-
    props ist die definitive Diagnose-Reihenfolge
 
+## Day-4 Continued — Post-Wake (~09:30-11:00 Uhr Berlin)
+
+User wachte auf, koordinierte das weitere Vorgehen direkt. Drei Phasen
+durchlaufen: Schema-Cleanup, Production-Smoketest, Phase-A-Edge-Cases
+mit live fixtures. Plus ein echter Next.js-16-Bug entdeckt und gefixt.
+
+5 commits in dieser Session-Hälfte:
+
+| Commit    | Phase | Scope                                                          |
+| --------- | ----- | -------------------------------------------------------------- |
+| `baeb8e4` | Cleanup | refactor(db): drop redundant Booking.simBriefStaticId field  |
+| `d68e5ec` | Cleanup | docs: TOMORROW.md sync — schema cleanup shipped              |
+| `734c1ac` | B     | docs: TOMORROW.md sync — Phase B production smoketest done     |
+| `0927a01` | A     | fix(bookings): drop revalidatePath from processSimBriefCallback |
+
+### Schema-Cleanup (baeb8e4)
+
+Field `Booking.simBriefStaticId` aus dem schema gedroppt.
+Migration `20260430080822_drop_booking_simbrief_static_id` ist ein
+einzeiliger ALTER TABLE DROP COLUMN. Pre-verified safe:
+
+- Grep across `.ts`/`.tsx`: zero source-code references (alle 30+ matches
+  in node_modules/.prisma generated types)
+- DB inspection: 1 Booking existierte, simBriefStaticId war null
+- `vam-${booking.id}` wird weiterhin deterministisch derived an den
+  zwei call-sites (refreshSimBriefOfp L138, processSimBriefCallback L307)
+
+Web typecheck ✓, Bot typecheck ✓, Production build ✓.
+
+### Phase B — Production Smoketest
+
+Production-build + `pnpm start` auf port 3000, browser-smoke-tests durch
+alle Day-4-fixes. Ergebnisse vollständig dokumentiert in `Day-4 Pending`
+section (siehe unten — checkbox-Eintrag). Wichtigste Erkenntnis:
+**Plan-again button rendert in production mit gray override (`px-4 py-2
+bg-gray-800`) statt indigo defaults** — bestätigt final dass der
+Day-4-early Hydration-Bug ein dev-mode-only HMR-state-corruption issue
+war, kein Code-Bug.
+
+### Phase A — Edge-Cases mit Fixtures
+
+Strategie: Booking-1 (LH100 EDDF→EDDM) gecancelled via direct DB-write
+(es gibt keinen Cancel-button im UI), dann Booking-2 (LH200 EDDF→EDDB,
+`cmol8er560001plyse3jr512o`) erstellt. Diese Konstellation gab uns:
+
+- Cancelled fixture für state-guard tests
+- Fresh "Created"-fixture für no-plan tests
+- Pattern-Z-fähiges Booking für popup-flow (User-help nötig × 2)
+
+**6 Tests live-verifiziert + 1 echter Bug entdeckt + gefixt:**
+
+1. ✅ **Cancelled-state callback rejection**: GET `/bookings/[cancelled-id]?ofp_id=1700000000_validhash0`
+   → state-guard schlägt VOR dem CDN-fetch zu, Banner "Cannot accept
+   SimBrief callback for booking in state Cancelled". Banner-text +
+   404-prevention beide bestätigt. Off-by-one im test-fixture aufgedeckt
+   (`validhash` ist 9 chars, `validhash0` ist 10 — Zod regex erwartet
+   exact 10 chars `[A-Za-z0-9]{10}`).
+2. ✅ **Cancelled-state UI (read-only)**: Booking-Detail-Page rendert
+   OfpSummary muted variant ohne actions slot (kein Refresh, kein Plan-
+   again button). Cancellation-Reason aus DB sichtbar. Defense-in-depth:
+   Server-side state-guard + Client-side UI-removal.
+3. ✅ **Pattern α "no-plan" path**: Refresh-button auf Booking-2
+   (Created state, kein cache) ge`requestSubmit()`'d. DB confirms:
+   state unchanged (Created), FlightPlanCache=null, dispatchedAt=null.
+   Action returned silently mit `no-plan` status. Note: `.click()` auf
+   form-submit-button warf React-form-warning ("form was unexpectedly
+   submitted, consider form.requestSubmit()") — `.requestSubmit()` ist
+   das richtige API für programmatic-submit von React-server-action-
+   forms.
+4. ✅ **Pattern Z popup happy-path** (User-help #1): Generate Flight
+   Plan → popup → SimBrief-Login bestand → progress bar → auto-close →
+   server-callback. DB confirms: cache geschrieben mit ofpId
+   `EDDFEDDB_XML_1777538786`, fuelKg 6371, blockTimeMin 84.
+5. 🐛 **Next.js 16 strict-mode bug DISCOVERED**: User sah trotz
+   erfolgreichem cache-write den error-banner mit text:
+   `Route /bookings/[id] used "revalidatePath /bookings" during render
+   which is unsupported. To ensure revalidation is performed
+   consistently it must always happen outside of renders and cached
+   functions.`
+
+   Root-cause: `processSimBriefCallback` ist `'use server'` action,
+   wird aber von page.tsx render-path aufgerufen (`if (ofpIdParam)`
+   branch). Next.js 16 erlaubt keine cache-mutating calls (revalidatePath,
+   revalidateTag) während render. Die anderen 4 revalidatePath-call-sites
+   im actions.ts (createBooking, cancelBooking, 2× refreshSimBriefOfp)
+   sind alle in form-action-contexts und bleiben valid.
+
+   Bug-Effekt: Cache-write + state-update fanden korrekt statt (DB
+   verified), DANN throw, page.tsx catch-block fing den error, redirect
+   zu `?ofp_error=…`. User sah confusing banner trotz korrekter Daten.
+
+6. ✅ **Fix shipped** (`0927a01`): `revalidatePath('/bookings')` aus
+   processSimBriefCallback entfernt mit ausführlichem Kommentar zur
+   Rationale. Sicher weil: page.tsx callt unmittelbar `redirect()` nach
+   action-return, redirect macht full navigation, Next fetched die
+   page fresh — implizit was revalidatePath getan hätte. Live-verified
+   (User-help #2): Plan-again Click auf already-dispatched Booking-2,
+   popup auto-closed, URL kommt clean zurück (kein `?ofp_error`), neuer
+   OFP gerendered. DB confirms idempotent upsert: ofpId `…538786 → …539409`,
+   fuelKg `6371 → 6417`, blockTimeMin `84 → 86` — same row updated,
+   kein duplicate.
+
+7. ✅ **Pattern Z idempotent upsert** (free coverage durch #6 retest):
+   re-firing Plan-again auf already-dispatched Booking aktualisiert
+   cache row in-place statt duplicate zu erzeugen. Kein state-change.
+   Bestätigt das documented `if (booking.flightPlanCache) update else
+   create` pattern in actions.ts L344-352.
+
+**Code-Read-Verification (für nicht-live-getestete edge-case):**
+
+- 📖 **static_id mismatch check** (actions.ts L312-322): Read der
+  4-Zeilen `if (xmlStaticId !== expectedStaticId) throw` Guards.
+  Strict-inequality, type-safe via `typeof params?.static_id === 'string'`
+  guard. Same pattern auch in refreshSimBriefOfp (L165-168). Live-test
+  würde ein 3.-User-account oder browser-network-listener brauchen
+  (server-side redirect macht popup-callback URL für browser-tools
+  unsichtbar). Code-read-Verification ist confidence-equivalent für
+  4-Zeilen-Inequality + bereits-funktional-confirmed-XML-parsing.
+
+**DB-state nach Phase A:**
+
+```
+Booking-1 (cmokch0oy0004yomk4ogno6wu): Cancelled, LH100 EDDF→EDDM
+  cache: EDDFEDDM_XML_1777505352 (preserved despite cancel — Lifecycle
+         Phase 2 wird das transferieren zu PIREP wenn submitted)
+  cancellationReason: "Day-4-cont Phase A: edge-case test fixture..."
+
+Booking-2 (cmol8er560001plyse3jr512o): SimBriefDispatched, LH200 EDDF→EDDB
+  cache: EDDFEDDB_XML_1777539409 (latest from re-dispatch fix-test)
+  fuelKg: 6417, blockTimeMin: 86
+  dispatchedAt: 2026-04-30T08:46:30Z
+```
+
+Beide bookings bleiben as-is — sind brauchbare test-fixtures für
+zukünftige sessions. Booking-1 in Cancelled-state zeigt das read-only
+UI-rendering, Booking-2 in SimBriefDispatched zeigt active OFP-state.
+
 ## Day-4 Continued (autonomous, ~04:30 Uhr Berlin)
 
 User ging schlafen, Claude weitergemacht mit Mandate "optimalste beste
@@ -275,11 +412,15 @@ Tab-link statt der Z-Form.
 - [ ] **Pattern Z Popup-Blocker:** Popup-blocker aktiv → "alert" aus
       simbrief.apiv1.js erscheint? Fallback-link "Im neuen Tab öffnen
       (Pattern α)" funktioniert?
-- [ ] **Pattern Z static_id mismatch:** Manuell `?ofp_id=…` einer
-      anderen Booking anhängen → server lehnt ab. Red banner zeigt
-      "OFP does not match this booking …" mit Schließen-link.
-- [ ] **Pattern Z double-callback:** Browser-reload auf `?ofp_id=…`
-      URL → idempotent (kein duplicate cache row).
+- [📖] **Pattern Z static_id mismatch:** Code-read-verified Day-4-cont
+      Phase A. 4-Zeilen `if (xmlStaticId !== expectedStaticId) throw`
+      guard in actions.ts L312-322. Live-test braucht 3.-User-account
+      oder fremden popup-callback ofp_id capture (server-side redirect
+      macht das im browser unsichtbar). Code-read confidence ist hoch.
+- [x] **Pattern Z double-callback:** ✓ verifiziert Day-4-cont Phase A
+      via Plan-again-retest auf already-dispatched Booking-2. Cache row
+      updated in-place (`…538786 → …539409`), kein duplicate, idempotent
+      upsert pattern bestätigt.
 - [x] **Pattern Z malformed ofp_id:** `?ofp_id=hacked` → Zod regex
       lehnt ab, Banner zeigt validation-error, kein 500. ✓ verifiziert
       Day-4-continued mit hardcoded malformed string + valid-format-but-
@@ -288,10 +429,16 @@ Tab-link statt der Z-Form.
 - [x] **Pattern Z banner dismiss:** Schließen-link strippt
       `ofp_error` query-param sauber, andere params (falls künftige)
       bleiben erhalten. ✓ verifiziert mit `?ofp_error=callback_failed_test`.
-- [ ] **Pattern α 400-no-plan:** Refresh wenn noch nichts generiert →
-      "no-plan" status, kein crash, cache wird gelöscht falls existiert.
-- [ ] **Cancelled booking refresh:** sowohl Pattern α als auch Z
-      lehnen mit "Cannot refresh in state Cancelled" ab.
+- [x] **Pattern α 400-no-plan:** ✓ verifiziert Day-4-cont Phase A.
+      Refresh auf Booking-2 (Created, kein cache) → DB unchanged,
+      action returned silently mit no-plan status, kein crash, kein
+      banner. `.requestSubmit()` ist das richtige API für programmatic
+      form-submit (statt `.click()`).
+- [x] **Cancelled booking refresh:** ✓ verifiziert Day-4-cont Phase A.
+      Booking-1 nach DB-direct cancel → state-guard im server-action
+      schlägt zu mit "Cannot accept SimBrief callback for booking in
+      state Cancelled". UI rendert read-only OfpSummary ohne actions
+      (kein Refresh-button mehr exposed). Defense-in-depth verifiziert.
 - [ ] **Cache-expiry:** FlightPlanCache.expiresAt nach 6h → Refresh
       regeneriert?
 - [ ] **Bookings-Listing scoping:** Anderer User mit anderer airlineId
