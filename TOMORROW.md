@@ -172,6 +172,82 @@ mit live fixtures. Plus ein echter Next.js-16-Bug entdeckt und gefixt.
 | `d68e5ec` | Cleanup | docs: TOMORROW.md sync — schema cleanup shipped              |
 | `734c1ac` | B     | docs: TOMORROW.md sync — Phase B production smoketest done     |
 | `0927a01` | A     | fix(bookings): drop revalidatePath from processSimBriefCallback |
+| `2768205` | A     | docs: TOMORROW.md sync — Phase A edge-cases comprehensive      |
+
+## Day-4 Continued — Phase 2 #4 (~11:00-11:50 Uhr Berlin)
+
+Phase 2 Feature #4 (`Booking.scheduledDeparture`) shipped. User aktivierte
+explizites Zeit-Tracking für Estimation-Calibration.
+
+| Commit    | Scope                                                       |
+| --------- | ----------------------------------------------------------- |
+| `c74672d` | feat(booking): scheduledDeparture mit SimBrief-Prefill      |
+
+### Time-Tracking Calibration (Feature #4)
+
+Erste explizite Estimation-vs-Actual Messung für ein additives Feature:
+
+| Step                      | EST     | ACT     | Faktor |
+| ------------------------- | ------- | ------- | ------ |
+| 1. Plan + scope-lock      | 10 min  |  2 min  | 0.20   |
+| 2. Schema + Migration     | 10 min  |  1 min  | 0.10   |
+| 3-7. Code (3 files+page)  | 80 min  | 25 min  | 0.31   |
+| 8. Typecheck + build      | 10 min  |  1 min  | 0.10   |
+| 9. Live test (DB+unit)    | 15 min  |  3 min  | 0.20   |
+| 10. Commit + push         | 10 min  |  1 min  | 0.10   |
+| 11. TOMORROW.md sync      | 10 min  | (now)   | —      |
+| **TOTAL**                 | 145 min | ~35 min | **0.24** |
+
+**Lesson für Future-Estimates** (additive features ohne refactor):
+- Schema-only changes: 1 min, nicht 10
+- Toolchain-warm code edits: divide EST by 3-4
+- Live-test ohne dev-server (DB-inspection + unit-test) reicht für
+  pre-commit confidence; UI-test deferred ist akzeptabel
+- Commit + push fast immer ~1 min, nicht 10
+
+**Inflation-Faktoren** (wann EST realistisch oder zu niedrig sein wird):
+- Refactor mit call-site-propagation: keep EST normal
+- New external integration (API/library/auth): EST x2
+- Cross-cutting (auth, middleware, error-handling): EST x1.5
+- Erste Begegnung mit unbekannter Library: EST x3
+
+**Calibration-Heuristik**: Nächstes Mal Phase-2-Feature additive +
+schema-only → 0.5h statt 2.4h schätzen.
+
+### Feature scope-summary
+
+In: `Booking.scheduledDeparture: DateTime?` (UTC-stored, immutable v1).
+UI form `<input type="datetime-local">` auf `/bookings/new`. Server-Action
+persistiert via Zod-Transform string→Date. SimBrief Pattern α + Z propagieren
+`date=YYYY-MM-DD&deph=HH&depm=MM` als prefill (User kann auf SimBrief-Page
+override). Booking-Detail zeigt geplante Abflugzeit mit local + Zulu suffix.
+
+Out: `dxp` (different concept, fuel-buffer-time), edit-after-creation,
+past-date validation, listing-page display.
+
+Type-fix: createBooking parameter `z.infer` → `z.input` weil Zod-transform
+Date returns aber Caller string sendet.
+
+### Test-evidence
+
+- Typecheck (web + bot): clean
+- Production build: clean (26/26 pages)
+- DB schema: column existiert als `timestamp without time zone`, nullable
+- Existing 2 bookings: `scheduledDeparture=null` (post-migration sauber)
+- UTC extraction unit-test: 4/4 cases pass (14:30, 00:00, 23:59, 05:07
+  with single-digit padding)
+
+### Live-UI-Test deferred
+
+**Noch ausstehend** (next dev-session):
+1. User startet dev-server (war für `prisma generate` gestoppt)
+2. Cancel Booking-2 (LH200 EDDF→EDDB SimBriefDispatched) via direct DB
+3. Erstelle Booking-3 mit `scheduledDeparture` gesetzt (z.B. heute 14:30)
+4. Verify auf `/bookings/[id]`: "Geplante Abflugzeit" zeigt local + Zulu
+5. Klick Pattern-Z-button → check generated form-fields enthalten
+   `date/deph/depm` (DevTools Network-Tab beim popup-submit)
+6. Optional: full popup-flow durchziehen, schauen ob SimBrief-Page
+   wirklich mit der Zeit prefillt
 
 ### Schema-Cleanup (baeb8e4)
 
@@ -485,11 +561,11 @@ Falls 1-2 Wochen kein Reply: forum.navigraph.com Post als Backup-Channel
 1. **OAuth username auto-fill** (~1-2 days) — eliminiert manual entry friction
 2. **Lifecycle-Pattern** (~1 day) — FlightPlanCache → Pirep on file
 3. **Override-Hierarchie** (~3-5 days) — Aircraft/Fleet/Airline/Route SB defaults
-4. **Booking.scheduledDeparture field** (~0.5 day) — enables deph/depm/dxp
+4. ~~**Booking.scheduledDeparture field** (~0.5 day)~~ ✓ shipped `c74672d` (~35min ACT — calibration: additive features faster than EST suggested)
 5. **Pattern Y implementation** (~2-3 days) — once Navigraph credentials approved
 
 > Removed Day-4-continued: ~~Booking.simBriefStaticId schema cleanup~~
-> shipped als `baeb8e4`.
+> shipped als `baeb8e4`. ~~Booking.scheduledDeparture~~ shipped als `c74672d`.
 
 ## Open Questions
 
