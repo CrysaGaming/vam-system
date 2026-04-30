@@ -355,6 +355,18 @@ export async function processSimBriefCallback(
     });
   }
 
-  revalidatePath('/bookings');
+  // NOTE: revalidatePath cannot be called here because this action is
+  // invoked from the render path of `app/bookings/[id]/page.tsx` (the
+  // `if (ofpIdParam)` branch), and Next.js 16 forbids cache-mutating
+  // calls during render. The other revalidatePath sites in this file
+  // are fine because they're called from `<form action={...}>` which
+  // is the proper Server Action context.
+  //
+  // We don't actually need it here: the page-level handler immediately
+  // calls `redirect('/bookings/[id]')` after this action returns, and
+  // `redirect()` performs a full navigation that fetches fresh data —
+  // the `/bookings` listing also re-fetches on next visit. So the cache
+  // invalidation we'd want from revalidatePath happens implicitly via
+  // navigation here. Live-verified Day-4-cont Phase A.
   return { ofpId: parsed.ofpId };
 }
