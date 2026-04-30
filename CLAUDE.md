@@ -95,12 +95,20 @@ pnpm lint                       # Lint
 pnpm typecheck                  # TS check
 ```
 
+## Local dev environment
+
+- **Hosts-mapping**: `vam.kevindrack.de` is mapped to `127.0.0.1` in the Windows hosts file. Dev server `pnpm --filter @vam/web dev` listens on port 3000. **Always use `http://vam.kevindrack.de:3000` (not `localhost:3000`)** for any flow that goes through Discord/VATSIM/IVAO OAuth — callback URLs are registered for the FQDN. NextAuth's `NEXTAUTH_URL` is set to the FQDN; mixing hosts breaks sessions and cookies.
+- For headless tests (curl, db queries, etc.) `localhost:3000` is fine since no auth state needed.
+
 ## Working-style context
 
 - Solo developer. Tooling stack: Roo Code + Qwen3-Coder-30B (local LM Studio) + Claude sessions for strategy and code review. Claude Code is currently being evaluated on this branch.
 - Real velocity is ~5-7% of standard engineering estimates for known patterns. Apply that as default.
 - For pioneer topics (custom MSFS mod, plugin systems, aircraft Lvar reverse-engineering): factor doesn't apply. Months, not weeks.
-- Coding sessions can run 6-12h productive when in flow. If user signals fatigue, suggest a stop instead of pushing tempo.
+- Coding sessions can run 6-12h productive when in flow.
+- **User decides when to stop.** Do not proactively suggest stopping based on clock time, session duration, or speculation about user state. Time-of-day, "it's late", "long day", "to be safe" — not valid reasons. Lessons learned the hard way 2026-04-29.
+- Only suggest a pause if the user EXPLICITLY signals fatigue ("müde", "kann nicht mehr klar denken", "Augen brennen", repeated typos, asks for break themselves). Then once, briefly, then drop it.
+- "Volldampf weiter" / "weiter coden" / "machen wir weiter" / "Nein kein Stop" = go-signal, full respect, no second-guessing.
 
 ## When in doubt
 
