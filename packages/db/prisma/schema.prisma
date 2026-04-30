@@ -412,11 +412,6 @@ model Booking {
   // Hint für UI/Filter, kein Hard-Lock — actual Network kommt vom PIREP/LiveSession
   intendedNetwork NetworkType?
 
-  // SimBrief static_id — caller-provided trace identifier sent during
-  // dispatch (format: "vam-<bookingId>"). Used for debug-tracing OFPs
-  // back to bookings server-side. Deterministically derivable from
-  // booking.id; this field is for explicit audit logging.
-  simBriefStaticId  String?
   dispatchedAt      DateTime?
 
   createdAt          DateTime  @default(now())
