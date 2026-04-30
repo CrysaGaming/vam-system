@@ -13,11 +13,29 @@ type Props = {
    * the card.
    */
   patternZAvailable: boolean;
+  /**
+   * The user's name as known to VAM — typically their Discord username
+   * (NextAuth populates User.name from the OAuth profile). Used to offer
+   * a one-click suggestion when the SimBrief field is empty: many pilots
+   * use the same handle on Discord and SimBrief, so prefilling saves the
+   * trip to dispatch.simbrief.com/account just to copy a name.
+   *
+   * The suggestion is non-invasive — never auto-saved, just dropped into
+   * the draft input where the user can confirm or override before clicking
+   * Speichern. Hidden if name is null (rare, OAuth without a profile name)
+   * or already matches the saved username (no point suggesting what's
+   * already there).
+   */
+  suggestedUsername: string | null;
 };
 
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
-export function SimBriefCard({ initialUsername, patternZAvailable }: Props) {
+export function SimBriefCard({
+  initialUsername,
+  patternZAvailable,
+  suggestedUsername,
+}: Props) {
   const [currentUsername, setCurrentUsername] = useState<string | null>(
     initialUsername,
   );
@@ -30,6 +48,23 @@ export function SimBriefCard({ initialUsername, patternZAvailable }: Props) {
   const hasChanges = trimmedDraft !== (currentUsername ?? '');
   const canSave = hasChanges && trimmedDraft.length > 0;
   const canClear = currentUsername !== null;
+
+  // Suggestion logic — show only when:
+  // 1. We have a name to suggest (typical: Discord-Username via NextAuth)
+  // 2. There's no saved SimBrief username yet (currentUsername null)
+  // 3. The user hasn't already typed something matching it (avoids the
+  //    suggestion sticking around after the user picks it)
+  // 4. The suggestion isn't identical to whatever is already in the draft
+  const showSuggestion =
+    !!suggestedUsername &&
+    !currentUsername &&
+    suggestedUsername.trim() !== trimmedDraft;
+
+  function applySuggestion() {
+    if (suggestedUsername) {
+      setDraft(suggestedUsername.trim());
+    }
+  }
 
   function handleSave() {
     setStatus('saving');
@@ -117,6 +152,27 @@ export function SimBriefCard({ initialUsername, patternZAvailable }: Props) {
 
       {errorMessage && (
         <p className="text-sm text-red-400 mt-2">{errorMessage}</p>
+      )}
+
+      {/* Suggestion row — shown only for fresh accounts where Username
+          is empty and we have a name from the login provider. The
+          "Übernehmen"-link drops the suggestion into the draft input
+          but does not submit; the user reviews and clicks Speichern.
+          Designed to feel like a hint, not an instruction — text-tone
+          matches the gray-400 helper-paragraph above. */}
+      {showSuggestion && suggestedUsername && (
+        <p className="text-xs text-gray-500 mt-3">
+          Tipp: Dein SimBrief-Username ist oft gleich deinem Discord-
+          Namen.{' '}
+          <button
+            type="button"
+            onClick={applySuggestion}
+            disabled={isPending}
+            className="text-indigo-400 hover:text-indigo-300 underline font-mono disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {suggestedUsername} übernehmen
+          </button>
+        </p>
       )}
 
       {currentUsername && (

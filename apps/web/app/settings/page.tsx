@@ -177,6 +177,7 @@ export default async function SettingsPage({
           <SimBriefCard
             initialUsername={user.simBriefUsername}
             patternZAvailable={!!process.env.SIMBRIEF_API_KEY}
+            suggestedUsername={user.name}
           />
         </section>
 
