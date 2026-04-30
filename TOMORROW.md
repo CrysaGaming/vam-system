@@ -249,6 +249,91 @@ Date returns aber Caller string sendet.
 6. Optional: full popup-flow durchziehen, schauen ob SimBrief-Page
    wirklich mit der Zeit prefillt
 
+## Day-4 Continued — Phase 2 #1 SimBrief username Suggestion (~14:48-15:04 Berlin)
+
+Phase 2 Feature #1 shipped — aber als **scope-pivot**. Original-Idee in
+TOMORROW.md war "OAuth username auto-fill (~1-2d)". Bei Code-Inspection
+zeigt sich: VATSIM CID + IVAO VID sind **numerische Account-IDs**, keine
+text-usernames die nach SimBrief mappen würden. Der einzig sinnvolle
+OAuth-Profile-Field ist `User.name` (NextAuth füllt das aus dem Discord-
+OAuth-Profile). Pivoted: 1-2d EST → 30min EST → ~7min ACT.
+
+| Commit    | Scope                                                       |
+| --------- | ----------------------------------------------------------- |
+| `54d65db` | feat(settings): SimBrief username suggestion from OAuth     |
+
+### Time-Tracking Calibration (scope-pivot lesson)
+
+| Step                          | EST     | ACT      | Faktor |
+| ----------------------------- | ------- | -------- | ------ |
+| 1. Plan + scope-pivot         |  5 min  |  ~2 min  | 0.40   |
+| 2. Wire user.name to card     |  5 min  |  ~1 min  | 0.20   |
+| 3. Render conditional row     | 10 min  |  ~3 min  | 0.30   |
+| 4. Typecheck + build          |  5 min  |  ~1 min  | 0.20   |
+| 5. Live-test (incl. clean DB) |  3 min  |  ~3 min  | 1.00   |
+| 6. Commit + push + sync       |  5 min  |  ~2 min  | 0.40   |
+| **TOTAL (vs pivoted EST)**    | 30 min  |  ~7 min  | **0.23** |
+| **vs original broad EST**     | 1-2d    |  ~7 min  | **~0.005** |
+
+**Calibration heuristic update — scope-pivot pattern**:
+Wenn die ursprüngliche scope-Annahme bei der ersten code-discovery
+falsch ist (hier: VATSIM/IVAO callbacks haben keine text-usernames),
+dann compress 1-2d Annahmen auf ~30min realistic scope. Scope-discovery
+**vor** code-write ist die hochwertigste Stunde des Tages.
+
+### Architecture decisions
+
+- **Suggestion statt auto-fill**: User behält agency über was
+  gespeichert wird. Click "übernehmen" füllt nur den draft, dann muss
+  user explizit "Speichern" klicken. Verhindert das uncanny-valley
+  "warum hat das System ohne mein OK was gespeichert" Gefühl.
+- **Conditional rendering**: 4-Punkt-Logik in `showSuggestion`:
+  (1) name vorhanden, (2) currentUsername null, (3) draft nicht leer
+  match, (4) suggestion nicht identisch mit draft. Auto-hides
+  natürlich nach übernehmen-click.
+- **Hint-tone matching**: text-gray-500 size matches existing helper-
+  text um es als hint statt instruction wahrzunehmen. Indigo-link
+  "übernehmen" passt zum existing SimBrief-Profil link.
+- **Out of scope**: VATSIM/IVAO API username-lookup (private endpoints,
+  speculative mapping, privacy concerns), multi-suggestion UI (we only
+  know one name), auto-save without confirmation.
+
+### Live-Test (full flow verified)
+
+Booking-3 Owner (CrysaGaming, kevindrack@gmx.de) — DB direkt zu
+`simBriefUsername=null` gesetzt für sauberen test-state:
+
+| Check                                        | Result |
+|----------------------------------------------|--------|
+| Suggestion hidden when currentUsername set   | ✓ initial render |
+| Suggestion shown when null + name available  | ✓ after clear |
+| "übernehmen" prefills draft                  | ✓ input = "CrysaGaming" |
+| Speichern button became indigo (canSave)     | ✓ |
+| Suggestion auto-hides after match            | ✓ (showSuggestion logic) |
+| Save persists capitalized value              | ✓ DB: simBriefUsername="CrysaGaming" |
+| Dispatch-mode indicators flip green          | ✓ Pattern α + Z both ● |
+
+Erste Test-Iteration hatte einen subtle state-glitch wo DB lowercase
+"crysagaming" persistierte trotz übernehmen-click. Reproduzierbarkeit
+nach hard-reload + clean state: nicht reproduzierbar — wahrscheinlich
+HMR/state-restoration zwischen Löschen+Save in schneller Abfolge. Der
+clean-state hard-reload Flow funktioniert konsistent.
+
+## Day-4 Pending status (post-Phase-2-#1)
+
+**B (geshipped)**: Phase 2 #1 SimBrief username Suggestion ✓
+**C (geparkt)**: Pattern Y email — wird irgendwann mal gemacht um
+Projekt voranzubringen, aber kein Blocker. Draft bleibt in
+`docs/decisions/2026-04-30-pattern-y-email-draft.md` ready zum senden
+wenn user es will. 14d Reply-Window beim Versand, danach forum.
+navigraph.com Backup.
+
+**Phase 2 noch offen**:
+- **#3 Override-Hierarchie** (~3-5d) — Aircraft/Fleet/Airline/Route SB
+  defaults, refactor-heavy. Wahrscheinlich Day-5 Kandidat.
+- **#5 Pattern Y implementation** — blockiert auf Navigraph credentials,
+  startet erst nach approved email (siehe C).
+
 ## Day-4 Continued — PIREP-Detail OFP-Display (~12:39-13:07 Berlin)
 
 Phase 2 #2 follow-up shipped. Renders the FlightPlanCache that
