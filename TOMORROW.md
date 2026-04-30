@@ -158,6 +158,70 @@ Mal)**:
 4. Source-Code auf Disk → compiled chunk → RSC-payload → React-fiber-
    props ist die definitive Diagnose-Reihenfolge
 
+## Day-4 Continued (autonomous, ~04:30 Uhr Berlin)
+
+User ging schlafen, Claude weitergemacht mit Mandate "optimalste beste
+Antwort, im schlimmstenfall ändern wir es". Konservative constraints
+selbst gesetzt: keine schema-migrations, keine new packages, keine big
+refactors, keine pushes auf andere branches als cc-experiment.
+
+3 commits + 1 docs-update gepusht in dieser Session:
+
+| Commit    | Scope                                                         |
+| --------- | ------------------------------------------------------------- |
+| `3720c31` | docs(decisions): Pattern Y email draft                        |
+| `1327016` | fix(bookings): user-friendly errors in Pattern Z banner       |
+| `e1cc9ee` | fix(db): explicit named exports — Turbopack export-* warning  |
+
+### Edge-case live-tests durchgeführt
+
+- ✅ **Pattern Z malformed ofp_id**: `?ofp_id=hacked` → Zod regex
+  rejected, Banner zeigt jetzt "Invalid SimBrief OFP-ID format in
+  callback URL" (vorher: raw JSON dump aus err.message)
+- ✅ **Pattern Z 404 path**: `?ofp_id=1700000000_invalidhsh` (valid
+  format aber non-existent OFP) → SimBrief CDN gibt 404, Banner zeigt
+  "SimBrief CDN returned HTTP 404 for ofp_id 1700000000_invalidhsh"
+- 📖 **Pattern Z double-callback test**: original test design war
+  flawed (versuchte den `EDDFEDDM_XML_1777505352` cached-XML-id als
+  `?ofp_id=` Param — aber der callback-Param hat anderes Format,
+  `^[0-9]{10}_[A-Za-z0-9]{10}$`, ein SimBrief CDN timestamp-hash).
+  Echter double-callback test bräuchte einen frischen Pattern-Z-run
+  zur Capture eines real callback-IDs. Skip für autonomous, nicht
+  unsupported.
+- 📖 **Cancelled booking refresh-rejection**: state-guards in `actions.
+  ts` Z138-142 + Z305-313 verifiziert (read-only). Manueller Live-Test
+  bräuchte Booking-Cancellation + Re-Cache, das ist state-mutation auf
+  einzigem Test-Booking — skip, dokumentiert als verified-by-code-
+  reading.
+
+### Code fixes applied (uncommitted aus pre-compaction Session)
+
+Während der Test-Phase wurde uncommitted-state in der working-tree
+entdeckt: drei files mit fertiger Arbeit aus einer früheren autonomous-
+session-Iteration die durch context-compaction verloren ging. Alle
+typecheck-clean, alle gut kommentiert, alle scoped:
+
+- **page.tsx Zod-error mapping** (`1327016`): catch-block prüft jetzt
+  `err instanceof z.ZodError` und konvertiert die issues-array in
+  user-friendly text statt die JSON-stringified default-message
+  durchzureichen. Bekannte Felder (ofpId, bookingId) bekommen
+  spezifische copy, alles andere `Invalid {field}: {message}`. Non-Zod
+  Errors behalten existing `err.message` path (static_id mismatch,
+  fetch HTTP, state-guards sind alle bereits kurze human-readable
+  strings).
+- **packages/db explicit exports** (`e1cc9ee`): `export * from
+  "@prisma/client"` getriggered Turbopack warning bei jedem Render
+  weil @prisma/client als CommonJS gebuilt ist und Turbopack die re-
+  exports nicht statisch resolven kann. Switch zu explicit named-
+  exports für die 4 Symbole die tatsächlich konsumiert werden (verified
+  via `grep -rh "from '@vam/db'"`). Future-proofed: Kommentar erklärt
+  wie man bei neuem Konsumenten erweitert.
+- **Pattern Y email draft** (`3720c31`): vollständige cold-outreach
+  email an dev@navigraph.com mit subject line, body in plain-text
+  format, pre-send checklist, backup-channel-strategy via forum.
+  navigraph.com falls 14d kein reply, was-bei-reply-bereithalten,
+  impl-estimate (2-3d post-approval). User reviewed + sends when ready.
+
 ## Day-4 Priority 1 — LIVE-TEST both patterns
 
 End-to-end mit echtem SimBrief-Account validieren. Pattern Z war noch
@@ -216,8 +280,11 @@ Tab-link statt der Z-Form.
       "OFP does not match this booking …" mit Schließen-link.
 - [ ] **Pattern Z double-callback:** Browser-reload auf `?ofp_id=…`
       URL → idempotent (kein duplicate cache row).
-- [ ] **Pattern Z malformed ofp_id:** `?ofp_id=hacked` → Zod regex
-      lehnt ab, Banner zeigt validation-error, kein 500.
+- [x] **Pattern Z malformed ofp_id:** `?ofp_id=hacked` → Zod regex
+      lehnt ab, Banner zeigt validation-error, kein 500. ✓ verifiziert
+      Day-4-continued mit hardcoded malformed string + valid-format-but-
+      404 path. Banner ist jetzt user-friendly statt raw-JSON-dump
+      (siehe Day-4-Continued Section).
 - [x] **Pattern Z banner dismiss:** Schließen-link strippt
       `ofp_error` query-param sauber, andere params (falls künftige)
       bleiben erhalten. ✓ verifiziert mit `?ofp_error=callback_failed_test`.
@@ -244,7 +311,12 @@ Refactor. Alle drei Day-3 abends mit-erledigt — siehe Bonus-Block oben.
 Day-4 hat damit nur noch Priority 1 (Live-Test) und Priority 3
 (Pattern-Y-Email) als pre-defined Tasks.
 
-## Day-4 Priority 3 — Pattern Y email vorbereiten
+## Day-4 Priority 3 — Pattern Y email vorbereiten ✓
+
+> **Status nach Day-4-continued**: Draft in `docs/decisions/2026-04-30-pattern-y-email-draft.md`
+> committed (`3720c31`). User reviewed + sends from
+> crysagaming@drack.eu when ready. Original quick-summary unten zur
+> Referenz behalten — vollständige Email + Send-Strategie im draft-doc.
 
 Wenn Pattern Z Live-Test gut läuft + UX akzeptabel ist, kann Pattern Y
 warten oder kann jetzt parallel gestartet werden.
@@ -288,13 +360,14 @@ Falls 1-2 Wochen kein Reply: forum.navigraph.com Post als Backup-Channel
 
 ## Notizen
 
-- Working tree dirty: TOMORROW.md modified (this commit), CLAUDE.md just
-  committed (`086573c` — stop-policy + hosts-mapping)
-- Branch `cc-experiment` HEAD nach diesem Commit ahead `origin/cc-experiment`
-  bis push
-- Web typecheck clean (last verified Day-3)
-- Day-3: 14 Commits gepusht; Day-4 so far: 1 Commit (CLAUDE.md), dieser
-  TOMORROW.md sync wird der zweite
+- Working tree clean nach Day-4-continued (alle 4 commits gepusht:
+  CLAUDE.md, TOMORROW.md sync, Pattern Y email, Zod-error fix, prisma
+  exports fix — sowie dieser TOMORROW.md sync als #6)
+- Branch `cc-experiment` 0 commits ahead origin nach finalem push
+- Web typecheck clean (re-verifiziert Day-4-continued Phase 1)
+- Day-3: 14 commits; Day-4: 5 commits (`086573c` CLAUDE.md, `b2b0bb6`
+  TOMORROW Day-4-early, `3720c31` Pattern-Y, `1327016` Zod fix,
+  `e1cc9ee` prisma fix) + dieser TOMORROW.md = 6
 - `.claude/settings.local.json` (harness) bleibt untracked
 - Browser-Automation tools (Claude in Chrome + Playwright MCP) lokal
   konfiguriert, claude_desktop_config.json hat die paired-device-id.
@@ -302,15 +375,26 @@ Falls 1-2 Wochen kein Reply: forum.navigraph.com Post als Backup-Channel
 
 ## Day-4 Pending (next session)
 
-Nach Wahl:
+Nach User-Wahl, frischer Kopf:
 
-- **Edge-Cases durchspielen** (siehe Liste oben — Popup-blocker test,
-  static_id mismatch test, double-callback idempotency, malformed ofp_id
-  validation, cancelled-booking refresh-rejection, cache-expiry
-  regeneration, multi-tenant cross-airline-scoping). Read-only nav
-  zumeist, schnell durchspielbar.
-- **Pattern Y email** an dev@navigraph.com schreiben (Draft in Priority 3
-  oben). Längere Vorlaufzeit für Approval, also lieber früh raus.
-- **Schema cleanup**: `Booking.simBriefStaticId` Field entfernen (jetzt
-  redundant, ~0.5 day).
-- **stateStyle extrahieren**: bei drittem Caller (siehe Open Questions).
+- **Pattern Y email senden**: Draft ist ready in
+  `docs/decisions/2026-04-30-pattern-y-email-draft.md`. User reviews +
+  sends from crysagaming@drack.eu when ready. 14d Reply-Window dann
+  forum.navigraph.com Backup.
+- **Edge-Cases die nicht autonomous getestet wurden** (alle brauchen
+  state-mutation oder zusätzliche fixtures):
+  - Popup-Blocker: Browser-Setting toggeln, fallback-link verifizieren
+  - static_id mismatch: 2. Booking erstellen, dessen ofp_id auf 1. pasten
+  - double-callback idempotency: frischer Pattern-Z-run für real callback-id capture, dann reload
+  - cancelled-booking refresh-rejection: booking cancel + refresh-button click
+  - cache-expiry: 6h warten oder DB-Manipulation der `expiresAt`
+  - multi-tenant scoping: 2. User in DB, switch session
+- **Schema cleanup** (`Booking.simBriefStaticId` Field entfernen): ~0.5
+  day, irreversible Migration, deshalb bewusst nicht autonomous gemacht.
+- **stateStyle extrahieren**: bei drittem Caller (siehe Open Questions —
+  aktuell nur 2 Caller).
+- **Hydration-Bug Production Verification**: das Day-4-early dokumen-
+  tierte HMR-state-corruption sollte mit `pnpm build && pnpm start`
+  nicht mehr reproduzieren. Ein einmaliger Production-Build-Smoketest
+  würde das verifizieren — und prüfen ob die explicit-prisma-exports
+  und Zod-error-mapping production-clean compilen.
