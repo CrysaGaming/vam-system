@@ -8,6 +8,7 @@ import { buildSimBriefFormFields } from '@/lib/simbrief/buildFormFields';
 import { refreshSimBriefOfp, processSimBriefCallback } from '../actions';
 import { SimBriefDispatchForm } from './SimBriefDispatchForm';
 import { OfpSummary } from '@/components/OfpSummary';
+import { CancelBookingDialog } from './CancelBookingDialog';
 
 function stateStyle(state: BookingState): { className: string; label: string } {
   switch (state) {
@@ -539,6 +540,21 @@ export default async function BookingDetail({
             )}
           </div>
         </section>
+
+        {/* Cancel-Booking action — only available for active bookings.
+            Server-side state-guard in cancelBooking() also rejects non-
+            cancellable states, so this is just UI hygiene (don't render
+            buttons for actions that won't work). Final-state bookings
+            already display Stornierungsgrund + Storniert-am in metadata
+            above; nothing more to do for them. */}
+        {!isFinalState && (
+          <section className="mt-8 flex justify-end">
+            <CancelBookingDialog
+              bookingId={booking.id}
+              flightNumber={booking.route.flightNumber}
+            />
+          </section>
+        )}
       </div>
     </main>
   );
