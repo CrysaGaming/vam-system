@@ -925,6 +925,175 @@ Falls 1-2 Wochen kein Reply: forum.navigraph.com Post als Backup-Channel
   konfiguriert, claude_desktop_config.json hat die paired-device-id.
   Bei nächster Session ggf. Konnektoren wieder per "+"-Toggle aktivieren.
 
+## Day-4 Continued — B Cancel-UI + D popup-verify + A Override-Hierarchie (~15:00-18:10 Berlin)
+
+User-led session: B + D + A in dieser Reihenfolge, "Full scope" energy.
+Drei distinct features in 3h10min wall-clock (vs ~7h aggregated EST),
+inkl. einer **wichtigen End-to-End-Discovery** über SimBrief's API-
+parameter-naming convention.
+
+| Commit    | Phase | Scope                                                       |
+| --------- | ----- | ----------------------------------------------------------- |
+| `7ee8505` | B     | feat(bookings): cancel-booking UI with confirmation dialog  |
+| `03f2456` | A     | feat(simbrief): Override-Hierarchie with 4-level inheritance |
+
+### B — Cancel-Booking UI (~15:18-17:04 Berlin, ~23min ACT vs 45min EST, factor 0.51)
+
+Pre-existing uncommitted work aus früherer compaction-lost-Session
+gefunden: `apps/web/app/bookings/[id]/CancelBookingDialog.tsx` + page.tsx
+wiring war production-quality. Ein dev-mode HMR-state-corruption Issue
+(Tailwind JIT classes für untracked file fehlten im CSS-bundle) gefixt
+durch switch von inline-styles zu Tailwind classes (`fixed inset-0
+bg-black/60 flex items-center justify-center z-50 p-4`). Production-
+build-test bestätigte clean rendering. Live-test: Modal centered, full-
+viewport overlay, Stornierung persistiert mit cancellationReason. Same
+state-machine wie server-side cancelBooking (Created/SimBriefDispatched
+nur cancelable). Component-features: confirmation text mit flightNumber
+highlighted, 500-char-cap textarea mit live counter, router.refresh()
+on success, click-outside-to-close mit isPending-guard.
+
+### D — Pattern Z popup mit scheduledDeparture verify (~17:10-17:25 Berlin, ~5min ACT vs 3min EST, factor 1.7)
+
+No-code phase — purer end-to-end test. Booking-5 erstellt mit
+`scheduledDeparture=2026-05-01T16:45 Berlin` (=14:45Z). Pattern Z form
+zeigte 11/11 expected fields inkl. `date=2026-05-01, deph=14, depm=45`.
+User klickte Generate Flight Plan, popup nur progressbar (best UX —
+silent acceptance). OFP-XML Inspection: `<sched_out>1777646700</sched_out>`
+= unix-timestamp dekodiert zu **2026-05-01T14:45:00.000Z UTC = 1. Mai
+2026 um 16:45 Berlin** — exakt Match zur User-Eingabe. SimBrief
+verwendete unsere Pattern-Z-prefilled date/deph/depm-Werte.
+
+### A — Override-Hierarchie Phase 2 #3 Full Scope (~17:34-18:10 Berlin, ~36min ACT vs 100min EST, factor 0.36)
+
+Größte Architecture-Addition der Session. 4-Ebenen-Inheritance mit JSON-
+column statt flat-columns, Zod-validated, applied last-wins.
+
+**Schema design** (apps/web/lib/simbrief/overlay.ts):
+- `SimBriefOverlaySchema`: Zod schema mit 21 fields, alle optional. Field-
+  naming matched SimBrief's canonical API names (siehe Discovery unten).
+- `parseSimBriefOverlay`: null-safe + validate-on-read mit logged
+  fallback to `{}` on parse-failure (corrupted overlay row blockt nicht
+  das ganze dispatch).
+- `resolveSimBriefOverlay`: object-spread merge, later layers
+  überschreiben — Airline → Fleet → Aircraft → Route precedence-order.
+- `overlayToParams`: identity map zu `[name, value]` tuples, numbers via
+  `String()` coerced.
+
+**DB schema** (packages/db/prisma/schema.prisma):
+- `Airline.simBriefOverlay Json?` — Ebene 1 (lowest precedence)
+- new `Fleet` model `(airlineId, type, simBriefOverlay)` — Ebene 2,
+  per-(airline,type) lookup, **NO `Aircraft.fleetId` FK** by design
+  (avoids migration für existing aircraft + FK-cascade-surprises beim
+  Aircraft.type-rename, Fleet bleibt optional pro Type)
+- `Aircraft.simBriefOverlay Json?` — Ebene 3
+- `Route.simBriefOverlay Json?` — Ebene 4 (highest)
+- migration `20260430153648_add_simbrief_overlay_hierarchy` applied
+
+**Wire** (build*.ts + bookings/[id]/page.tsx):
+- Both `buildDispatchUrl` + `buildFormFields` nehmen optional `overlay` arg
+- URLSearchParams.set semantics + form-field dedup ensure last-wins on
+  key collision (overlay > identifiers, schemas sind disjoint though)
+- Booking-detail Page: Fleet-lookup via `airlineId_type` compound key,
+  `resolveSimBriefOverlay` merged alle 4 layers, passed zu beiden
+  builders für Pattern α + Pattern Z
+
+**End-to-End Discovery — SimBrief field-name canonical convention**:
+
+Nach erstem Live-Test mit "doc-prose names" (`pax_count`, `cont_fuel_pct`)
+zeigte OFP-XML inspection `<api_params><pax>auto</pax>` und
+`<api_params><contpct>auto</contpct>` — SimBrief hatte unsere Werte
+**silently ignored** weil die Parameter-Namen nicht stimmten. Form-fields-
+verification im DOM hatte zwar `cont_fuel_pct=15` korrekt gezeigt, aber
+das hat SimBrief nicht parsing können.
+
+| Schema (vorher, falsch) | SimBrief API (richtig) |
+|---|---|
+| `pax_count`              | `pax`                 |
+| `cont_fuel_pct`          | `contpct`             |
+| `mel_kg`                 | `melfuel` (+`_units`) |
+| `atc_min`                | `atcfuel`             |
+| `extra_kg`               | `addedfuel` (+`_units`)|
+| `altn1`                  | `altn` (singular)     |
+| `units` (global)         | per-fuel `_units`     |
+
+Schema rewritten mit canonical SimBrief names. Re-test bestätigte:
+`<api_params><pax>150</pax>` und `<api_params><contpct>15</contpct>` —
+applied. `<contingency>` value änderte sich von 1419kg (auto) zu 665kg
+(15% calc), `<pax_count>` rendered 150 statt default 123 (A320 typical).
+
+**Inheritance verified end-to-end mit LH600 booking**:
+- Airline DLH overlay: `{ contpct: 10 }` (Ebene 1 floor)
+- Route LH600 overlay: `{ contpct: 15, pax: 150 }` (Ebene 4 highest)
+- Resolved at booking-detail: `{ contpct: 15, pax: 150 }` (Route wins)
+- Pattern Z form-fields: `pax=150, contpct=15` ✓
+- SimBrief OFP `<api_params>`: `<pax>150</pax> <contpct>15</contpct>` ✓
+- Effective contingency: 665kg (15% of trip fuel) ✓
+
+**Side-discovery — `<pounds>` field controls SimBrief output units**:
+Old OFP hatte `<units>lbs</units>` mit `<pounds>1</pounds>`, neuer hatte
+`<units>kgs</units>` mit `<pounds>0</pounds>` — but neither run sent a
+`pounds` param. Means SimBrief's account-level default oder request-
+state-context entscheidet. Future: `pounds` field zum overlay-schema
+adden für full units control. Not blocking für hierarchy-feature.
+
+### Calibration Updates (this session)
+
+| Phase | Type | EST | ACT | Faktor |
+|-------|------|-----|-----|--------|
+| B Cancel-Booking UI | mostly-pre-existing + dev-mode debug | 45min | ~23min | 0.51 |
+| D Popup-prefill verify | pure E2E test (XML decode) | 3min | ~5min | 1.7 |
+| A Override-Hierarchie | new feature, complex + bug-fix | 100min | ~36min | 0.36 |
+
+**A factor 0.36 is remarkable** für eine Architecture-Addition mit:
+neuem Zod-Schema (21 fields), neuem DB-model (Fleet), 4 schema-mutations,
+2 builder-changes, page-wiring, end-to-end-test mit OFP-XML-roundtrip,
+**plus** schema-rename-fix nach bug-discovery. Schnell weil:
+- Tooling-warm (Prisma migrate workflow geübt)
+- JSON-column statt flat-columns spart migrations
+- Builder-pattern aus Day-3 schon etabliert
+- DB direct mutation für test-data statt UI-build
+
+**Lesson updated für Day-4-cont session**:
+- **Form-field-DOM-verification ≠ API-acceptance-verification**. SimBrief
+  ignoriert unbekannte Parameter-Namen silently. Die einzige Wahrheit
+  ist End-to-End mit Response-XML-Inspection (`<api_params>` block).
+- **Doc-prose names ≠ canonical API names**. pattern-alpha.md hatte
+  Beispiel-Code mit `pax_count` und `cont_fuel_pct` die nicht existieren.
+  Source-of-truth ist immer ein echter API-Response.
+- **JSON-column-design pattern** funktioniert für sparse-overlay-data:
+  - Zod-validate-on-read mit fallback statt fail-loud
+  - Schema-evolution ohne migration
+  - Object-spread für inheritance gibt natural last-wins-semantics
+
+### DB-state nach A
+
+```
+Booking-5 (cmolmrhgj00012wy96h10pkq6): SimBriefDispatched, LH600 EDDF→LOWW
+  cache: EDDFLOWW_XML_1777565139 (POST-OVERRIDE — 6317kg block, 665kg cont)
+  scheduledDeparture: 2026-05-01T14:45:00Z
+  state nach 3 Plan-again-clicks: idempotent upsert verifiziert
+
+Airline DLH:
+  simBriefOverlay: { contpct: 10 } (canonical names, post-fix)
+
+Route LH600:
+  simBriefOverlay: { contpct: 15, pax: 150 } (canonical names, post-fix)
+
+(Other airlines/routes/fleets/aircraft: simBriefOverlay null — defaults
+to no-overrides, dispatch falls through to SimBrief account defaults)
+```
+
+### Phase 2 status nach A
+
+- ✅ #1 SimBrief username Suggestion (`54d65db`)
+- ✅ #2 Lifecycle FlightPlanCache transfer (`19780c4`)
+- ✅ #3 Override-Hierarchie (`03f2456` — this session)
+- ✅ #4 scheduledDeparture (`c74672d`)
+- ⏸ #5 Pattern Y implementation — blocks on Navigraph credentials
+
+**5/5 Phase-2-features die nicht auf externe Credentials warten = shipped.**
+Pattern Y bleibt der einzige offene roadmap-item, geblockt auf email-reply.
+
 ## Day-4 Pending (next session)
 
 Nach User-Wahl, frischer Kopf:
