@@ -1146,3 +1146,72 @@ Nach User-Wahl, frischer Kopf:
   - ✅ Bookings-listing rendert (1 Booking, "Meine Bookings"-headline)
   - ✅ Schema-migration (dropped simBriefStaticId column) bricht
     nichts production-time
+
+## Day-4 Continued — Group 2 + Group 3 closeout (~18:45-21:00 Berlin)
+
+User-led "erst 2 und dann 3, let's go!". Beide groups durchgezogen,
+working-tree clean, alle commits gepusht.
+
+### Group 2 — Cleanups + Edge-Cases
+
+| Commit    | Scope                                                   |
+| --------- | ------------------------------------------------------- |
+| `2501ea4` | feat(simbrief): pounds field in override schema         |
+| `007e54f` | feat(bookings): stale-cache indicator on OfpSummary     |
+| `1ee1aa0` | test(bookings): multi-tenant scoping verification       |
+
+- **pounds field**: side-discovery aus A geclosed — `pounds` (0=kg,
+  1=lbs) ist jetzt im Zod-overlay-schema, full units control.
+- **Stale-cache indicator**: yellow "⚠ Abgelaufen" badge im
+  OfpSummary-header wenn `cache.expiresAt < Date.now()`. Server-
+  computed at render, no client-state. Edge-case "cache-expiry" gecloset.
+- **Multi-tenant scoping**: 2. user in DB seeded, session-switch via
+  cookies, verifiziert dass airlineId-scope hält auf /bookings,
+  /bookings/[id], /pireps. Edge-case "multi-tenant boundary" gecloset.
+
+Edge-cases noch open (brauchen User-help oder Browser-config):
+- Popup-Blocker (Browser-Setting toggle)
+- static_id mismatch live-test (3.-User-account oder Network-capture)
+
+### Group 3 — Settings-UI für Override-Hierarchie
+
+| Commit    | Scope                                                   |
+| --------- | ------------------------------------------------------- |
+| `4c05f09` | feat(settings): airline-level SimBrief overlay editor   |
+
+`AirlineOverlayCard` auf `/settings`, 514 LOC, alle 23 canonical
+SimBrief overlay-fields in 4 sections (Output, Pax/Cargo, Fuel,
+Routing). Field-config-driven layout — neues field zu schema adden =
+1 row append. Empty-input = no-override semantics. Live populated-
+count badge. Per-section + per-field hints. Zod-issue-list rendering
+on validation-error. "Alle löschen" reset mit confirm-gate.
+
+Architecture: server-actions colocated mit existing settings/actions.ts
+(`updateAirlineSimBriefOverlay`, `getAirlineSimBriefOverlay`).
+revalidatePath('/bookings') on save (booking-detail caches against
+overlay value). Authorization MVP-level (any user mit airlineId
+darf editieren — role-gate als follow-up wenn 2. user pro airline).
+
+Future cards deferred: FleetOverlayCard, AircraftOverlayCard,
+RouteOverlayCard. Same pattern, separate page/dialog statt stack.
+
+### Phase 2 finaler status
+
+- ✅ #1 SimBrief username Suggestion
+- ✅ #2 Lifecycle FlightPlanCache transfer
+- ✅ #3 Override-Hierarchie (backend + Settings-UI Airline-level)
+- ✅ #4 scheduledDeparture
+- ✉ #5 Pattern Y — email out, warten auf reply (14d window bis 2026-05-14)
+
+**Phase 2 effektiv durch.** Single open thread = Pattern Y reply.
+
+## Day-5 Pending (next session)
+
+- **Edge-cases brauchen User-help**: Popup-Blocker, static_id mismatch
+- **Override-cards für tieferes Hierarchy** (deferred): Fleet, Aircraft,
+  Route — wenn use-case kommt, sonst nicht spekulativ shippen
+- **Override-edit role-gate**: wenn 2. pilot pro airline kommt, Airline.
+  ownerId oder User.role check vor updateAirlineSimBriefOverlay
+- **stateStyle extrahieren**: bei drittem Caller (aktuell 2)
+- **PIREP-Detail-page polish**: original Day-3-list, niedrige Prio
+- **Pattern Y reply tracking**: am 2026-05-14 falls keine antwort → forum
