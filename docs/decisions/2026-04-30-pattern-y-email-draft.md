@@ -28,7 +28,7 @@ there actively.
 ## Subject Line
 
 ```
-OAuth API Access Request — VAM-System (vam.kevindrack.de)
+OAuth API access request — VAM-System (vam.kevindrack.de)
 ```
 
 (Short, specific, mentions both the request and the project. Avoids
@@ -36,80 +36,95 @@ generic phrases like "Quick Question" which get filtered.)
 
 ---
 
-## Email Body (English, Markdown formatting stripped on send)
+## Email Body (English, plain text on send)
+
+Style note: matches the SimBrief Dispatch-API request email Kevin sent
+on 2026-04-29 — same humble, transparent tone, same structure
+(disclaimers up front, concrete use cases as a numbered list, explicit
+permission-to-defer ending). Both emails should read like the same
+person wrote them, because the same person did.
 
 ```text
 Hi Navigraph dev team,
 
-I'm building VAM-System (https://vam.kevindrack.de), an open
-multi-tenant Virtual Airline management platform for flight-sim
-pilots. The system handles booking, OFP dispatch, PIREP filing, and
-network integration (VATSIM/IVAO/POSCON). It's currently in MVP
-development as a solo project.
+I would like to request OAuth API access with the private `simbrief`
+scope for use in a self-hosted virtual airline management platform.
+I started developing five days ago under the working title
+"VAM-System" (https://vam.kevindrack.de,
+https://github.com/CrysaGaming/vam-system).
 
-I'd like to request OAuth API access with the `simbrief` scope so VAM
-can generate flight plans on behalf of authenticated pilots in a
-silent, browser-redirect flow — the same pattern vAMSYS implements.
+A few honest disclaimers up front:
 
-# What I'm asking for
+The project is very early-stage. Many things are still open and may
+change as it evolves: the final name, the public URL, whether it
+stays single-airline or becomes a multi-airline platform, and the
+licensing model. Right now everything is open-source. Whether premium
+features are added later at a fair price (to cover hosting, licenses,
+and running costs without profit motive) is undecided. I want to be
+transparent about this rather than promise something I cannot
+guarantee for the long term.
 
-- An OAuth Client ID + Client Secret tied to the VAM-System project
-- The private `simbrief` scope (in addition to the public scopes
-  openid / offline_access / fmsdata)
-- Redirect URI registration for:
-    - Production: https://vam.kevindrack.de/api/oauth/navigraph/callback
-    - Local dev:  http://localhost:3000/api/oauth/navigraph/callback
+About the project:
 
-# Use case
-
-Pilots in a VA log into VAM-System, link their Navigraph account once
-via the standard OAuth Authorization Code flow, and from then on the
-"Generate Flight Plan" action on a booking can reach SimBrief
-server-to-server with the user's bearer token — no popup, no second
-login, no manual URL hand-off. The OFP XML is consumed by VAM for
-fuel/route/timing display and downstream PIREP filing.
-
-I have a working fallback already shipped:
-
-1. Pattern α — tab-redirect to dispatch.simbrief.com with
-   prefilled URL params, then xml.fetcher.php retrieval by static_id.
-   No external credentials needed.
-2. Pattern Z — Partner-API-Key (already provisioned by Derek on
-   2026-04-28) for popup-based dispatch with `?ofp_id=` callback,
-   server-side hashing per the published demo, idempotent callback
-   handler.
-
-Both work, but the popup is friction users notice. The OAuth path is
-the one that turns "manage your VA flights" into a single-sign-on
+It is being built as an alternative to vAMSYS and phpVMS for people
+who want to run their own infrastructure. Stack is Next.js,
+PostgreSQL, NestJS, and TypeScript. VATSIM and IVAO live-tracking are
+already implemented, an OBS streaming overlay for pilots is in
+production, and SimBrief integration via the Partner Dispatch API key
+(kindly provisioned a few days ago by the SimBrief team) is shipped
+end-to-end. The primary motivation is offering my own VA members and
+fellow pilots a clean, modern flight booking and SimBrief integration
 experience.
 
-# Technical context
+How I would use the OAuth API:
 
-- Stack: Next.js 16 (App Router) + Prisma 5 + PostgreSQL 16, deployed
-  via Cloudflare Tunnel
-- Architecture follows SimBrief staff guidance from
-  forum.navigraph.com/t/22391 (API key + hashing kept server-side, never
-  exposed to the browser; same will apply to the OAuth bearer token)
-- Multi-tenant: airlines are isolated at the airlineId boundary, so a
-  VA's pilots only see their own bookings
-- Open source intent: the code base is currently private during MVP
-  development, will be opened once stable. Happy to discuss licensing
-  considerations if relevant.
+1. Pilots on the VAM-System dashboard would link their Navigraph
+identity once via the standard OAuth Authorization Code flow. The
+platform would store the resulting refresh token server-side,
+encrypted at rest, scoped to that one pilot.
 
-# About me
+2. When a pilot books a route from the airline schedule, the platform
+would call the SimBrief Dispatch API server-to-server using the
+pilot's bearer token to generate a flight plan in the pilot's own
+SimBrief account, pre-filled with origin, destination, alternate,
+aircraft type, and route. This replaces the current Partner-API
+popup hand-off with a silent dispatch — the same pattern vAMSYS
+implements.
 
-Kevin Drack, IVAO 770283, Discord CrysaGaming. Solo developer, this
-is a personal project but with intent to grow it into a long-term
-shared platform for sim community VAs. I've been a SimBrief and
-Navigraph subscriber for several years.
+3. OFP retrieval via the XML/JSON fetcher endpoint to display route,
+fuel, weights, and navlog data on the booking detail page, alongside
+prefile-buttons for VATSIM and IVAO.
 
-Happy to provide additional context, demo access, or anything else
-that would help the review. Looking forward to hearing back.
+4. Static-ID linking so the flight plan can be re-fetched by the
+pilot's ACARS client and aircraft EFB during the actual flight
+without manual user input.
 
-Thanks,
+The OAuth client credentials would only be used server-side. The
+pilot's bearer token is stored encrypted in the platform database
+and used exclusively to authenticate API calls on behalf of the
+pilot who initiated the booking. The platform never stores
+Navigraph or SimBrief account credentials directly. All requests
+are made on behalf of an explicitly authenticated pilot who has
+linked their Navigraph account in their profile.
+
+Redirect URIs to register:
+
+- Production: https://vam.kevindrack.de/api/oauth/navigraph/callback
+- Local dev:  http://localhost:3000/api/oauth/navigraph/callback
+
+I am aware that the project is very young and small, and I would
+completely understand if you prefer to wait until it is more mature
+before granting OAuth access with the `simbrief` scope. If that is
+the case, I am happy to continue with the current Partner-API popup
+flow and revisit this request later. Either way, I would appreciate
+a brief reply so I know how to proceed.
+
+Thank you for your time.
+
+Best regards,
 Kevin Drack
-crysagaming@drack.eu
-https://vam.kevindrack.de
+kevindrack@gmx.de
+https://github.com/CrysaGaming/vam-system
 ```
 
 ---
@@ -117,9 +132,12 @@ https://vam.kevindrack.de
 ## Notes for the User Before Sending
 
 1. **Replace placeholders if any** — none expected, all values are real.
-2. **Send from `crysagaming@drack.eu`** to match the sender identity in
-   the body. Or the user's preferred professional address — but it
-   should match what's in the body.
+2. **Send from `kevindrack@gmx.de`** to match the sender identity in
+   the body and the address used on the SimBrief Dispatch-API request
+   (2026-04-29). Keeping one consistent address across both Navigraph
+   and SimBrief contact threads avoids any "is this the same person?"
+   confusion if dev@navigraph.com cross-references with the SimBrief
+   side.
 3. **Keep it plain text** — no HTML formatting, no signature block with
    logos. Navigraph's dev contact is small-team and replies usually
    read on phone or terminal mail clients.
