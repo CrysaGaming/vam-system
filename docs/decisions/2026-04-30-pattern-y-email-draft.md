@@ -2,7 +2,8 @@
 
 **Date**: 2026-04-30 (Day 4)
 **Recipient**: dev@navigraph.com
-**Status**: Draft, ready to send. Pending user review + send.
+**Status**: ✉ **SENT 2026-04-30 ~18:30 Berlin** (from kevindrack@gmx.de)
+**Reply-window**: 14 days → escalate to forum.navigraph.com on **2026-05-14**
 **Background**: see `docs/decisions/2026-04-29-pattern-z-final.md`, Pattern Y section
 
 ---

@@ -1089,10 +1089,16 @@ to no-overrides, dispatch falls through to SimBrief account defaults)
 - ✅ #2 Lifecycle FlightPlanCache transfer (`19780c4`)
 - ✅ #3 Override-Hierarchie (`03f2456` — this session)
 - ✅ #4 scheduledDeparture (`c74672d`)
-- ⏸ #5 Pattern Y implementation — blocks on Navigraph credentials
+- ✉ #5 Pattern Y implementation — **email SENT 2026-04-30 ~18:30 Berlin**
+  to dev@navigraph.com from kevindrack@gmx.de. Reply-window 14d.
+  Escalation auf forum.navigraph.com am **2026-05-14** falls keine
+  Antwort. Implementation-Estimate post-approval: ~2-3d (NextAuth-
+  provider, refresh-token-storage, wire in SimBriefDispatchForm,
+  settings-UI, tests).
 
 **5/5 Phase-2-features die nicht auf externe Credentials warten = shipped.**
-Pattern Y bleibt der einzige offene roadmap-item, geblockt auf email-reply.
+Pattern Y email ist out — jetzt warten auf Reply, parallel weiter an
+anderen Sachen arbeiten.
 
 ## Day-4 Pending (next session)
 
