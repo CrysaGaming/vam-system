@@ -4,10 +4,11 @@ import { prisma } from '@vam/db';
 import Link from 'next/link';
 import { ConnectionCard } from './connection-card';
 import { OverlayCard } from './overlay-card';
-import { getOrCreateOverlayToken } from './actions';
+import { getOrCreateOverlayToken, getAirlineSimBriefOverlay } from './actions';
 import { OverlayPreferences } from './overlay-preferences';
 import { getOverlayPreferences } from './overlay-actions';
 import { SimBriefCard } from './simbrief-card';
+import { AirlineOverlayCard } from './airline-overlay-card';
 
 export default async function SettingsPage({
   searchParams,
@@ -42,6 +43,11 @@ export default async function SettingsPage({
 
   // OBS-Overlay User-Preferences laden (Layout + Phase-Colors)
   const overlayPrefs = await getOverlayPreferences();
+
+  // SimBrief Airline-Overlay (Ebene 1 der Override-Hierarchie). Null
+  // bedeutet "User ist keiner Airline zugeordnet" — Card wird dann nicht
+  // gerendert.
+  const airlineOverlay = await getAirlineSimBriefOverlay();
 
   const statusBanner =
     params.status === 'success' && params.provider
@@ -179,6 +185,18 @@ export default async function SettingsPage({
             patternZAvailable={!!process.env.SIMBRIEF_API_KEY}
             suggestedUsername={user.name}
           />
+
+          {/*
+            Override-Hierarchie editor (Airline / Ebene 1). Only renders if
+            the user is associated with an airline — getAirlineSimBriefOverlay
+            returns null otherwise. Fleet/Aircraft/Route editors will be
+            additional cards once their UIs are built.
+          */}
+          {airlineOverlay !== null && (
+            <div className="mt-6">
+              <AirlineOverlayCard initial={airlineOverlay} />
+            </div>
+          )}
         </section>
 
         {/* OBS-Overlay */}
