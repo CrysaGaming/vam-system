@@ -15,6 +15,8 @@
  * so processSimBriefCallback can validate the OFP returned via the popup
  * really belongs to this booking and not a recycled ofpId from elsewhere.
  */
+import { type SimBriefOverlay, overlayToParams } from './overlay';
+
 export interface BuildFormFieldsInput {
   bookingId: string;
   airline: { icao: string };
@@ -27,6 +29,11 @@ export interface BuildFormFieldsInput {
   // SimBrief-Form-Defaults (date, deph, depm) — siehe buildDispatchUrl
   // für die Pattern-α-Variante.
   scheduledDeparture?: Date | null;
+  // Optional resolved overlay from the Override-Hierarchie. When present,
+  // its key/value pairs are appended as additional hidden inputs after
+  // the identifying fields. See buildDispatchUrl for the precedence
+  // rationale — same applies here.
+  overlay?: SimBriefOverlay;
 }
 
 export interface SimBriefFormField {
@@ -83,6 +90,34 @@ export function buildSimBriefFormFields(
     fields.push({ name: 'date', value: `${yyyy}-${mm}-${dd}` });
     fields.push({ name: 'deph', value: hh });
     fields.push({ name: 'depm', value: min });
+  }
+
+  // Override-Hierarchie params last so override-derived values override
+  // any earlier identifier set with the same key. See buildDispatchUrl
+  // for the same logic via URLSearchParams.set; here we de-duplicate
+  // explicitly because the field-array doesn't auto-dedup.
+  if (input.overlay) {
+    const overlayKeys = new Set<string>();
+    for (const [name, value] of overlayToParams(input.overlay)) {
+      overlayKeys.add(name);
+      fields.push({ name, value });
+    }
+    // Remove any earlier-pushed identifier-fields whose key now appears
+    // in the overlay — last-wins semantics matching Pattern α.
+    if (overlayKeys.size > 0) {
+      // Filter out earlier occurrences of overlay-keys so the final
+      // entry per name is the overlay's value. Iterating from the
+      // start, keep entries where key is NOT in overlay OR the entry
+      // was the LAST push (the overlay's own one).
+      const lastIndexByKey = new Map<string, number>();
+      fields.forEach((f, i) => {
+        if (overlayKeys.has(f.name)) lastIndexByKey.set(f.name, i);
+      });
+      return fields.filter(
+        (f, i) =>
+          !overlayKeys.has(f.name) || lastIndexByKey.get(f.name) === i,
+      );
+    }
   }
 
   return fields;

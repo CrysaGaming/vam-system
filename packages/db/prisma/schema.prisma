@@ -50,12 +50,19 @@ model Airline {
   name        String
   callsign    String?
   logoUrl     String?
+  // SimBrief Override-Hierarchie Ebene 1 (lowest precedence). Per-airline
+  // defaults für SimBrief-Dispatch (cont_fuel_pct, units, OFP-Layout, etc).
+  // Schema: apps/web/lib/simbrief/overlay.ts SimBriefOverlaySchema. Wird
+  // beim Dispatch durch Fleet/Aircraft/Route-overlays übersteuert (höhere
+  // Specificity gewinnt).
+  simBriefOverlay Json?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   users       User[]
   ranks       Rank[]
   aircraft    Aircraft[]
+  fleets      Fleet[]
   routes      Route[]
   pireps      Pirep[]
   sceneries   Scenery[]
@@ -212,10 +219,41 @@ model Aircraft {
   type         String
   homeIcao     String?
   active       Boolean  @default(true)
+  // SimBrief Override-Hierarchie Ebene 3 (per individual airframe).
+  // z.B. "this specific D-AIBL has reduced MTOW because of MEL". Über-
+  // steuert Airline + Fleet defaults.
+  simBriefOverlay Json?
   createdAt    DateTime @default(now())
 
   routes Route[]
   pireps Pirep[]
+}
+
+// SimBrief Override-Hierarchie Ebene 2 — Fleet-defaults per (airline, type).
+//
+// Ein Fleet-row ist (airlineId, type) — z.B. (DLH, "A320") — und hält
+// Defaults die für ALLE Aircraft dieses Typs in dieser Airline gelten,
+// es sei denn ein einzelnes Aircraft oder ein einzelner Route überschreibt
+// das Feld.
+//
+// Aircraft.fleetId wurde bewusst NICHT eingefügt — die Verbindung passiert
+// über (airline.id, aircraft.type) lookup im resolveSimBriefOverlay-Helper.
+// Vorteil: keine Migration für existierende Aircraft, keine FK-cascade-
+// surprises beim Aircraft.type-rename, Fleet bleibt optional pro Type.
+//
+// Wenn kein Fleet-row für eine (airlineId, type) Kombination existiert,
+// fällt der Helper transparent auf Airline-default zurück — d.h. Fleet
+// ist eine optionale Zwischenschicht, kein Pflicht-Feld.
+model Fleet {
+  id              String   @id @default(cuid())
+  airlineId       String
+  airline         Airline  @relation(fields: [airlineId], references: [id])
+  type            String   // ICAO type designator, e.g. "A320", "B738"
+  simBriefOverlay Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([airlineId, type])
 }
 
 model Airport {
@@ -249,6 +287,10 @@ model Route {
   estimatedMinutes Int
   distanceNm       Int
   active           Boolean   @default(true)
+  // SimBrief Override-Hierarchie Ebene 4 (highest precedence). Per-route
+  // overrides — z.B. "the cargo run to LFPG carries 0 pax + extra fuel".
+  // Übersteuert alle anderen Ebenen.
+  simBriefOverlay Json?
   createdAt        DateTime  @default(now())
 
   pireps Pirep[]

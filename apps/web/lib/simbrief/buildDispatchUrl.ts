@@ -1,3 +1,5 @@
+import { type SimBriefOverlay, overlayToParams } from './overlay';
+
 const BASE_URL = 'https://dispatch.simbrief.com/options/custom';
 
 export interface BuildDispatchUrlInput {
@@ -12,6 +14,14 @@ export interface BuildDispatchUrlInput {
   // SimBrief-Form-Defaults (date, deph, depm). User kann auf der
   // SimBrief-Page noch override; das ist Form-prefill, kein lock.
   scheduledDeparture?: Date | null;
+  // Optional resolved overlay from the Override-Hierarchie. When present,
+  // its key/value pairs are appended to the URL params after the
+  // identifying fields above — so any conflict between hierarchy-resolved
+  // fields and the identifying ones (which shouldn't happen because the
+  // overlay schema uses different keys) would let the overlay win. In
+  // practice the schemas are disjoint: overlay covers performance/fuel/
+  // weights/alternates, identifying covers airline+route+date+id.
+  overlay?: SimBriefOverlay;
 }
 
 /**
@@ -78,6 +88,18 @@ export function buildSimBriefDispatchUrl(input: BuildDispatchUrlInput): string {
   }
 
   params.set('static_id', `vam-${input.bookingId}`);
+
+  // Override-Hierarchie params last → they win on key collision via
+  // URLSearchParams.set semantics. Identifier keys above (airline,
+  // fltnum, etc) are disjoint from overlay keys (cont_fuel_pct, units,
+  // etc), so collision is theoretical, but keeping override-precedence
+  // explicit makes future schema additions (e.g. an overlay-controlled
+  // 'fltnum' suffix) safe by default.
+  if (input.overlay) {
+    for (const [key, value] of overlayToParams(input.overlay)) {
+      params.set(key, value);
+    }
+  }
 
   return `${BASE_URL}?${params.toString()}`;
 }

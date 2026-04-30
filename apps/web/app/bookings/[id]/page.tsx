@@ -5,6 +5,10 @@ import { z } from 'zod';
 import Link from 'next/link';
 import { buildSimBriefDispatchUrl } from '@/lib/simbrief/buildDispatchUrl';
 import { buildSimBriefFormFields } from '@/lib/simbrief/buildFormFields';
+import {
+  parseSimBriefOverlay,
+  resolveSimBriefOverlay,
+} from '@/lib/simbrief/overlay';
 import { refreshSimBriefOfp, processSimBriefCallback } from '../actions';
 import { SimBriefDispatchForm } from './SimBriefDispatchForm';
 import { OfpSummary } from '@/components/OfpSummary';
@@ -136,6 +140,32 @@ export default async function BookingDetail({
     booking.state === 'Expired';
   const style = stateStyle(booking.state);
 
+  // Resolve SimBrief Override-Hierarchie. Four entities contribute (in
+  // ascending precedence): Airline → Fleet (looked up by airlineId+type)
+  // → Aircraft → Route. The Fleet lookup is the only extra DB roundtrip
+  // here — the other three came along with the booking-include above.
+  // We only do the lookup when there's an aircraft (otherwise the overlay
+  // would have nothing to attach to anyway, since SimBrief dispatch
+  // requires an aircraft type).
+  const fleet = booking.route.aircraft
+    ? await prisma.fleet.findUnique({
+        where: {
+          airlineId_type: {
+            airlineId: booking.airlineId,
+            type: booking.route.aircraft.type,
+          },
+        },
+        select: { simBriefOverlay: true },
+      })
+    : null;
+
+  const resolvedOverlay = resolveSimBriefOverlay(
+    parseSimBriefOverlay(booking.airline.simBriefOverlay),
+    parseSimBriefOverlay(fleet?.simBriefOverlay),
+    parseSimBriefOverlay(booking.route.aircraft?.simBriefOverlay),
+    parseSimBriefOverlay(booking.route.simBriefOverlay),
+  );
+
   const dispatchUrl =
     booking.route.aircraft && !isFinalState
       ? buildSimBriefDispatchUrl({
@@ -150,6 +180,7 @@ export default async function BookingDetail({
           arrival: { icao: booking.route.arrival.icao },
           user: { name: booking.user.name },
           scheduledDeparture: booking.scheduledDeparture,
+          overlay: resolvedOverlay,
         })
       : null;
 
@@ -178,6 +209,7 @@ export default async function BookingDetail({
           arrival: { icao: booking.route.arrival.icao },
           user: { name: booking.user.name },
           scheduledDeparture: booking.scheduledDeparture,
+          overlay: resolvedOverlay,
         })
       : null;
 
