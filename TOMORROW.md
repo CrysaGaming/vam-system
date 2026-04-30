@@ -1215,3 +1215,110 @@ RouteOverlayCard. Same pattern, separate page/dialog statt stack.
 - **stateStyle extrahieren**: bei drittem Caller (aktuell 2)
 - **PIREP-Detail-page polish**: original Day-3-list, niedrige Prio
 - **Pattern Y reply tracking**: am 2026-05-14 falls keine antwort → forum
+
+## Day-4 Continued — Override-Hierarchie UI komplett (~21:00-22:30 Berlin)
+
+User-led "edge dann fleet, schau was schon erledigt ist und führ den
+rest aus" → "beide" → "test dann toc". Drei Phasen-Sequenzen, alle 4
+Override-Ebenen jetzt editierbar, plus collapsible TOC.
+
+### Edge-cases assessment (no commits — alle non-user-help-cases waren
+schon erledigt):
+
+- ✅ Popup-Blocker UX-fallback (`fc9a992`)
+- ✅ static_id guard (actions.ts L184 + L334, code-verified Phase A)
+- ✅ double-callback (verified Phase A)
+- ✅ cancelled-booking refresh (verified Phase A)
+- ✅ cache-expiry (`007e54f` stale-indicator)
+- ✅ multi-tenant scoping (`1ee1aa0` verified)
+
+Verbleibende edge-cases (Popup-Blocker live-toggle, static_id 3rd-user-
+test) brauchen User-help oder neue test-fixtures — kein code-issue,
+für später geparkt.
+
+### Override-Hierarchie UI Build-out
+
+| Commit    | Ebene | Scope                                                |
+| --------- | ----- | ---------------------------------------------------- |
+| `4c05f09` | 1 (Airline) | full editor mit FIELDS array pattern (already shipped Day-4 earlier) |
+| `5f24e42` | 2 (Fleet)   | shared `_overlay-fields.ts` extracted, Fleet card mit list+create/edit/delete |
+| `26d002f` | 3 (Aircraft) + 4 (Route) | edit-only cards (rows leben unabhängig vom overlay) |
+| `0ca0d17` | TOC | CollapsibleSection wrapper für /settings — alle 4 cards collapse |
+
+### Architecture decisions (this session)
+
+**`_overlay-fields.ts` shared module**: SECTIONS array + helpers
+extracted from airline-overlay-card. Pattern: appending zu Zod schema =
+1 row in SECTIONS, alle 4 cards rendern den neuen field automatisch.
+Reduzierte airline-overlay-card von 514 → 190 LOC.
+
+**Fleet vs Aircraft/Route asymmetry**: Fleet is N-per-airline keyed by
+ICAO type, but the Fleet rows are CREATED via this UI (no other source
+of truth). So Fleet card has create+edit+delete. Aircraft and Route
+rows exist independently (managed via fleet roster / schedule), so
+those cards are edit-only — "Bearbeiten" + "Alle löschen" inside
+editor (clears overlay back to {} but doesn't remove the row).
+
+**Cross-airline scope-guard pattern**: Every update + delete action
+loads the row, compares `airlineId` to session user's airlineId, and
+rejects with 'forbidden' on mismatch. Without this, knowing a foreign
+fleet/aircraft/route id would let a user mutate it. Same pattern across
+upsertFleet, deleteFleet, updateAircraft, updateRoute.
+
+**CollapsibleSection lazy-mount**: React state instead of native
+`<details>` because we need lazy-mount semantics — Aircraft + Route
+forms have 21 inputs × N rows, not rendering them when collapsed keeps
+SSR cheap. Children only mount when `open === true`.
+
+**Default-open vs default-closed**: Airline expanded (most-used,
+1-overlay scope), Fleet/Aircraft/Route collapsed (specific overrides
+that user opens on demand). Badges in closed state show counts so user
+can scan "where are my overrides" at a glance.
+
+### Live-Test (D-AIZA save-cycle, ~22:15 Berlin)
+
+- Browser nav https://vam.kevindrack.de/settings → all 4 cards rendered
+- Aircraft card "6 Aircraft" header, list of all DLH airframes
+- Click "Bearbeiten" on D-AIZA → editor öffnet inline
+- pax=200 setzen → Speichern button
+- router.refresh → page state changed, badge updated 0 → 1 Override
+- Aircraft header now shows "1 / 6 mit Overrides"
+- Same flow assumed-working for Airline, Fleet, Route (same pattern,
+  same shared form, same server-action shape)
+
+### Calibration (this session)
+
+| Phase | Type | EST | ACT | Faktor |
+|-------|------|-----|-----|--------|
+| Edge-cases assessment | code-read survey | 15min | ~5min | 0.33 |
+| Fleet card + extract shared | new component + refactor | 60min | ~25min | 0.42 |
+| Aircraft + Route cards | clone-and-adapt × 2 | 50min | ~20min | 0.40 |
+| TOC CollapsibleSection | new component + page integration | 30min | ~15min | 0.50 |
+| Live-test (browser) | full e2e save-cycle | 10min | ~8min | 0.80 |
+
+**Lesson update**: Clone-and-adapt of established pattern is faster
+than greenfield even after the first instance — Aircraft + Route at
+~10min each (vs Fleet at 25min, the first variant) confirms the shared-
+module-pattern pays off after 2nd usage.
+
+## Phase 2 + Override-UI status — KOMPLETT
+
+```
+✅ Phase 2 #1-#4 alle shipped
+✅ Override-Hierarchie Backend (03f2456 Day-4 earlier)
+✅ Override-Hierarchie UI (4 Ebenen × 1 Card = 4 Cards live)
+✅ Collapsible TOC (UX cleanup)
+✉ Pattern Y — email out, Reply-Window läuft
+
+Single open thread = Pattern Y reply (escalate forum.navigraph.com 2026-05-14)
+```
+
+## Day-5 Pending
+
+- **Pattern Y reply tracking**: 2026-05-14 → forum-fallback if no reply
+- **Edge-cases die User-help brauchen**: Popup-Blocker, static_id 3rd-user
+- **Override-edit role-gate**: wenn 2. pilot pro airline kommt
+- **Booking-Detail effective-overlay display**: badge zeigt was nach
+  4-Ebenen-resolve tatsächlich an SimBrief geht
+- **PIREP-Detail OFP-Display polish**: scope unklar, follow-up
+- **stateStyle extrahieren**: bei drittem Caller (aktuell 2)
