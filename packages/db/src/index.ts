@@ -7,6 +7,14 @@ export const prisma = globalForPrisma.prisma ?? new PrismaClient();
 
 if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
 
-// Re-export für Typ-Nutzung in anderen Packages
-export { PrismaClient } from "@prisma/client";
-export * from "@prisma/client";
+// Re-export für Typ-Nutzung in anderen Packages.
+//
+// Explicit named-exports statt `export * from "@prisma/client"`: das
+// @prisma/client package ist CommonJS, und Next.js (Turbopack) kann
+// dessen exports nicht statisch auflösen — das Ergebnis war eine
+// dauerhafte WARN bei jedem Render: "unexpected export *". Hier
+// listen wir nur was tatsächlich konsumiert wird (siehe `grep -rh
+// "from '@vam/db'"` über das Repo). Wenn ein neuer Konsument einen
+// generierten Type/Enum braucht, einfach hier ergänzen.
+export { PrismaClient, Prisma } from "@prisma/client";
+export { BookingState, NetworkType } from "@prisma/client";
