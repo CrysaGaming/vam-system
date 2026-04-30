@@ -56,6 +56,8 @@ export default async function NewPirep() {
       include: { airline: true },
     });
     if (!user || !user.airline) throw new Error('User or airline not found');
+    const airlineId = user.airline.id;
+    const userId = user.id;
 
     const route = await prisma.route.findUnique({
       where: { id: routeId },
@@ -63,11 +65,37 @@ export default async function NewPirep() {
     });
     if (!route) throw new Error('Route not found');
 
-    const [newPirep] = await prisma.$transaction([
-      prisma.pirep.create({
+    const newPirep = await prisma.$transaction(async (tx) => {
+      // Phase 2 #2 Lifecycle: find active booking that this PIREP retires.
+      //
+      // Matching: same user, airline, route. State must be active (Created
+      // or SimBriefDispatched) — Completed/Cancelled/Expired bookings stay
+      // immutable. The active-booking-guard in createBooking enforces
+      // 1-active-per-user-per-airline so multi-match shouldn't occur, but
+      // findFirst+orderBy gives a deterministic result if the invariant
+      // ever drifts.
+      //
+      // Why match by route too: user could have an active booking for LH918
+      // and decide to file a PIREP for LH200 instead. That's a standalone
+      // PIREP — leave the booking alone, it expires naturally.
+      const matchingBooking = await tx.booking.findFirst({
+        where: {
+          userId,
+          airlineId,
+          routeId: route.id,
+          state: { in: ['Created', 'SimBriefDispatched'] },
+        },
+        select: {
+          id: true,
+          flightPlanCache: { select: { id: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      const pirep = await tx.pirep.create({
         data: {
-          airlineId: user.airline.id,
-          userId: user.id,
+          airlineId,
+          userId,
           routeId: route.id,
           aircraftId,
           departureId: route.departureId,
@@ -79,19 +107,53 @@ export default async function NewPirep() {
           fuelUsedKg,
           landingRateFpm,
           remarks,
+          // Lifecycle Phase 2: only set when route+state match an active
+          // booking. Pirep.bookingId is @unique so this is a clean 1:0..1
+          // edge — booking stays unlinked otherwise.
+          bookingId: matchingBooking?.id ?? null,
         },
         include: {
           aircraft: true,
         },
-      }),
-      prisma.user.update({
-        where: { id: user.id },
+      });
+
+      if (matchingBooking) {
+        // Cache-transfer: FlightPlanCache had bookingId, now it gets pirepId.
+        // Schema allows both nullable so ownership moves atomically. The
+        // Booking-Detail-Page will render OFP-summary in muted/read-only
+        // mode (cache lookup via Booking.flightPlanCache returns null after
+        // this), and the PIREP-Detail-Page (Phase 2 follow-up feature) can
+        // render it as the historical OFP for the filed flight.
+        if (matchingBooking.flightPlanCache) {
+          await tx.flightPlanCache.update({
+            where: { id: matchingBooking.flightPlanCache.id },
+            data: {
+              bookingId: null,
+              pirepId: pirep.id,
+            },
+          });
+        }
+
+        // Complete the booking. From here it's read-only — state guards
+        // in actions.ts reject mutations on Completed. dispatchedAt stays
+        // as-is for audit; Pirep.submittedAt is the new canonical
+        // "this flight happened" timestamp.
+        await tx.booking.update({
+          where: { id: matchingBooking.id },
+          data: { state: 'Completed' },
+        });
+      }
+
+      await tx.user.update({
+        where: { id: userId },
         data: {
           totalFlightHours: { increment: flightTimeMin / 60 },
           totalFlights: { increment: 1 },
         },
-      }),
-    ]);
+      });
+
+      return pirep;
+    });
 
     // Event: PIREP submitted → Bot postet in #pireps
     await emitPirepSubmitted({
