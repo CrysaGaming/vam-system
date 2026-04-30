@@ -12,6 +12,7 @@ import { AirlineOverlayCard } from './airline-overlay-card';
 import { FleetOverlayCard } from './fleet-overlay-card';
 import { AircraftOverlayCard } from './aircraft-overlay-card';
 import { RouteOverlayCard } from './route-overlay-card';
+import { CollapsibleSection } from './_collapsible-section';
 
 export default async function SettingsPage({
   searchParams,
@@ -205,41 +206,51 @@ export default async function SettingsPage({
             additional cards once their UIs are built.
           */}
           {airlineOverlay !== null && (
-            <div className="mt-6">
-              <AirlineOverlayCard initial={airlineOverlay} />
-            </div>
-          )}
+            <div className="mt-6 space-y-3">
+              <CollapsibleSection
+                title="SimBrief Override (Airline)"
+                badge={(() => {
+                  const c = Object.keys(airlineOverlay).length;
+                  return `${c} ${c === 1 ? 'Override' : 'Overrides'}`;
+                })()}
+                defaultOpen={true}
+              >
+                <AirlineOverlayCard initial={airlineOverlay} />
+              </CollapsibleSection>
 
-          {/*
-            Fleet-Overlays (Ebene 2). Same airline-gating as Airline card —
-            we only render when the user has an airlineId, otherwise the
-            list+editor would have nothing to act on. listAirlineFleets()
-            returns [] in that case so this guard mirrors airlineOverlay
-            !== null cleanly.
-          */}
-          {airlineOverlay !== null && (
-            <div className="mt-6">
-              <FleetOverlayCard initial={fleets} />
-            </div>
-          )}
+              <CollapsibleSection
+                title="SimBrief Override (Fleet)"
+                badge={`${fleets.length} ${fleets.length === 1 ? 'Eintrag' : 'Einträge'}`}
+                defaultOpen={false}
+              >
+                <FleetOverlayCard initial={fleets} />
+              </CollapsibleSection>
 
-          {/*
-            Aircraft-Overlays (Ebene 3) — edit-only, list of existing
-            airline aircraft with overlay editor inline.
-          */}
-          {airlineOverlay !== null && (
-            <div className="mt-6">
-              <AircraftOverlayCard initial={aircraft} />
-            </div>
-          )}
+              <CollapsibleSection
+                title="SimBrief Override (Aircraft)"
+                badge={(() => {
+                  const withOverrides = aircraft.filter(
+                    (a) => a.populatedCount > 0,
+                  ).length;
+                  return `${withOverrides} / ${aircraft.length} mit Overrides`;
+                })()}
+                defaultOpen={false}
+              >
+                <AircraftOverlayCard initial={aircraft} />
+              </CollapsibleSection>
 
-          {/*
-            Route-Overlays (Ebene 4, höchste Präzedenz) — edit-only,
-            list of all airline routes with overlay editor inline.
-          */}
-          {airlineOverlay !== null && (
-            <div className="mt-6">
-              <RouteOverlayCard initial={routes} />
+              <CollapsibleSection
+                title="SimBrief Override (Route)"
+                badge={(() => {
+                  const withOverrides = routes.filter(
+                    (r) => r.populatedCount > 0,
+                  ).length;
+                  return `${withOverrides} / ${routes.length} mit Overrides`;
+                })()}
+                defaultOpen={false}
+              >
+                <RouteOverlayCard initial={routes} />
+              </CollapsibleSection>
             </div>
           )}
         </section>
