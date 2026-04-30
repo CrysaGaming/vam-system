@@ -24,6 +24,23 @@ export type OfpSummaryCache = {
   expiresAt?: Date;
 };
 
+/**
+ * Optional actuals for Plan-vs-Actual comparison on PIREP detail pages.
+ * When provided, the component renders a "Plan vs Actual" footer row
+ * showing per-metric deltas with absolute and percentage values. Both
+ * fields nullable — partial actuals (e.g. flight time recorded but no
+ * fuel data) still produce a row for the field that is known.
+ *
+ * Booking-Detail callers omit this entirely (the booking has no actuals
+ * yet, so the comparison would be meaningless).
+ */
+export type OfpSummaryActual = {
+  /** Actual block / flight time in minutes, from PIREP.flightTimeMin */
+  flightTimeMin: number | null;
+  /** Actual fuel used in kg, from PIREP.fuelUsedKg */
+  fuelUsedKg: number | null;
+};
+
 export interface OfpSummaryProps {
   cache: OfpSummaryCache;
   /**
@@ -34,6 +51,13 @@ export interface OfpSummaryProps {
    * (Cancelled/Completed/Expired), the active form for in-progress ones.
    */
   actions?: ReactNode;
+  /**
+   * Optional actuals → renders Plan-vs-Actual comparison footer. PIREP
+   * detail page passes this so the pilot can see how close they got to
+   * plan. Booking-Detail never passes it (no actuals yet at booking
+   * stage).
+   */
+  actual?: OfpSummaryActual;
 }
 
 function formatBlockTime(min: number | null): string {
@@ -44,6 +68,84 @@ function formatBlockTime(min: number | null): string {
 }
 
 /**
+ * Format a delta in minutes as a signed string. Used in the Plan-vs-
+ * Actual comparison: positive = took longer than plan, negative = faster.
+ * Distinct formatter from formatBlockTime because deltas are typically
+ * single-unit (rarely multi-hour) and the sign carries semantic weight.
+ */
+function formatDeltaMin(delta: number): string {
+  const sign = delta > 0 ? '+' : delta < 0 ? '−' : '';
+  const abs = Math.abs(delta);
+  if (abs >= 60) {
+    const h = Math.floor(abs / 60);
+    const m = abs % 60;
+    return m === 0 ? `${sign}${h}h` : `${sign}${h}h ${m}min`;
+  }
+  return `${sign}${abs}min`;
+}
+
+/**
+ * Render a single Plan-vs-Actual metric row. Decides delta-color based
+ * on direction: lower-than-plan is green for both time and fuel (faster
+ * flight, less burn). Exact-on-plan or within ±2% is gray (neutral).
+ * Above-plan is orange (notable), >10% over is red (significant).
+ *
+ * Returns null when either side is unknown — partial data is suppressed
+ * rather than rendering "—" placeholders that don't add information.
+ */
+function PlanActualRow({
+  label,
+  planned,
+  actual,
+  format,
+  formatDelta,
+}: {
+  label: string;
+  planned: number | null;
+  actual: number | null;
+  format: (n: number) => string;
+  formatDelta: (delta: number) => string;
+}) {
+  if (planned === null || actual === null) return null;
+
+  const delta = actual - planned;
+  const pct = planned !== 0 ? (delta / planned) * 100 : 0;
+  const absPct = Math.abs(pct);
+
+  // Color logic — both "block time over plan" and "fuel over plan" are
+  // bad in equal measure (pilot took longer than expected / burned more
+  // than expected), so we use the same scale for both metrics.
+  let deltaColor = 'text-gray-400';
+  if (delta < 0 && absPct >= 2) deltaColor = 'text-green-400';
+  else if (absPct >= 10) deltaColor = 'text-red-400';
+  else if (absPct >= 2) deltaColor = 'text-orange-400';
+
+  return (
+    <div className="flex items-baseline gap-3 flex-wrap">
+      <span className="text-xs uppercase tracking-wider text-gray-500 w-24 shrink-0">
+        {label}
+      </span>
+      <span className="text-sm text-gray-400 tabular-nums">
+        {format(planned)}
+      </span>
+      <span className="text-gray-600">→</span>
+      <span className="text-sm font-semibold tabular-nums">
+        {format(actual)}
+      </span>
+      <span className={`text-xs tabular-nums ${deltaColor}`}>
+        {formatDelta(delta)}
+        {planned !== 0 && (
+          <span className="ml-1 opacity-70">
+            ({pct >= 0 ? '+' : '−'}
+            {absPct.toFixed(1)}%)
+          </span>
+        )}
+      </span>
+    </div>
+  );
+}
+
+/**
  * OFP Summary card.
  *
  * Renders the four canonical headline fields from a SimBrief OFP — id,
@@ -51,8 +153,11 @@ function formatBlockTime(min: number | null): string {
  * if present. Both Pattern α and Pattern Z funnel into the same
  * FlightPlanCache shape (see actions.ts), so this component is pattern-
  * agnostic: it just knows how to display a cached plan.
+ *
+ * On PIREP pages, callers also pass `actual` to enable a Plan-vs-Actual
+ * footer row showing deltas between the plan and the flown values.
  */
-export function OfpSummary({ cache, actions }: OfpSummaryProps) {
+export function OfpSummary({ cache, actions, actual }: OfpSummaryProps) {
   const muted = !actions;
   // Server component — Date.now() is the request time, which is the
   // correct frame of reference: the staleness indicator should reflect
@@ -62,6 +167,17 @@ export function OfpSummary({ cache, actions }: OfpSummaryProps) {
   // also when they have the option to act on it.
   const isStale =
     cache.expiresAt !== undefined && cache.expiresAt.getTime() < Date.now();
+
+  // Pre-compute whether we have any actual to render. Both being null
+  // means "actuals object was passed but no useful data" — render the
+  // section header anyway with an empty-state hint, since the user
+  // arrived at this page knowing it's a PIREP and would otherwise
+  // wonder why no comparison appears.
+  const hasAnyActual =
+    actual !== undefined &&
+    (actual.flightTimeMin !== null || actual.fuelUsedKg !== null);
+  const showActualSection = actual !== undefined;
+
   return (
     <section
       className={`bg-gray-900 border border-gray-800 rounded-lg p-6 mb-8${
@@ -108,13 +224,45 @@ export function OfpSummary({ cache, actions }: OfpSummaryProps) {
         </div>
       </div>
       {cache.routeString && (
-        <div className={actions ? 'mb-6' : ''}>
+        <div className={actions || showActualSection ? 'mb-6' : ''}>
           <p className="text-xs uppercase tracking-wider text-gray-500 mb-2">
             Route
           </p>
           <p className="font-mono text-sm bg-gray-950 border border-gray-800 rounded p-3 break-all">
             {cache.routeString}
           </p>
+        </div>
+      )}
+      {showActualSection && (
+        <div className="pt-4 border-t border-gray-800">
+          <p className="text-xs uppercase tracking-wider text-gray-500 mb-3">
+            Plan vs Actual
+          </p>
+          {hasAnyActual ? (
+            <div className="space-y-2">
+              <PlanActualRow
+                label="Block Time"
+                planned={cache.blockTimeMin}
+                actual={actual.flightTimeMin}
+                format={(n) => formatBlockTime(n)}
+                formatDelta={formatDeltaMin}
+              />
+              <PlanActualRow
+                label="Block Fuel"
+                planned={cache.fuelKg}
+                actual={actual.fuelUsedKg}
+                format={(n) => `${n} kg`}
+                formatDelta={(d) =>
+                  `${d > 0 ? '+' : d < 0 ? '−' : ''}${Math.abs(d)} kg`
+                }
+              />
+            </div>
+          ) : (
+            <p className="text-xs text-gray-500 italic">
+              Keine Vergleichsdaten — PIREP enthält weder Flugzeit noch
+              Treibstoff-Verbrauch.
+            </p>
+          )}
         </div>
       )}
       {actions && (

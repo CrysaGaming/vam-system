@@ -304,9 +304,20 @@ export default async function PirepDetail({
             Renders the FlightPlanCache that was attached to the matching
             booking and transferred to this PIREP at submit-time. Always
             in muted/read-only mode (no actions slot) since the PIREP is
-            historical record — no refresh, no re-plan. */}
+            historical record — no refresh, no re-plan.
+
+            On PIREPs, also passes `actual` so the OfpSummary renders a
+            Plan-vs-Actual comparison footer with delta values for block
+            time and fuel — the unique-to-PIREP-context enhancement that
+            turns the read-only OFP card into a debrief tool. */}
         {pirep.flightPlanCache && (
-          <OfpSummary cache={pirep.flightPlanCache} />
+          <OfpSummary
+            cache={pirep.flightPlanCache}
+            actual={{
+              flightTimeMin: pirep.flightTimeMin,
+              fuelUsedKg: pirep.fuelUsedKg,
+            }}
+          />
         )}
 
         {/* Rejection Reason (falls Rejected) */}
