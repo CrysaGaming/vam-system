@@ -333,14 +333,16 @@ Email-Draft an `dev@navigraph.com`:
 Falls 1-2 Wochen kein Reply: forum.navigraph.com Post als Backup-Channel
 (siehe Day-3-Recherche, SimBrief staff antwortet aktiv).
 
-## Phase 2 Candidates (post-MVP, ranked, unverändert)
+## Phase 2 Candidates (post-MVP, ranked)
 
 1. **OAuth username auto-fill** (~1-2 days) — eliminiert manual entry friction
 2. **Lifecycle-Pattern** (~1 day) — FlightPlanCache → Pirep on file
 3. **Override-Hierarchie** (~3-5 days) — Aircraft/Fleet/Airline/Route SB defaults
 4. **Booking.scheduledDeparture field** (~0.5 day) — enables deph/depm/dxp
-5. **Booking.simBriefStaticId schema cleanup** (~0.5 day) — Field jetzt redundant
-6. **Pattern Y implementation** (~2-3 days) — once Navigraph credentials approved
+5. **Pattern Y implementation** (~2-3 days) — once Navigraph credentials approved
+
+> Removed Day-4-continued: ~~Booking.simBriefStaticId schema cleanup~~
+> shipped als `baeb8e4`.
 
 ## Open Questions
 
@@ -351,9 +353,12 @@ Falls 1-2 Wochen kein Reply: forum.navigraph.com Post als Backup-Channel
   damit als "nice-to-have" für später bleiben — kein Blocker für MVP.
   Pattern Y bleibt nice-to-have für: silent OFP ohne SimBrief-Login,
   vAMSYS-style Komfort. Kein MVP-Blocker.
-- **`Booking.simBriefStaticId` Field entfernen?** War für Phase-1 Pattern
-  α gedacht aber static_id ist jetzt deterministisch aus `booking.id`
-  ableitbar. Schema-cleanup commit candidate.
+- ~~**`Booking.simBriefStaticId` Field entfernen?**~~ ✓ **Beantwortet
+  Day-4-continued (`baeb8e4`)**: Field war seit creation tot — kein
+  source-code reference, kein DB-row hat einen non-null value gehabt.
+  Migration `20260430080822_drop_booking_simbrief_static_id` ist ein
+  einzeiliger DROP COLUMN. Die static_id wird weiterhin deterministisch
+  aus `booking.id` als `vam-${booking.id}` derived an den zwei call-sites.
 - **`stateStyle` extrahieren?** Aktuell dupliziert in `bookings/[id]/page.tsx`
   und `bookings/page.tsx` — zwei Aufrufer reichen noch nicht für Hoist
   (siehe `cf6478d` Commit-message). Beim dritten Caller hochziehen.
@@ -389,8 +394,9 @@ Nach User-Wahl, frischer Kopf:
   - cancelled-booking refresh-rejection: booking cancel + refresh-button click
   - cache-expiry: 6h warten oder DB-Manipulation der `expiresAt`
   - multi-tenant scoping: 2. User in DB, switch session
-- **Schema cleanup** (`Booking.simBriefStaticId` Field entfernen): ~0.5
-  day, irreversible Migration, deshalb bewusst nicht autonomous gemacht.
+- **Schema cleanup** ✓ shipped als `baeb8e4` Day-4-continued —
+  `Booking.simBriefStaticId` Feld entfernt (war never read, never
+  written). Bleibt nichts mehr offen in dieser Kategorie.
 - **stateStyle extrahieren**: bei drittem Caller (siehe Open Questions —
   aktuell nur 2 Caller).
 - **Hydration-Bug Production Verification**: das Day-4-early dokumen-
