@@ -7,8 +7,10 @@ import {
   listAvailableRoles,
   getAirlineSettings,
 } from './actions';
+import { listInvites, listRolesForInvite } from './invites-actions';
 import { MemberTable } from './member-table';
 import { AirlineSettingsForm } from './airline-settings-form';
+import { InviteSection } from './invite-section';
 
 /**
  * Airline-Admin-Panel. Gated on role.name === 'admin' AND user.airlineId
@@ -32,11 +34,20 @@ export default async function AirlineAdminPage() {
     redirect('/dashboard');
   }
 
-  const [members, roles, settings] = await Promise.all([
+  const [members, roles, settings, invites, inviteRoles] = await Promise.all([
     listAirlineMembers(),
     listAvailableRoles(),
     getAirlineSettings(),
+    listInvites(),
+    listRolesForInvite(),
   ]);
+
+  // App-URL für invite-link construction. Falls process.env.NEXTAUTH_URL
+  // nicht gesetzt → fall back auf relative path-only links (browser
+  // löst die selbst auf), aber dann ist der copy-link nutzlos. In
+  // production sollte die env immer da sein.
+  const appUrl =
+    process.env.NEXTAUTH_URL?.replace(/\/$/, '') ?? 'http://localhost:3000';
 
   return (
     <main className="min-h-screen bg-gray-950 text-white p-8">
@@ -62,6 +73,11 @@ export default async function AirlineAdminPage() {
             members={members}
             roles={roles}
             currentUserId={user.id}
+          />
+          <InviteSection
+            invites={invites}
+            roles={inviteRoles}
+            appUrl={appUrl}
           />
           <AirlineSettingsForm initial={settings} />
         </div>

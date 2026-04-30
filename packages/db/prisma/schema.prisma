@@ -70,6 +70,7 @@ model Airline {
   roleMappings DiscordRoleMapping[]
   bookings         Booking[]
   flightPlanCaches FlightPlanCache[]
+  invites          Invite[]
 }
 
 model User {
@@ -122,6 +123,9 @@ model User {
   sessions        Session[]
   emailVerified   DateTime?
   bookings        Booking[]
+
+  invitesCreated  Invite[] @relation("InviteCreator")
+  invitesUsed     Invite[] @relation("InviteUser")
 }
 
 model LiveSession {
@@ -209,6 +213,7 @@ model Role {
   createdAt   DateTime @default(now())
 
   users       User[]
+  invites     Invite[]
 }
 
 model Aircraft {
@@ -509,5 +514,59 @@ model FlightPlanCache {
   expiresAt     DateTime
 
   @@index([airlineId])
+  @@index([expiresAt])
+}
+
+// Invite-Tokens für User-Onboarding zu einer Airline. Admin generiert ein
+// Invite, schickt den Link manuell (Discord-DM, Email) an den potenziellen
+// Pilot. Beim Klick:
+//   1. Wenn nicht eingeloggt → Discord-OAuth-Login mit callbackUrl=/invite/[token]
+//   2. Nach Login: validate token (existiert, nicht expired, nicht used)
+//   3. User klickt "Annehmen" → User.airlineId + (optional) User.roleId gesetzt
+//   4. Invite.usedAt + usedById gesetzt → Token nicht mehr nutzbar
+//
+// Lifecycle:
+//   - createdAt + 7d default expiry (kann override werden)
+//   - usedAt = null → pending; usedAt != null → used (terminal)
+//   - admin kann pending-invite revoken via setExpiresAt(now)
+//
+// Security:
+//   - token = cuid(), 25-char unguessable, unique-indexed
+//   - email-field optional, only as hint für admin (welcher pilot war
+//     gemeint?), wird NICHT validiert beim accept (wir trust den
+//     Discord-OAuth-Identity vom session)
+//   - Token-Replay: usedAt-Check ist die einzige Defense — first-accept-wins
+model Invite {
+  id          String    @id @default(cuid())
+  token       String    @unique // URL-safe random token (cuid format)
+
+  // Pre-fill / Hint — der Admin trägt ein wer eingeladen wurde, aber das
+  // wird beim accept NICHT als gate genutzt. User-Identity kommt aus
+  // dem authenticated NextAuth-session.
+  email       String?
+
+  airlineId   String
+  airline     Airline   @relation(fields: [airlineId], references: [id])
+
+  // Wenn null → User wird nur airline-zugewiesen, role muss admin später
+  // manuell setzen (oder der User behält null-role und ist ein "pending pilot").
+  roleId      String?
+  role        Role?     @relation(fields: [roleId], references: [id])
+
+  expiresAt   DateTime
+  usedAt      DateTime? // null = pending; != null = used or revoked
+
+  // Wer hat das Invite erstellt
+  createdById String
+  createdBy   User      @relation("InviteCreator", fields: [createdById], references: [id])
+
+  // Wer hat das Invite eingelöst (null wenn pending)
+  usedById    String?
+  usedBy      User?     @relation("InviteUser", fields: [usedById], references: [id])
+
+  createdAt   DateTime  @default(now())
+
+  @@index([airlineId, usedAt])
+  @@index([token])
   @@index([expiresAt])
 }
