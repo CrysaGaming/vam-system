@@ -398,35 +398,59 @@ export default async function BookingDetail({
           <OfpSummary
             cache={booking.flightPlanCache}
             actions={
-              <>
-                <form action={refreshAction}>
-                  <button
-                    type="submit"
-                    className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded text-sm transition"
-                  >
-                    ↻ Refresh OFP
-                  </button>
-                </form>
-                {patternZFields ? (
-                  <SimBriefDispatchForm
-                    fields={patternZFields}
-                    referralPage={`/bookings/${booking.id}`}
-                    buttonLabel="Plan again →"
-                    buttonClassName="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded text-sm transition"
-                  />
-                ) : (
-                  dispatchUrl && (
+              <div className="flex flex-col gap-3 w-full">
+                <div className="flex gap-3">
+                  <form action={refreshAction}>
+                    <button
+                      type="submit"
+                      className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded text-sm transition"
+                    >
+                      ↻ Refresh OFP
+                    </button>
+                  </form>
+                  {patternZFields ? (
+                    <SimBriefDispatchForm
+                      fields={patternZFields}
+                      referralPage={`/bookings/${booking.id}`}
+                      buttonLabel="Plan again →"
+                      buttonClassName="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded text-sm transition"
+                    />
+                  ) : (
+                    dispatchUrl && (
+                      <a
+                        href={dispatchUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded text-sm transition"
+                      >
+                        Plan again →
+                      </a>
+                    )
+                  )}
+                </div>
+                {/* Pattern Z fallback hint — symmetric with the fresh-booking
+                    case below. Pattern Z's vendored simbrief.apiv1.js shows
+                    a native browser alert() if window.open() returns null,
+                    which is dismissible but doesn't tell the user how to
+                    proceed. This inline link gives them the escape hatch
+                    explicitly: a regular target="_blank" anchor isn't
+                    affected by popup-blockers because it's user-initiated
+                    navigation, not scripted window.open(). */}
+                {patternZFields && dispatchUrl && (
+                  <p className="text-xs text-gray-500">
+                    Popup blockiert?{' '}
                     <a
                       href={dispatchUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded text-sm transition"
+                      className="underline hover:text-gray-300"
                     >
-                      Plan again →
-                    </a>
-                  )
+                      Im neuen Tab öffnen (Pattern α)
+                    </a>{' '}
+                    und danach &quot;Refresh OFP&quot; klicken.
+                  </p>
                 )}
-              </>
+              </div>
             }
           />
         ) : (
