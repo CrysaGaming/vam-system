@@ -2,6 +2,7 @@ import { auth } from '@/auth';
 import { redirect, notFound } from 'next/navigation';
 import { prisma } from '@vam/db';
 import Link from 'next/link';
+import { OfpSummary } from '@/components/OfpSummary';
 import { ApprovalActions } from './approval-actions';
 
 const APPROVER_ROLES = ['admin', 'instructor'];
@@ -44,6 +45,11 @@ export default async function PirepDetail({
         include: { rank: true },
       },
       approver: true,
+      // Phase 2 #2 follow-up: render the FlightPlanCache (if any) that
+      // travelled with the booking → pirep on submit. Cache is null when
+      // the PIREP was filed standalone (no matching active booking) or
+      // when the matched booking had no SimBrief plan generated.
+      flightPlanCache: true,
     },
   });
 
@@ -292,6 +298,15 @@ export default async function PirepDetail({
             </h2>
             <p className="text-gray-300 whitespace-pre-wrap">{pirep.remarks}</p>
           </section>
+        )}
+
+        {/* Original Flight Plan — Lifecycle Phase 2 #2 follow-up.
+            Renders the FlightPlanCache that was attached to the matching
+            booking and transferred to this PIREP at submit-time. Always
+            in muted/read-only mode (no actions slot) since the PIREP is
+            historical record — no refresh, no re-plan. */}
+        {pirep.flightPlanCache && (
+          <OfpSummary cache={pirep.flightPlanCache} />
         )}
 
         {/* Rejection Reason (falls Rejected) */}

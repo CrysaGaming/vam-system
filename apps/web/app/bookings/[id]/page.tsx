@@ -7,7 +7,7 @@ import { buildSimBriefDispatchUrl } from '@/lib/simbrief/buildDispatchUrl';
 import { buildSimBriefFormFields } from '@/lib/simbrief/buildFormFields';
 import { refreshSimBriefOfp, processSimBriefCallback } from '../actions';
 import { SimBriefDispatchForm } from './SimBriefDispatchForm';
-import { OfpSummary } from './OfpSummary';
+import { OfpSummary } from '@/components/OfpSummary';
 
 function stateStyle(state: BookingState): { className: string; label: string } {
   switch (state) {
