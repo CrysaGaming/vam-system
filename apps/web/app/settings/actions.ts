@@ -211,3 +211,153 @@ export async function getAirlineSimBriefOverlay(): Promise<SimBriefOverlay | nul
 
   return parseSimBriefOverlay(airline.simBriefOverlay);
 }
+
+/* ---------------------------------------------------------------- *
+ * FLEET-LEVEL OVERLAY (Ebene 2 in der Override-Hierarchie)         *
+ * ---------------------------------------------------------------- *
+ * Fleet entries scope an overlay to (airlineId, ICAO type) pairs.  *
+ * Same auth model as airline-overlay actions: any user with a non- *
+ * null airlineId may write fleet overlays for their airline.       *
+ * Upgrade path to role-gating tracked alongside airline-overlay.   *
+ * ---------------------------------------------------------------- */
+
+interface FleetSummary {
+  id: string;
+  type: string;
+  overlay: SimBriefOverlay;
+  populatedCount: number;
+}
+
+/**
+ * Lists all fleet-overlay entries for the authenticated user's
+ * airline. Returns an empty array if the user has no airline (so
+ * the UI can hide the section without a separate auth-error path).
+ *
+ * `populatedCount` is computed server-side rather than in the
+ * client to keep the listing render cheap and consistent with the
+ * count semantics used elsewhere (Airline overlay header badge).
+ */
+export async function listAirlineFleets(): Promise<FleetSummary[]> {
+  const session = await auth();
+  if (!session?.user?.id) return [];
+
+  const user = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { airlineId: true },
+  });
+  if (!user?.airlineId) return [];
+
+  const fleets = await prisma.fleet.findMany({
+    where: { airlineId: user.airlineId },
+    orderBy: { type: 'asc' },
+    select: { id: true, type: true, simBriefOverlay: true },
+  });
+
+  return fleets.map((f) => {
+    const overlay = parseSimBriefOverlay(f.simBriefOverlay);
+    const populatedCount = Object.keys(overlay).length;
+    return { id: f.id, type: f.type, overlay, populatedCount };
+  });
+}
+
+/**
+ * Upserts a fleet-overlay entry for the user's airline keyed by
+ * ICAO type designator. Creates the row if absent, updates the
+ * overlay JSON if present.
+ *
+ * The type string is uppercased for canonical storage — SimBrief
+ * uses uppercase ICAO designators ("A320" not "a320") and the
+ * dispatch-pipeline lookup will be uppercase-driven, so we
+ * normalize here to avoid case-skew lookups.
+ */
+export async function upsertFleetSimBriefOverlay(
+  type: string,
+  input: SimBriefOverlay,
+): Promise<
+  | { success: true; fleetId: string }
+  | { success: false; error: string; issues?: z.ZodIssue[] }
+> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { success: false, error: 'unauthorized' };
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { airlineId: true },
+  });
+  if (!user?.airlineId) {
+    return { success: false, error: 'no_airline' };
+  }
+
+  const cleanType = type.trim().toUpperCase();
+  if (!/^[A-Z0-9]{2,4}$/.test(cleanType)) {
+    return { success: false, error: 'invalid_type' };
+  }
+
+  const parsed = SimBriefOverlaySchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: 'invalid_input',
+      issues: parsed.error.issues,
+    };
+  }
+
+  const fleet = await prisma.fleet.upsert({
+    where: { airlineId_type: { airlineId: user.airlineId, type: cleanType } },
+    create: {
+      airlineId: user.airlineId,
+      type: cleanType,
+      simBriefOverlay: parsed.data,
+    },
+    update: { simBriefOverlay: parsed.data },
+    select: { id: true },
+  });
+
+  revalidatePath('/bookings');
+  revalidatePath('/settings');
+
+  return { success: true, fleetId: fleet.id };
+}
+
+/**
+ * Deletes a fleet-overlay entry by id. Caller's airlineId must
+ * match the fleet's airlineId — prevents cross-airline deletion
+ * even if the user knows the target fleet id.
+ */
+export async function deleteFleetSimBriefOverlay(
+  fleetId: string,
+): Promise<{ success: true } | { success: false; error: string }> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { success: false, error: 'unauthorized' };
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { airlineId: true },
+  });
+  if (!user?.airlineId) {
+    return { success: false, error: 'no_airline' };
+  }
+
+  // Verify scope before delete: this fleet must belong to the
+  // user's airline. Without this guard, a user could delete any
+  // fleet by id, which would leak across the airlineId boundary.
+  const fleet = await prisma.fleet.findUnique({
+    where: { id: fleetId },
+    select: { airlineId: true },
+  });
+  if (!fleet) return { success: false, error: 'not_found' };
+  if (fleet.airlineId !== user.airlineId) {
+    return { success: false, error: 'forbidden' };
+  }
+
+  await prisma.fleet.delete({ where: { id: fleetId } });
+
+  revalidatePath('/bookings');
+  revalidatePath('/settings');
+
+  return { success: true };
+}

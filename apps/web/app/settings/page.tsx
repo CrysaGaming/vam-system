@@ -4,11 +4,12 @@ import { prisma } from '@vam/db';
 import Link from 'next/link';
 import { ConnectionCard } from './connection-card';
 import { OverlayCard } from './overlay-card';
-import { getOrCreateOverlayToken, getAirlineSimBriefOverlay } from './actions';
+import { getOrCreateOverlayToken, getAirlineSimBriefOverlay, listAirlineFleets } from './actions';
 import { OverlayPreferences } from './overlay-preferences';
 import { getOverlayPreferences } from './overlay-actions';
 import { SimBriefCard } from './simbrief-card';
 import { AirlineOverlayCard } from './airline-overlay-card';
+import { FleetOverlayCard } from './fleet-overlay-card';
 
 export default async function SettingsPage({
   searchParams,
@@ -48,6 +49,10 @@ export default async function SettingsPage({
   // bedeutet "User ist keiner Airline zugeordnet" — Card wird dann nicht
   // gerendert.
   const airlineOverlay = await getAirlineSimBriefOverlay();
+
+  // SimBrief Fleet-Overlays (Ebene 2). Empty array if user has no airline
+  // — same hide-card semantic as airlineOverlay null.
+  const fleets = await listAirlineFleets();
 
   const statusBanner =
     params.status === 'success' && params.provider
@@ -195,6 +200,19 @@ export default async function SettingsPage({
           {airlineOverlay !== null && (
             <div className="mt-6">
               <AirlineOverlayCard initial={airlineOverlay} />
+            </div>
+          )}
+
+          {/*
+            Fleet-Overlays (Ebene 2). Same airline-gating as Airline card —
+            we only render when the user has an airlineId, otherwise the
+            list+editor would have nothing to act on. listAirlineFleets()
+            returns [] in that case so this guard mirrors airlineOverlay
+            !== null cleanly.
+          */}
+          {airlineOverlay !== null && (
+            <div className="mt-6">
+              <FleetOverlayCard initial={fleets} />
             </div>
           )}
         </section>
