@@ -59,6 +59,167 @@ diese Roadmap adressiert.
 
 ---
 
+## Multi-Tenancy & Isolation
+
+Die Roadmap ist **multi-tenant-by-design**. Jeder airline-admin sieht und
+verwaltet ausschließlich die eigene airline. DLH-admin sieht keine BAW-
+aircraft, kann keine BAW-routes editieren, sieht keine BAW-announcements.
+Das ist nicht eine Phase-11-Erweiterung — es ist ab Phase 1 baseline.
+
+### Resource-Isolation-Matrix
+
+| Ownership | Resources | Isolation-Mechanismus |
+|---|---|---|
+| **Airline-owned** | Aircraft, Fleet, Route, Hub, Booking, Pirep, Rank, Invite, RouteSchedule, PublishedFlight, Announcement, Document, Bulletin, HrEvent (indirekt via User) | `airlineId` FK auf jedem record + auth-gate `requireAirlineAdmin` |
+| **User-owned** (innerhalb airline) | UserAward, AircraftTypeRating | `userId` FK; user hat selbst airlineId |
+| **Shared global** | Airport, AircraftType | Kein airlineId — reality-shared (EDDF ist EDDF, B738 ist B738) |
+| **System-wide** | Award (system-tier), Alliance | airlineId nullable; system-admin curated |
+
+### Auth-Gate-Pattern
+
+Jede airline-admin server-action geht durch `requireAirlineAdmin(resource)`:
+
+```ts
+async function requireAirlineAdmin(resourceAirlineId: string) {
+  const session = await auth();
+  if (!session?.user) throw new Error('Unauthorized');
+
+  const user = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { airlineId: true, role: { select: { name: true } } }
+  });
+
+  if (user?.role?.name !== 'admin') throw new Error('Not admin');
+  if (user.airlineId !== resourceAirlineId) throw new Error('Wrong airline');
+
+  return user;
+}
+```
+
+Konsequenz: DLH-admin kann nicht
+- BAW-aircraft list aufrufen (server-action throws 403)
+- BAW-routes editieren
+- BAW-HR-data sehen
+- BAW-announcements posten oder lesen
+
+### Shared-Resource-Handling
+
+**Airport** (geographische realität — EDDF ist EDDF für jeden):
+- **Create**: jeder airline-admin (validates ICAO-uniqueness global)
+- **Edit**: airline-admin kann editieren; `lastEditedById` getrackt für audit
+- **Delete**: nur wenn keine FK-references existieren; system-admin only
+- **Conflict**: gleichzeitige edits → last-write-wins v1 (mit audit-trail).
+  Edit-history-table als Phase-1.5 falls 5+ aktive airline-admins
+- **Risk**: DLH-admin könnte EDDF.latitude verändern und BAW-routes brechen.
+  Mitigation: lat/lon-edits bedürfen system-admin approval. Andere fields
+  (name, city) sind safe.
+
+**AircraftType** (engineering realität — B738 ist B738 für jeden):
+- **Create**: airline-admin direct (v1)
+- **Edit**: airline-admin kann eigene creations editieren; system-admin
+  alle. Bestehende fields (rangeNm, capacity) sind quasi-immutable.
+- **Delete**: nur wenn kein aircraft references; system-admin only
+- **Conflict**: airline-admins sollten gleiche `icaoType`-namen agreed
+  haben (B738 ist global standardized via ICAO-doc-8643). Custom variants
+  (B738MAX9, etc.) → system-admin merges duplikate. v2 könnte "verified"
+  flag mit approval-flow haben.
+
+### Globale-Uniqueness-Constraints (per airline)
+
+| Constraint | Scope | Begründung |
+|---|---|---|
+| `Aircraft.registration` | global unique | Real-world registrations sind weltweit unique (D-AIZA gehört einem airframe) |
+| `Route.flightNumber` | unique per airline | LH123 und LH123 dürfen nicht in DLH parallel; aber LH123 (DLH) und BA123 (BAW) ok |
+| `Rank.name` | unique per airline | DLH kann "First Officer" haben, BAW auch |
+| `Hub airportId` | unique per airline | DLH kann nicht 2x EDDF als hub haben; BAW darf EDDF auch als hub haben |
+| `Airport.icao` | global unique | Aviation-standard |
+| `AircraftType.icaoType` | global unique | ICAO-standard |
+| `Airline.icao` | global unique | Aviation-standard |
+
+### Public-facing Multi-tenancy
+
+- `/airlines` — directory aller airlines mit `publicPageEnabled=true`
+- `/airlines/[icao]` — public airline page, URL-isoliert pro airline
+- Brand-colors (Phase 7) appliziert basierend auf URL-icao
+- Jede public page zeigt nur eigene fleet/hubs/pilots/routes
+- Recruiting-CTA (apply-to-join) per airline isoliert
+
+### Cross-airline Interaktionen (nur Phase 11)
+
+Das einzige wo airlines sich "sehen":
+- Public directory `/airlines`
+- Pilot-transfer-requests mit dual-approval (from-airline + to-airline)
+- Optional cross-airline-leaderboards (opt-in, anonymized default)
+- Alliances mit mutual consent
+
+Bevor Phase 11 läuft das system **vollständig isoliert**.
+
+### Database-Query-Discipline
+
+Jede query muss airlineId-scoped sein:
+
+```ts
+// ✓ KORREKT
+const aircraft = await prisma.aircraft.findMany({
+  where: { airlineId: session.user.airlineId, ...filters }
+});
+
+// ✗ FALSCH — leaked across airlines
+const aircraft = await prisma.aircraft.findMany({
+  where: filters
+});
+```
+
+Existing codebase-pattern (per `app/airline/actions.ts`, `app/admin/roles/actions.ts`)
+enforced das schon. Phase 5 Personnel extrahiert `lib/auth-guards.ts` mit
+helpers `requireAirlineAdmin()`, `requireAirlineMember()`, `scopeToAirline()`.
+Code-review-checkliste wird das als hard rule führen.
+
+### Performance bei Skalierung
+
+Mit proper composite-indexes auf `(airlineId, ...)`:
+- Aircraft-list pro airline: O(log n) unabhängig von gesamt-aircraft-count
+- Routes-map: scoped zu single airline, kein cross-airline-load
+- Analytics-queries: airlineId in jeder WHERE-clause
+- Index-strategy bereits in existing schema sichtbar (`@@index([airlineId, status])`
+  auf Pirep, etc.)
+
+Bei 100 airlines × 50 aircraft × 1000 PIREPs = 5M PIREP-rows, queries pro
+airline sehen weiterhin nur 1000 rows wenn richtig indexed. Das ist
+production-ready ohne sharding.
+
+### Was als airline-admin in der eigenen airline managed wird
+
+Per Phase visualisiert (was DLH-admin sieht in seiner eigenen UI):
+
+| Phase | Was DLH-admin selbst managen kann |
+|---|---|
+| 1 | Eigene preferred airports anlegen, eigene aircraft-types anlegen (alle anderen airlines können diese auch nutzen) |
+| 2 | Eigene Fleet (Aircraft-Types die DLH operiert), eigene Aircraft (D-AIZA, D-AIBL, ...) — voll isoliert |
+| 3 | Eigene Hubs (EDDF, EDDM, ...) — BAW kann auch EDDF als hub haben, das ist parallel |
+| 4 | Eigene Routes (LH918, LH400, ...) — voll isoliert |
+| 5 | Eigene Pilots — voll isoliert |
+| 6 | Eigene RouteSchedules + PublishedFlights — voll isoliert |
+| 7 | Eigene Branding-config + public page — voll isoliert |
+| 8 | Eigene Announcements/SOPs/Bulletins — voll isoliert |
+| 9 | Eigene Analytics/Reports — voll isoliert (KPIs sind airline-scoped) |
+| 10 | Eigene custom Awards (zusätzlich zu system-wide) — voll isoliert |
+| 11 | Cross-airline-flows (transfers, alliances) — explizit |
+
+### Was zwischen airlines geshared wird
+
+Nur die unbedingt-shared resources:
+- **Airport-catalog** (jede airline nutzt EDDF, EDDM, etc.)
+- **AircraftType-catalog** (jede airline kann B738 operieren)
+- **System-wide awards** (z.B. "First Flight" gilt für alle airlines)
+- **Alliances** (Phase 11 — explicit shared structure)
+
+Alles andere ist hard-isolated. Wenn 100 airlines im system sind, sieht
+jeder airline-admin nur seine 1/100 der daten.
+
+---
+
+
 ## Roadmap Übersicht
 
 | Phase | Theme | Days | Cal | Was es liefert |
