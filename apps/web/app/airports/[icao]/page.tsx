@@ -398,6 +398,20 @@ export default async function AirportDetailPage({
             </table>
           </div>
         )}
+        {airport.runways.length > 0 && (
+          // Operations-info-hinweis: weder OurAirports noch AirportDB liefern
+          // departure/arrival-zuteilung pro runway, weil das in der realität
+          // dynamisch ist (windrichtung, lärmschutz-zeiten, NOTAMs, alternation
+          // wie bei EGLL). Dieser hinweis verhindert dass user die fehlende
+          // spalte für ein UI-bug halten — und verlinkt zu den primärquellen.
+          <div className="mt-4 p-3 rounded-md bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800/50 text-xs text-blue-800 dark:text-blue-200">
+            <strong>ℹ Hinweis:</strong> Die zuteilung welche runway für{' '}
+            <em>departure</em> oder <em>arrival</em> genutzt wird, ist in den
+            verfügbaren freien Daten-quellen (OurAirports, AirportDB) nicht
+            enthalten — sie ändert sich windrichtungsbedingt und wird
+            tagesaktuell über ATIS/AIP/NOTAMs bekanntgegeben.
+          </div>
+        )}
       </Section>
 
       {/* ───── Frequencies ───── */}

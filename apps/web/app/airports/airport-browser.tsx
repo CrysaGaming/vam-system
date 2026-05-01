@@ -284,85 +284,109 @@ export function AirportBrowser({
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
-                {airports.map((a) => (
-                  <tr
-                    key={a.id}
-                    className="hover:bg-gray-50 dark:hover:bg-gray-800/30"
-                  >
-                    <td className="px-4 py-3 font-mono">
-                      <Link
-                        href={`/airports/${a.icao}`}
-                        className="block hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
-                      >
-                        <div className="font-semibold">{a.icao}</div>
-                        {a.iata && (
-                          <div className="text-xs text-gray-500 dark:text-gray-400">
-                            {a.iata}
-                          </div>
-                        )}
-                      </Link>
-                    </td>
-                    <td className="px-4 py-3 font-medium">
-                      <Link
-                        href={`/airports/${a.icao}`}
-                        className="hover:text-indigo-600 dark:hover:text-indigo-400 hover:underline transition-colors"
-                      >
-                        {a.name}
-                      </Link>
-                    </td>
-                    <td className="px-4 py-3 text-gray-600 dark:text-gray-300">
-                      <div className="font-mono text-xs">{a.country}</div>
-                      {a.city && (
-                        <div className="text-xs text-gray-500 dark:text-gray-400">
-                          {a.city}
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      {a.type && (
-                        <span
-                          className="inline-block px-2 py-0.5 text-xs rounded bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
-                          title={`OurAirports type: ${a.type}`}
+                {airports.map((a) => {
+                  // Whole-row-as-link pattern: jede `<td>` enthält einen `<Link>`
+                  // mit `display: block` der die ganze cell ausfüllt. Padding
+                  // wandert vom td zum Link damit kein toter rand bleibt. Right-
+                  // click + middle-click + cmd-click funktionieren wie erwartet
+                  // (im gegensatz zu `<tr onClick>` mit useRouter.push). Pro row
+                  // gibt's 6 Link-instanzen aber alle mit identischer href —
+                  // Next.js prefetched die url nur einmal.
+                  const detailHref = `/airports/${a.icao}`;
+                  const cellLinkBase =
+                    'block px-4 py-3 transition-colors';
+
+                  return (
+                    <tr
+                      key={a.id}
+                      className="hover:bg-gray-50 dark:hover:bg-gray-800/30"
+                    >
+                      <td className="font-mono">
+                        <Link
+                          href={detailHref}
+                          className={`${cellLinkBase} group-hover:text-indigo-600 hover:text-indigo-600 dark:hover:text-indigo-400`}
                         >
-                          {TYPE_OPTIONS.find((t) => t.value === a.type)
-                            ?.emoji ?? ''}{' '}
-                          {a.type
-                            .replace(/_airport$/, '')
-                            .replace(/_/g, ' ')}
-                        </span>
-                      )}
-                      {a.scheduledService && (
-                        <span
-                          className="ml-1 text-xs text-emerald-600 dark:text-emerald-400"
-                          title="Bietet regulären Linienflug-Verkehr"
+                          <div className="font-semibold">{a.icao}</div>
+                          {a.iata && (
+                            <div className="text-xs text-gray-500 dark:text-gray-400">
+                              {a.iata}
+                            </div>
+                          )}
+                        </Link>
+                      </td>
+                      <td className="font-medium">
+                        <Link
+                          href={detailHref}
+                          className={`${cellLinkBase} hover:text-indigo-600 dark:hover:text-indigo-400 hover:underline`}
                         >
-                          ✈
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-xs text-gray-500 dark:text-gray-400 font-mono">
-                      {a.latitude.toFixed(3)}, {a.longitude.toFixed(3)}
-                      {a.elevation != null && <div>{a.elevation} ft</div>}
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      {a.verified ? (
-                        <span
-                          className="inline-block px-2 py-1 text-xs font-semibold rounded bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300"
-                          title="Verified — Daten von System-Admin geprüft"
+                          {a.name}
+                        </Link>
+                      </td>
+                      <td className="text-gray-600 dark:text-gray-300">
+                        <Link href={detailHref} className={cellLinkBase}>
+                          <div className="font-mono text-xs">{a.country}</div>
+                          {a.city && (
+                            <div className="text-xs text-gray-500 dark:text-gray-400">
+                              {a.city}
+                            </div>
+                          )}
+                        </Link>
+                      </td>
+                      <td>
+                        <Link href={detailHref} className={cellLinkBase}>
+                          {a.type && (
+                            <span
+                              className="inline-block px-2 py-0.5 text-xs rounded bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
+                              title={`OurAirports type: ${a.type}`}
+                            >
+                              {TYPE_OPTIONS.find((t) => t.value === a.type)
+                                ?.emoji ?? ''}{' '}
+                              {a.type
+                                .replace(/_airport$/, '')
+                                .replace(/_/g, ' ')}
+                            </span>
+                          )}
+                          {a.scheduledService && (
+                            <span
+                              className="ml-1 text-xs text-emerald-600 dark:text-emerald-400"
+                              title="Bietet regulären Linienflug-Verkehr"
+                            >
+                              ✈
+                            </span>
+                          )}
+                        </Link>
+                      </td>
+                      <td className="text-xs text-gray-500 dark:text-gray-400 font-mono">
+                        <Link href={detailHref} className={cellLinkBase}>
+                          {a.latitude.toFixed(3)}, {a.longitude.toFixed(3)}
+                          {a.elevation != null && <div>{a.elevation} ft</div>}
+                        </Link>
+                      </td>
+                      <td className="text-center">
+                        <Link
+                          href={detailHref}
+                          className={`${cellLinkBase} flex justify-center items-center`}
                         >
-                          ✓
-                        </span>
-                      ) : (
-                        <span
-                          className="inline-block px-2 py-1 text-xs font-semibold rounded bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300"
-                          title="Unverified — provisional, Daten noch nicht geprüft"
-                        >
-                          ⚠
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                          {a.verified ? (
+                            <span
+                              className="inline-block px-2 py-1 text-xs font-semibold rounded bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300"
+                              title="Verified — Daten von System-Admin geprüft"
+                            >
+                              ✓
+                            </span>
+                          ) : (
+                            <span
+                              className="inline-block px-2 py-1 text-xs font-semibold rounded bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300"
+                              title="Unverified — provisional, Daten noch nicht geprüft"
+                            >
+                              ⚠
+                            </span>
+                          )}
+                        </Link>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
