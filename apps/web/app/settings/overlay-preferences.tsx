@@ -8,6 +8,13 @@
  *   2. Card-Position (nur sichtbar wenn Layout=Card)
  *   3. Phase-Farben (Color-Picker pro Phase + Live-Preview)
  *   4. Setup-Anleitung (How to use in OBS)
+ *
+ * Theme-Note: Admin-UI (Sektionen, Buttons, Tabellen) ist theme-aware
+ * (light/dark via Tailwind dark: variants). Die PreviewPanel + die
+ * Bar/Card overlay-mockups innen drin behalten ABSICHTLICH inline-
+ * styles mit hardcoded dunklen farben — sie simulieren das echte OBS-
+ * overlay das auf dem livestream erscheint, und das ist immer dunkel
+ * unabhängig von der user-app-theme.
  */
 
 import React, { useState, useTransition } from 'react';
@@ -133,43 +140,19 @@ export function OverlayPreferences({
   }
 
   return (
-    <div
-      style={{
-        background: 'rgb(17, 24, 39)',
-        border: '1px solid rgb(31, 41, 55)',
-        borderRadius: '0.5rem',
-        padding: '1.5rem',
-        color: 'white',
-      }}
-    >
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'baseline',
-          justifyContent: 'space-between',
-          marginBottom: '1rem',
-        }}
-      >
-        <h2 style={{ fontSize: '1.125rem', fontWeight: 600, margin: 0 }}>
-          OBS-Overlay Anpassung
-        </h2>
+    <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6">
+      <div className="flex items-baseline justify-between mb-4">
+        <h2 className="text-lg font-semibold m-0">OBS-Overlay Anpassung</h2>
         <SaveStatusBadge status={saveStatus} pending={isPending} />
       </div>
-      <p
-        style={{
-          fontSize: '0.875rem',
-          color: 'rgb(156, 163, 175)',
-          marginBottom: '1.5rem',
-          marginTop: 0,
-        }}
-      >
+      <p className="text-sm text-gray-500 dark:text-gray-400 mb-6 mt-0">
         Wähle ein Layout und passe die Farben pro Flight-Phase an.
         Änderungen werden live gespeichert.
       </p>
 
       {/* Layout-Wahl */}
       <Section title="Layout">
-        <div style={{ display: 'flex', gap: '0.75rem' }}>
+        <div className="flex gap-3">
           <LayoutOption
             id="bar"
             label="Live-Bar"
@@ -190,13 +173,7 @@ export function OverlayPreferences({
       {/* Card-Position (nur wenn Layout=card) */}
       {layout === 'card' && (
         <Section title="Card Position">
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: '1fr 1fr',
-              gap: '0.5rem',
-            }}
-          >
+          <div className="grid grid-cols-2 gap-2">
             {CARD_POSITIONS.map((pos) => (
               <PositionOption
                 key={pos.id}
@@ -212,15 +189,9 @@ export function OverlayPreferences({
 
       {/* Phase-Colors */}
       <Section title="Phasen-Farben">
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: '1fr 1fr',
-            gap: '1.5rem',
-          }}
-        >
+        <div className="grid grid-cols-2 gap-6">
           {/* Linke Spalte: Color-Picker pro Phase */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+          <div className="flex flex-col gap-2">
             {PHASE_ORDER.map((phase) => {
               const meta = PHASE_LABELS[phase];
               const color = colors[phase];
@@ -229,35 +200,23 @@ export function OverlayPreferences({
                 <div
                   key={phase}
                   onMouseEnter={() => setPreviewPhase(phase)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.5rem',
-                    padding: '0.5rem',
-                    borderRadius: '0.25rem',
-                    backgroundColor: isPreviewing
-                      ? 'rgba(255, 255, 255, 0.04)'
-                      : 'transparent',
-                    transition: 'background-color 120ms',
-                  }}
+                  className={`flex items-center gap-2 p-2 rounded transition-colors ${
+                    isPreviewing
+                      ? 'bg-gray-100 dark:bg-white/[0.04]'
+                      : 'bg-transparent'
+                  }`}
                 >
+                  {/* Phase-pill — uses user-configured colors, stays inline */}
                   <span
                     style={{
-                      padding: '2px 8px',
                       background: color.bg,
                       color: color.fg,
-                      borderRadius: '4px',
-                      fontSize: '11px',
-                      fontWeight: 700,
-                      letterSpacing: '0.05em',
-                      fontFamily: 'monospace',
-                      minWidth: '40px',
-                      textAlign: 'center',
                     }}
+                    className="px-2 py-0.5 rounded text-[11px] font-bold tracking-[0.05em] font-mono min-w-[40px] text-center"
                   >
                     {meta.shortLabel}
                   </span>
-                  <span style={{ flex: 1, fontSize: '0.875rem', color: 'rgb(229, 231, 235)' }}>
+                  <span className="flex-1 text-sm text-gray-700 dark:text-gray-200">
                     {meta.label}
                   </span>
                   <ColorInput label="BG" value={color.bg} onChange={(v) => updatePhaseBg(phase, v)} />
@@ -266,39 +225,18 @@ export function OverlayPreferences({
               );
             })}
 
-            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+            <div className="flex gap-2 mt-2">
               <button
                 onClick={handleSaveColors}
                 disabled={isPending}
-                style={{
-                  flex: 1,
-                  padding: '0.5rem 1rem',
-                  background: 'rgb(99, 102, 241)',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '0.375rem',
-                  fontSize: '0.875rem',
-                  fontWeight: 600,
-                  cursor: isPending ? 'wait' : 'pointer',
-                  opacity: isPending ? 0.6 : 1,
-                }}
+                className="flex-1 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white border-0 rounded-md text-sm font-semibold cursor-pointer disabled:opacity-60 disabled:cursor-wait transition"
               >
                 Farben speichern
               </button>
               <button
                 onClick={handleResetColors}
                 disabled={isPending}
-                style={{
-                  padding: '0.5rem 1rem',
-                  background: 'transparent',
-                  color: 'rgb(156, 163, 175)',
-                  border: '1px solid rgb(75, 85, 99)',
-                  borderRadius: '0.375rem',
-                  fontSize: '0.875rem',
-                  fontWeight: 500,
-                  cursor: isPending ? 'wait' : 'pointer',
-                  opacity: isPending ? 0.6 : 1,
-                }}
+                className="px-4 py-2 bg-transparent text-gray-500 dark:text-gray-400 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium cursor-pointer disabled:opacity-60 disabled:cursor-wait transition hover:bg-gray-100 dark:hover:bg-white/[0.04]"
               >
                 Reset
               </button>
@@ -306,16 +244,8 @@ export function OverlayPreferences({
           </div>
 
           {/* Rechte Spalte: Live Preview */}
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            <div
-              style={{
-                fontSize: '0.75rem',
-                textTransform: 'uppercase',
-                letterSpacing: '0.05em',
-                color: 'rgb(107, 114, 128)',
-                marginBottom: '0.5rem',
-              }}
-            >
+          <div className="flex flex-col">
+            <div className="text-xs uppercase tracking-[0.05em] text-gray-500 dark:text-gray-500 mb-2">
               Preview ({PHASE_LABELS[previewPhase].label})
             </div>
             <PreviewPanel
@@ -336,22 +266,13 @@ export function OverlayPreferences({
 }
 
 // ────────────────────────────────────────────────────────────
-// Sub-Components
+// Sub-Components — admin UI, theme-aware
 // ────────────────────────────────────────────────────────────
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div style={{ marginBottom: '1.5rem' }}>
-      <h3
-        style={{
-          fontSize: '0.75rem',
-          textTransform: 'uppercase',
-          letterSpacing: '0.05em',
-          color: 'rgb(107, 114, 128)',
-          marginBottom: '0.75rem',
-          marginTop: 0,
-        }}
-      >
+    <div className="mb-6">
+      <h3 className="text-xs uppercase tracking-[0.05em] text-gray-500 dark:text-gray-500 mb-3 mt-0">
         {title}
       </h3>
       {children}
@@ -375,33 +296,22 @@ function LayoutOption({
   return (
     <button
       onClick={onSelect}
-      style={{
-        flex: 1,
-        padding: '0.75rem 1rem',
-        background: selected ? 'rgba(99, 102, 241, 0.15)' : 'rgb(31, 41, 55)',
-        border: `1px solid ${selected ? 'rgb(99, 102, 241)' : 'rgb(55, 65, 81)'}`,
-        borderRadius: '0.375rem',
-        cursor: 'pointer',
-        textAlign: 'left',
-        transition: 'all 120ms',
-      }}
+      className={`flex-1 px-4 py-3 rounded-md cursor-pointer text-left transition-all border ${
+        selected
+          ? 'bg-indigo-500/15 border-indigo-500'
+          : 'bg-gray-50 dark:bg-gray-800 border-gray-300 dark:border-gray-700'
+      }`}
     >
       <div
-        style={{
-          fontSize: '0.875rem',
-          fontWeight: 600,
-          color: selected ? 'rgb(165, 180, 252)' : 'white',
-        }}
+        className={`text-sm font-semibold ${
+          selected
+            ? 'text-indigo-700 dark:text-indigo-300'
+            : 'text-gray-900 dark:text-white'
+        }`}
       >
         {label}
       </div>
-      <div
-        style={{
-          fontSize: '0.75rem',
-          color: 'rgb(156, 163, 175)',
-          marginTop: '0.125rem',
-        }}
-      >
+      <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
         {description}
       </div>
     </button>
@@ -430,49 +340,33 @@ function PositionOption({
   return (
     <button
       onClick={onSelect}
-      style={{
-        padding: '0.6rem 0.75rem',
-        background: selected ? 'rgba(99, 102, 241, 0.15)' : 'rgb(31, 41, 55)',
-        border: `1px solid ${selected ? 'rgb(99, 102, 241)' : 'rgb(55, 65, 81)'}`,
-        borderRadius: '0.375rem',
-        cursor: 'pointer',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '0.5rem',
-        transition: 'all 120ms',
-      }}
+      className={`px-3 py-2.5 rounded-md cursor-pointer flex items-center gap-2 transition-all border ${
+        selected
+          ? 'bg-indigo-500/15 border-indigo-500'
+          : 'bg-gray-50 dark:bg-gray-800 border-gray-300 dark:border-gray-700'
+      }`}
     >
       {/* Mini-Position-Indicator (2×2 Grid) */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: '1fr 1fr',
-          gridTemplateRows: '1fr 1fr',
-          gap: '2px',
-          width: '20px',
-          height: '20px',
-        }}
-      >
+      <div className="grid grid-cols-2 grid-rows-2 gap-[2px] w-5 h-5">
         {positionDot.map((dot, i) => (
           <span
             key={i}
-            style={{
-              fontSize: '10px',
-              lineHeight: '8px',
-              textAlign: 'center',
-              color: dot === '●' ? 'rgb(165, 180, 252)' : 'rgb(75, 85, 99)',
-            }}
+            className={`text-[10px] leading-[8px] text-center ${
+              dot === '●'
+                ? 'text-indigo-700 dark:text-indigo-300'
+                : 'text-gray-400 dark:text-gray-600'
+            }`}
           >
             {dot}
           </span>
         ))}
       </div>
       <span
-        style={{
-          fontSize: '0.8rem',
-          fontWeight: 500,
-          color: selected ? 'rgb(165, 180, 252)' : 'white',
-        }}
+        className={`text-[0.8rem] font-medium ${
+          selected
+            ? 'text-indigo-700 dark:text-indigo-300'
+            : 'text-gray-900 dark:text-white'
+        }`}
       >
         {label}
       </span>
@@ -490,23 +384,15 @@ function ColorInput({
   onChange: (v: string) => void;
 }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-      <span style={{ fontSize: '0.65rem', color: 'rgb(107, 114, 128)', fontFamily: 'monospace' }}>
+    <div className="flex items-center gap-1">
+      <span className="text-[0.65rem] text-gray-500 dark:text-gray-500 font-mono">
         {label}
       </span>
       <input
         type="color"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        style={{
-          width: '28px',
-          height: '24px',
-          border: '1px solid rgb(55, 65, 81)',
-          borderRadius: '0.25rem',
-          cursor: 'pointer',
-          padding: 0,
-          background: 'transparent',
-        }}
+        className="w-7 h-6 border border-gray-300 dark:border-gray-700 rounded cursor-pointer p-0 bg-transparent"
       />
     </div>
   );
@@ -521,21 +407,21 @@ function SaveStatusBadge({
 }) {
   if (pending) {
     return (
-      <span style={{ fontSize: '0.75rem', color: 'rgb(156, 163, 175)', fontStyle: 'italic' }}>
+      <span className="text-xs text-gray-500 dark:text-gray-400 italic">
         Speichern...
       </span>
     );
   }
   if (status === 'saved') {
     return (
-      <span style={{ fontSize: '0.75rem', color: '#34D399', fontWeight: 600 }}>
+      <span className="text-xs text-emerald-700 dark:text-emerald-400 font-semibold">
         ✓ Gespeichert
       </span>
     );
   }
   if (status === 'error') {
     return (
-      <span style={{ fontSize: '0.75rem', color: '#EF4444', fontWeight: 600 }}>
+      <span className="text-xs text-red-600 dark:text-red-400 font-semibold">
         ✗ Fehler
       </span>
     );
@@ -544,7 +430,7 @@ function SaveStatusBadge({
 }
 
 // ────────────────────────────────────────────────────────────
-// Setup Guide
+// Setup Guide — admin UI, theme-aware
 // ────────────────────────────────────────────────────────────
 
 function SetupGuide({
@@ -565,24 +451,9 @@ function SetupGuide({
 
   return (
     <Section title="OBS Setup-Anleitung">
-      <div
-        style={{
-          background: 'rgba(0, 0, 0, 0.25)',
-          border: '1px solid rgba(255, 255, 255, 0.06)',
-          borderRadius: '0.5rem',
-          padding: '1rem',
-        }}
-      >
+      <div className="bg-gray-50 dark:bg-black/25 border border-gray-200 dark:border-white/[0.06] rounded-lg p-4">
         {/* Schritt-für-Schritt */}
-        <ol
-          style={{
-            margin: '0 0 1.25rem 0',
-            paddingLeft: '1.25rem',
-            color: 'rgb(229, 231, 235)',
-            fontSize: '0.875rem',
-            lineHeight: 1.7,
-          }}
-        >
+        <ol className="m-0 mb-5 pl-5 text-sm leading-[1.7] text-gray-700 dark:text-gray-200 list-decimal">
           <li>
             In OBS: <strong>+</strong> unter <strong>Quellen</strong> →{' '}
             <strong>Browser</strong> hinzufügen
@@ -603,39 +474,14 @@ function SetupGuide({
 
         {/* Custom-URL für aktuelles Layout */}
         {fullUrl && (
-          <div style={{ marginBottom: '1.25rem' }}>
-            <div
-              style={{
-                fontSize: '0.7rem',
-                textTransform: 'uppercase',
-                letterSpacing: '0.05em',
-                color: 'rgb(107, 114, 128)',
-                marginBottom: '0.4rem',
-              }}
-            >
+          <div className="mb-5">
+            <div className="text-[0.7rem] uppercase tracking-[0.05em] text-gray-500 dark:text-gray-500 mb-1.5">
               URL für aktuelles Layout
             </div>
-            <div
-              style={{
-                fontFamily: 'monospace',
-                fontSize: '0.75rem',
-                background: 'rgba(0, 0, 0, 0.4)',
-                padding: '0.6rem 0.75rem',
-                borderRadius: '0.25rem',
-                color: 'rgb(165, 180, 252)',
-                wordBreak: 'break-all',
-              }}
-            >
+            <div className="font-mono text-xs bg-gray-100 dark:bg-black/40 px-3 py-2.5 rounded text-indigo-700 dark:text-indigo-300 break-all">
               {fullUrl}
             </div>
-            <div
-              style={{
-                fontSize: '0.7rem',
-                color: 'rgb(107, 114, 128)',
-                marginTop: '0.3rem',
-                fontStyle: 'italic',
-              }}
-            >
+            <div className="text-[0.7rem] text-gray-500 dark:text-gray-500 mt-1 italic">
               Diese URL überschreibt das Default-Layout aus den Settings via URL-Parameter.
               Praktisch wenn du verschiedene Browser-Sources mit unterschiedlichen Layouts haben willst.
             </div>
@@ -644,52 +490,29 @@ function SetupGuide({
 
         {/* Browser-Source Größen-Tabelle */}
         <div>
-          <div
-            style={{
-              fontSize: '0.7rem',
-              textTransform: 'uppercase',
-              letterSpacing: '0.05em',
-              color: 'rgb(107, 114, 128)',
-              marginBottom: '0.4rem',
-            }}
-          >
+          <div className="text-[0.7rem] uppercase tracking-[0.05em] text-gray-500 dark:text-gray-500 mb-1.5">
             Browser-Source Größe (an Stream-Auflösung anpassen)
           </div>
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: '1fr auto auto',
-              gap: '0.4rem 1rem',
-              fontSize: '0.8rem',
-              fontFamily: 'monospace',
-            }}
-          >
-            <div style={{ color: 'rgb(107, 114, 128)', fontWeight: 600 }}>Stream</div>
-            <div style={{ color: 'rgb(107, 114, 128)', fontWeight: 600 }}>Width</div>
-            <div style={{ color: 'rgb(107, 114, 128)', fontWeight: 600 }}>Height</div>
+          <div className="grid grid-cols-[1fr_auto_auto] gap-x-4 gap-y-1.5 text-[0.8rem] font-mono">
+            <div className="text-gray-500 dark:text-gray-500 font-semibold">Stream</div>
+            <div className="text-gray-500 dark:text-gray-500 font-semibold">Width</div>
+            <div className="text-gray-500 dark:text-gray-500 font-semibold">Height</div>
 
             {OBS_BROWSER_SOURCE_SIZES.map((size) => (
               <React.Fragment key={size.label}>
-                <div style={{ color: 'rgb(229, 231, 235)' }}>
+                <div className="text-gray-700 dark:text-gray-200">
                   {size.label}
                 </div>
-                <div style={{ color: 'rgb(165, 180, 252)' }}>
+                <div className="text-indigo-700 dark:text-indigo-300">
                   {size.width}
                 </div>
-                <div style={{ color: 'rgb(165, 180, 252)' }}>
+                <div className="text-indigo-700 dark:text-indigo-300">
                   {size.height}
                 </div>
               </React.Fragment>
             ))}
           </div>
-          <div
-            style={{
-              fontSize: '0.7rem',
-              color: 'rgb(107, 114, 128)',
-              marginTop: '0.5rem',
-              fontStyle: 'italic',
-            }}
-          >
+          <div className="text-[0.7rem] text-gray-500 dark:text-gray-500 mt-2 italic">
             Hintergrund ist transparent. Bar/Card positionieren sich automatisch im Container,
             also Browser-Source = Stream-Auflösung machen.
           </div>
@@ -700,7 +523,11 @@ function SetupGuide({
 }
 
 // ────────────────────────────────────────────────────────────
-// Preview Panel
+// Preview Panel — simulates the actual OBS overlay rendering on the
+// user's livestream. Inline-styles intentionally retained because
+// these colors must look the same in light + dark app-theme — the
+// preview is a slice of the OBS scene which is dark + transparent
+// regardless of where the user is looking at the settings page.
 // ────────────────────────────────────────────────────────────
 
 function PreviewPanel({

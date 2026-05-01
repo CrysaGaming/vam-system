@@ -81,16 +81,17 @@ export function InviteSection({ invites, roles, appUrl }: Props) {
   const pendingInvites = invites.filter((i) => i.status === 'pending');
   const otherInvites = invites.filter((i) => i.status !== 'pending');
 
+  // Reusable Tailwind class strings for inputs and select to keep
+  // the form markup readable.
+  const inputCls =
+    'w-full px-2 py-1.5 bg-gray-50 dark:bg-gray-950 border border-gray-300 dark:border-gray-700 rounded text-sm focus:border-indigo-500 outline-none disabled:opacity-50';
+  const labelCls = 'block';
+  const labelTextCls = 'text-xs text-gray-500 dark:text-gray-400 mb-0.5';
+
   return (
-    <section
-      style={{
-        border: '1px solid var(--border, #ddd)',
-        borderRadius: 8,
-        padding: 16,
-      }}
-    >
-      <h2 style={{ marginTop: 0 }}>Einladungen</h2>
-      <p style={{ color: 'var(--muted, #666)', fontSize: 14, marginBottom: 16 }}>
+    <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-4">
+      <h2 className="mt-0 text-lg font-semibold mb-2">Einladungen</h2>
+      <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
         Generiere einen Link und schicke ihn manuell an den Piloten
         (z.B. Discord-DM). Der Link ist nur einmal nutzbar und läuft
         automatisch ab.
@@ -98,32 +99,26 @@ export function InviteSection({ invites, roles, appUrl }: Props) {
 
       <form
         action={handleSubmit}
-        style={{
-          display: 'grid',
-          gap: 8,
-          marginBottom: 16,
-          gridTemplateColumns: '1fr 1fr auto auto',
-          alignItems: 'end',
-        }}
+        className="grid grid-cols-[1fr_1fr_auto_auto] gap-2 mb-4 items-end"
       >
-        <label style={{ display: 'block' }}>
-          <div style={{ fontSize: 12, marginBottom: 2 }}>Email (optional, nur Notiz)</div>
+        <label className={labelCls}>
+          <div className={labelTextCls}>Email (optional, nur Notiz)</div>
           <input
             type="email"
             name="email"
             placeholder="pilot@example.com"
             disabled={pending}
-            style={{ width: '100%', padding: 6, boxSizing: 'border-box' }}
+            className={inputCls}
           />
         </label>
 
-        <label style={{ display: 'block' }}>
-          <div style={{ fontSize: 12, marginBottom: 2 }}>Rolle (optional)</div>
+        <label className={labelCls}>
+          <div className={labelTextCls}>Rolle (optional)</div>
           <select
             name="roleId"
             defaultValue=""
             disabled={pending}
-            style={{ width: '100%', padding: 6, boxSizing: 'border-box' }}
+            className={inputCls}
           >
             <option value="">— ohne Rolle (plain pilot) —</option>
             {roles.map((r) => (
@@ -135,8 +130,8 @@ export function InviteSection({ invites, roles, appUrl }: Props) {
           </select>
         </label>
 
-        <label style={{ display: 'block' }}>
-          <div style={{ fontSize: 12, marginBottom: 2 }}>Gültig (Tage)</div>
+        <label className={labelCls}>
+          <div className={labelTextCls}>Gültig (Tage)</div>
           <input
             type="number"
             name="expiryDays"
@@ -144,62 +139,39 @@ export function InviteSection({ invites, roles, appUrl }: Props) {
             min={1}
             max={30}
             disabled={pending}
-            style={{ width: 80, padding: 6 }}
+            className="w-20 px-2 py-1.5 bg-gray-50 dark:bg-gray-950 border border-gray-300 dark:border-gray-700 rounded text-sm focus:border-indigo-500 outline-none disabled:opacity-50"
           />
         </label>
 
-        <button type="submit" disabled={pending} style={{ padding: '6px 12px' }}>
+        <button
+          type="submit"
+          disabled={pending}
+          className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded text-sm font-medium transition"
+        >
           {pending ? '…' : 'Einladung erstellen'}
         </button>
       </form>
 
       {error && (
-        <div
-          style={{
-            marginBottom: 12,
-            padding: 8,
-            background: '#fee',
-            color: '#900',
-            border: '1px solid #f99',
-            borderRadius: 4,
-          }}
-        >
+        <div className="mb-3 px-3 py-2 bg-red-100 dark:bg-red-500/10 border border-red-300 dark:border-red-500/30 text-red-800 dark:text-red-300 rounded text-sm">
           {error}
         </div>
       )}
 
       {justCreated && (
-        <div
-          style={{
-            marginBottom: 16,
-            padding: 12,
-            background: '#efe',
-            border: '1px solid #9c9',
-            borderRadius: 4,
-          }}
-        >
-          <div style={{ fontWeight: 600, marginBottom: 6 }}>
+        <div className="mb-4 px-3 py-3 bg-green-100 dark:bg-green-500/10 border border-green-400 dark:border-green-500/30 rounded">
+          <div className="font-semibold mb-1.5 text-green-900 dark:text-green-300">
             ✅ Einladung erstellt — gültig bis{' '}
             {justCreated.expiresAt.toLocaleString('de-DE')}
           </div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <code
-              style={{
-                flex: 1,
-                padding: 8,
-                background: '#fff',
-                border: '1px solid #ccc',
-                borderRadius: 4,
-                fontSize: 13,
-                wordBreak: 'break-all',
-              }}
-            >
+          <div className="flex gap-2 items-center">
+            <code className="flex-1 px-2 py-2 bg-white dark:bg-gray-950 border border-gray-300 dark:border-gray-700 rounded text-[13px] break-all">
               {buildInviteLink(justCreated.token)}
             </code>
             <button
               type="button"
               onClick={() => copyLink(justCreated.token, 'Neuer Link')}
-              style={{ padding: '6px 12px' }}
+              className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-sm transition"
             >
               📋 Kopieren
             </button>
@@ -208,48 +180,43 @@ export function InviteSection({ invites, roles, appUrl }: Props) {
       )}
 
       {copyFeedback && (
-        <div
-          style={{
-            marginBottom: 12,
-            padding: 6,
-            background: '#eef',
-            color: '#003',
-            borderRadius: 4,
-            fontSize: 13,
-          }}
-        >
+        <div className="mb-3 px-2 py-1.5 bg-indigo-100 dark:bg-indigo-500/10 text-indigo-900 dark:text-indigo-300 rounded text-[13px]">
           {copyFeedback}
         </div>
       )}
 
       {pendingInvites.length > 0 && (
         <>
-          <h3 style={{ fontSize: 16, marginBottom: 8 }}>
+          <h3 className="text-base font-semibold mb-2">
             Offene Einladungen ({pendingInvites.length})
           </h3>
-          <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 16 }}>
+          <table className="w-full border-collapse mb-4">
             <thead>
-              <tr style={{ background: 'var(--muted-bg, #f5f5f5)' }}>
-                <th style={th}>Email</th>
-                <th style={th}>Rolle</th>
-                <th style={th}>Erstellt</th>
-                <th style={th}>Läuft ab</th>
-                <th style={th}>Aktionen</th>
+              <tr className="bg-gray-100 dark:bg-gray-800/50">
+                <th className="px-2 py-2 text-left text-[13px] font-semibold">Email</th>
+                <th className="px-2 py-2 text-left text-[13px] font-semibold">Rolle</th>
+                <th className="px-2 py-2 text-left text-[13px] font-semibold">Erstellt</th>
+                <th className="px-2 py-2 text-left text-[13px] font-semibold">Läuft ab</th>
+                <th className="px-2 py-2 text-left text-[13px] font-semibold">Aktionen</th>
               </tr>
             </thead>
             <tbody>
               {pendingInvites.map((inv) => (
-                <tr key={inv.id} style={{ borderBottom: '1px solid var(--border, #eee)' }}>
-                  <td style={td}>{inv.email ?? <em style={{ color: '#999' }}>—</em>}</td>
-                  <td style={td}>{inv.roleName ?? <em style={{ color: '#999' }}>—</em>}</td>
-                  <td style={td}>{inv.createdAt.toLocaleDateString('de-DE')}</td>
-                  <td style={td}>{inv.expiresAt.toLocaleDateString('de-DE')}</td>
-                  <td style={td}>
+                <tr key={inv.id} className="border-b border-gray-200 dark:border-gray-800">
+                  <td className="px-2 py-2 text-sm">
+                    {inv.email ?? <em className="text-gray-400 dark:text-gray-600">—</em>}
+                  </td>
+                  <td className="px-2 py-2 text-sm">
+                    {inv.roleName ?? <em className="text-gray-400 dark:text-gray-600">—</em>}
+                  </td>
+                  <td className="px-2 py-2 text-sm">{inv.createdAt.toLocaleDateString('de-DE')}</td>
+                  <td className="px-2 py-2 text-sm">{inv.expiresAt.toLocaleDateString('de-DE')}</td>
+                  <td className="px-2 py-2 text-sm">
                     <button
                       type="button"
                       onClick={() => copyLink(inv.token)}
                       disabled={pending}
-                      style={{ marginRight: 6 }}
+                      className="mr-1.5 px-2 py-1 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 rounded text-xs disabled:opacity-50"
                     >
                       📋 Link
                     </button>
@@ -257,7 +224,7 @@ export function InviteSection({ invites, roles, appUrl }: Props) {
                       type="button"
                       onClick={() => handleRevoke(inv.id)}
                       disabled={pending}
-                      style={{ color: '#900' }}
+                      className="px-2 py-1 text-red-700 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-500/10 rounded text-xs disabled:opacity-50"
                     >
                       Widerrufen
                     </button>
@@ -271,27 +238,31 @@ export function InviteSection({ invites, roles, appUrl }: Props) {
 
       {otherInvites.length > 0 && (
         <details>
-          <summary style={{ cursor: 'pointer', fontSize: 14, color: 'var(--muted, #666)' }}>
+          <summary className="cursor-pointer text-sm text-gray-500 dark:text-gray-400">
             Eingelöst / abgelaufen ({otherInvites.length})
           </summary>
-          <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 8 }}>
+          <table className="w-full border-collapse mt-2">
             <thead>
-              <tr style={{ background: 'var(--muted-bg, #f5f5f5)' }}>
-                <th style={th}>Status</th>
-                <th style={th}>Email</th>
-                <th style={th}>Eingelöst von</th>
-                <th style={th}>Datum</th>
+              <tr className="bg-gray-100 dark:bg-gray-800/50">
+                <th className="px-2 py-2 text-left text-[13px] font-semibold">Status</th>
+                <th className="px-2 py-2 text-left text-[13px] font-semibold">Email</th>
+                <th className="px-2 py-2 text-left text-[13px] font-semibold">Eingelöst von</th>
+                <th className="px-2 py-2 text-left text-[13px] font-semibold">Datum</th>
               </tr>
             </thead>
             <tbody>
               {otherInvites.map((inv) => (
-                <tr key={inv.id} style={{ borderBottom: '1px solid var(--border, #eee)' }}>
-                  <td style={td}>
-                    <span style={badgeStyle(inv.status)}>{statusLabel(inv.status)}</span>
+                <tr key={inv.id} className="border-b border-gray-200 dark:border-gray-800">
+                  <td className="px-2 py-2 text-sm">
+                    <StatusBadge status={inv.status} />
                   </td>
-                  <td style={td}>{inv.email ?? <em style={{ color: '#999' }}>—</em>}</td>
-                  <td style={td}>{inv.usedByName ?? <em style={{ color: '#999' }}>—</em>}</td>
-                  <td style={td}>
+                  <td className="px-2 py-2 text-sm">
+                    {inv.email ?? <em className="text-gray-400 dark:text-gray-600">—</em>}
+                  </td>
+                  <td className="px-2 py-2 text-sm">
+                    {inv.usedByName ?? <em className="text-gray-400 dark:text-gray-600">—</em>}
+                  </td>
+                  <td className="px-2 py-2 text-sm">
                     {(inv.usedAt ?? inv.expiresAt).toLocaleDateString('de-DE')}
                   </td>
                 </tr>
@@ -302,25 +273,13 @@ export function InviteSection({ invites, roles, appUrl }: Props) {
       )}
 
       {invites.length === 0 && (
-        <p style={{ color: 'var(--muted, #666)', fontSize: 14, fontStyle: 'italic' }}>
+        <p className="text-sm italic text-gray-500 dark:text-gray-400">
           Noch keine Einladungen erstellt.
         </p>
       )}
     </section>
   );
 }
-
-const th: React.CSSProperties = {
-  padding: 8,
-  textAlign: 'left',
-  fontSize: 13,
-  fontWeight: 600,
-};
-
-const td: React.CSSProperties = {
-  padding: 8,
-  fontSize: 14,
-};
 
 function statusLabel(status: InviteRow['status']): string {
   switch (status) {
@@ -335,21 +294,13 @@ function statusLabel(status: InviteRow['status']): string {
   }
 }
 
-function badgeStyle(status: InviteRow['status']): React.CSSProperties {
-  const base: React.CSSProperties = {
-    padding: '2px 8px',
-    borderRadius: 4,
-    fontSize: 12,
-    fontWeight: 500,
-  };
-  switch (status) {
-    case 'used':
-      return { ...base, background: '#cfc', color: '#060' };
-    case 'expired':
-      return { ...base, background: '#eee', color: '#666' };
-    case 'revoked':
-      return { ...base, background: '#fcc', color: '#900' };
-    case 'pending':
-      return { ...base, background: '#cce', color: '#003' };
-  }
+function StatusBadge({ status }: { status: InviteRow['status'] }) {
+  const base = 'px-2 py-0.5 rounded text-xs font-medium';
+  const variant = {
+    used: 'bg-green-100 text-green-800 dark:bg-green-500/15 dark:text-green-400',
+    expired: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
+    revoked: 'bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-400',
+    pending: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-500/15 dark:text-indigo-400',
+  }[status];
+  return <span className={`${base} ${variant}`}>{statusLabel(status)}</span>;
 }

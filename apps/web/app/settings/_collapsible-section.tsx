@@ -42,11 +42,11 @@ export function CollapsibleSection({
   const [open, setOpen] = useState(defaultOpen);
 
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-lg overflow-hidden">
+    <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg overflow-hidden">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-800/40 transition cursor-pointer text-left"
+        className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-800/40 transition cursor-pointer text-left"
         aria-expanded={open}
       >
         <div className="flex items-center gap-3">
@@ -64,7 +64,7 @@ export function CollapsibleSection({
         )}
       </button>
       {open && (
-        <div className="border-t border-gray-800">{children}</div>
+        <div className="border-t border-gray-200 dark:border-gray-800">{children}</div>
       )}
     </div>
   );

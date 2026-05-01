@@ -34,12 +34,12 @@ export default async function InvitePage({ params }: PageProps) {
   if (!invite) {
     return (
       <Shell>
-        <h1>❌ Einladung nicht gefunden</h1>
-        <p>
+        <h1 className="text-xl font-bold mb-2">❌ Einladung nicht gefunden</h1>
+        <p className="text-gray-600 dark:text-gray-300">
           Der Link ist ungültig oder wurde gelöscht. Wende dich an den
           Admin der Airline für einen neuen Link.
         </p>
-        <Link href="/" style={linkStyle}>
+        <Link href="/" className="inline-block mt-4 text-indigo-600 dark:text-indigo-400 hover:underline">
           ← Zur Startseite
         </Link>
       </Shell>
@@ -55,13 +55,13 @@ export default async function InvitePage({ params }: PageProps) {
   if (isUsed) {
     return (
       <Shell>
-        <h1>✅ Einladung bereits eingelöst</h1>
-        <p>
+        <h1 className="text-xl font-bold mb-2">✅ Einladung bereits eingelöst</h1>
+        <p className="text-gray-600 dark:text-gray-300">
           Diese Einladung wurde am{' '}
           {invite.usedAt!.toLocaleDateString('de-DE')} eingelöst. Wenn
           das nicht du warst, wende dich an den Admin.
         </p>
-        <Link href="/dashboard" style={linkStyle}>
+        <Link href="/dashboard" className="inline-block mt-4 text-indigo-600 dark:text-indigo-400 hover:underline">
           → Zum Dashboard
         </Link>
       </Shell>
@@ -71,12 +71,12 @@ export default async function InvitePage({ params }: PageProps) {
   if (isRevoked) {
     return (
       <Shell>
-        <h1>🚫 Einladung widerrufen</h1>
-        <p>
+        <h1 className="text-xl font-bold mb-2">🚫 Einladung widerrufen</h1>
+        <p className="text-gray-600 dark:text-gray-300">
           Diese Einladung wurde vom Admin zurückgezogen. Bitte fordere
           einen neuen Link an.
         </p>
-        <Link href="/" style={linkStyle}>
+        <Link href="/" className="inline-block mt-4 text-indigo-600 dark:text-indigo-400 hover:underline">
           ← Zur Startseite
         </Link>
       </Shell>
@@ -86,13 +86,13 @@ export default async function InvitePage({ params }: PageProps) {
   if (isExpired) {
     return (
       <Shell>
-        <h1>⏰ Einladung abgelaufen</h1>
-        <p>
+        <h1 className="text-xl font-bold mb-2">⏰ Einladung abgelaufen</h1>
+        <p className="text-gray-600 dark:text-gray-300">
           Diese Einladung ist am{' '}
           {invite.expiresAt.toLocaleDateString('de-DE')} abgelaufen.
           Bitte fordere einen neuen Link an.
         </p>
-        <Link href="/" style={linkStyle}>
+        <Link href="/" className="inline-block mt-4 text-indigo-600 dark:text-indigo-400 hover:underline">
           ← Zur Startseite
         </Link>
       </Shell>
@@ -104,58 +104,42 @@ export default async function InvitePage({ params }: PageProps) {
 
   return (
     <Shell>
-      <h1 style={{ marginBottom: 4 }}>✈️ Einladung zu {invite.airline.name}</h1>
-      <p style={{ color: '#666', marginTop: 0 }}>
+      <h1 className="text-xl font-bold mb-1">✈️ Einladung zu {invite.airline.name}</h1>
+      <p className="text-sm text-gray-500 dark:text-gray-400 mt-0">
         ICAO {invite.airline.icao} · Eingeladen von{' '}
         {invite.createdBy.name ?? 'einem Admin'}
       </p>
 
       {invite.role && (
-        <div
-          style={{
-            margin: '16px 0',
-            padding: 12,
-            background: '#eef',
-            borderRadius: 6,
-            fontSize: 14,
-          }}
-        >
+        <div className="my-4 p-3 bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-800 rounded text-sm">
           <strong>Rolle:</strong> {invite.role.name}
           {invite.role.description && (
-            <div style={{ color: '#446', marginTop: 4 }}>
+            <div className="text-gray-600 dark:text-gray-300 mt-1">
               {invite.role.description}
             </div>
           )}
         </div>
       )}
 
-      <p style={{ fontSize: 13, color: '#888' }}>
+      <p className="text-xs text-gray-500 dark:text-gray-400">
         Gültig bis {invite.expiresAt.toLocaleString('de-DE')}
       </p>
 
       {!session?.user ? (
-        <div style={{ marginTop: 24 }}>
-          <p>Bitte logge dich zuerst mit Discord ein, um die Einladung anzunehmen.</p>
+        <div className="mt-6">
+          <p className="text-gray-700 dark:text-gray-200 mb-3">Bitte logge dich zuerst mit Discord ein, um die Einladung anzunehmen.</p>
           <Link
             href={`/api/auth/signin?callbackUrl=${encodeURIComponent(
               `/invite/${token}`,
             )}`}
-            style={{
-              display: 'inline-block',
-              padding: '10px 20px',
-              background: '#5865F2',
-              color: '#fff',
-              borderRadius: 6,
-              textDecoration: 'none',
-              fontWeight: 500,
-            }}
+            className="inline-block px-5 py-2.5 bg-[#5865F2] hover:bg-[#4752c4] text-white rounded font-medium transition no-underline"
           >
             Mit Discord einloggen
           </Link>
         </div>
       ) : (
-        <div style={{ marginTop: 24 }}>
-          <p style={{ marginBottom: 12 }}>
+        <div className="mt-6">
+          <p className="mb-3 text-gray-700 dark:text-gray-200">
             Eingeloggt als <strong>{session.user.name ?? session.user.email}</strong>.
           </p>
           <AcceptButton token={token} airlineName={invite.airline.name} />
@@ -167,35 +151,10 @@ export default async function InvitePage({ params }: PageProps) {
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
-    <main
-      style={{
-        minHeight: '100vh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 16,
-        background: '#fafafa',
-      }}
-    >
-      <div
-        style={{
-          maxWidth: 480,
-          width: '100%',
-          background: '#fff',
-          padding: 32,
-          borderRadius: 8,
-          boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
-        }}
-      >
+    <main className="min-h-screen flex items-center justify-center p-4 bg-gray-50 dark:bg-gray-950">
+      <div className="max-w-md w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 p-8 rounded-lg shadow-lg dark:shadow-black/40 text-gray-900 dark:text-white">
         {children}
       </div>
     </main>
   );
 }
-
-const linkStyle: React.CSSProperties = {
-  display: 'inline-block',
-  marginTop: 16,
-  color: '#06c',
-  textDecoration: 'none',
-};

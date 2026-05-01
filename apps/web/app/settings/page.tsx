@@ -103,7 +103,7 @@ export default async function SettingsPage({
   //     messages remain visible regardless of which tab is open. ===
 
   const profileContent = (
-    <section className="bg-gray-900 border border-gray-800 rounded-lg p-6">
+    <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6">
       <h2 className="text-sm uppercase tracking-wider text-gray-500 mb-4">
         Profil
       </h2>
@@ -112,25 +112,25 @@ export default async function SettingsPage({
           <img
             src={user.image}
             alt={user.name ?? 'Avatar'}
-            className="w-16 h-16 rounded-full border border-gray-700"
+            className="w-16 h-16 rounded-full border border-gray-300 dark:border-gray-700"
           />
         ) : (
-          <div className="w-16 h-16 rounded-full bg-gray-800 border border-gray-700" />
+          <div className="w-16 h-16 rounded-full bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700" />
         )}
         <div>
           <p className="text-lg font-semibold">{user.name ?? 'Unbenannt'}</p>
-          <p className="text-sm text-gray-400">{user.email}</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">{user.email}</p>
         </div>
       </div>
     </section>
   );
 
   const connectionsContent = (
-    <section className="bg-gray-900 border border-gray-800 rounded-lg p-6">
+    <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6">
       <h2 className="text-sm uppercase tracking-wider text-gray-500 mb-4">
         Account-Verknüpfungen
       </h2>
-      <p className="text-sm text-gray-400 mb-6">
+      <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
         Verknüpfe deine Netzwerk-Accounts um Live-Tracking, Flight-Stats und
         automatische PIREP-Erkennung zu aktivieren.
       </p>
@@ -248,11 +248,11 @@ export default async function SettingsPage({
 
   const overlayContent = (
     <>
-      <section className="bg-gray-900 border border-gray-800 rounded-lg p-6">
+      <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6">
         <h2 className="text-sm uppercase tracking-wider text-gray-500 mb-4">
           OBS-Overlay
         </h2>
-        <p className="text-sm text-gray-400 mb-6">
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
           Live-Flugdaten für Twitch/YouTube-Streams. URL als Browser-Source
           in OBS einfügen, zeigt während des Fluges automatisch deine
           Live-Daten an.
@@ -273,18 +273,18 @@ export default async function SettingsPage({
   );
 
   return (
-    <main className="min-h-screen bg-gray-950 text-white p-8">
+    <main className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-white p-8">
       <div className="max-w-4xl mx-auto">
-        <header className="flex justify-between items-center mb-8 pb-6 border-b border-gray-800">
+        <header className="flex justify-between items-center mb-8 pb-6 border-b border-gray-200 dark:border-gray-800">
           <div>
             <h1 className="text-3xl font-bold">Einstellungen</h1>
-            <p className="text-gray-400 text-sm mt-1">
+            <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">
               Account-Verknüpfungen und Präferenzen
             </p>
           </div>
           <Link
             href="/dashboard"
-            className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded text-sm transition"
+            className="px-4 py-2 bg-gray-200 hover:bg-gray-300 dark:bg-gray-800 dark:hover:bg-gray-700 rounded text-sm transition"
           >
             ← Dashboard
           </Link>
@@ -294,8 +294,8 @@ export default async function SettingsPage({
           <div
             className={`mb-6 px-4 py-3 rounded border text-sm ${
               statusBanner.type === 'success'
-                ? 'bg-green-500/10 border-green-500/30 text-green-300'
-                : 'bg-red-500/10 border-red-500/30 text-red-300'
+                ? 'bg-green-500/10 border-green-500/30 text-green-700 dark:text-green-300'
+                : 'bg-red-500/10 border-red-500/30 text-red-700 dark:text-red-300'
             }`}
           >
             {statusBanner.message}

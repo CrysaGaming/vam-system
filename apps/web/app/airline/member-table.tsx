@@ -43,7 +43,7 @@ export function MemberTable({ members, roles, currentUserId }: Props) {
   }
 
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-lg p-6">
+    <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold">Mitglieder</h2>
         <span className="text-xs text-gray-500">
@@ -60,7 +60,7 @@ export function MemberTable({ members, roles, currentUserId }: Props) {
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-gray-800 text-xs uppercase tracking-wider text-gray-500">
+            <tr className="border-b border-gray-200 dark:border-gray-800 text-xs uppercase tracking-wider text-gray-500">
               <th className="text-left py-3 pr-4">Pilot</th>
               <th className="text-left py-3 px-4">Rang</th>
               <th className="text-left py-3 px-4">Stunden</th>
@@ -74,7 +74,7 @@ export function MemberTable({ members, roles, currentUserId }: Props) {
               return (
                 <tr
                   key={m.id}
-                  className="border-b border-gray-800/60 last:border-b-0"
+                  className="border-b border-gray-200 dark:border-gray-800/60 last:border-b-0"
                 >
                   <td className="py-3 pr-4">
                     <div className="flex items-center gap-3">
@@ -82,7 +82,7 @@ export function MemberTable({ members, roles, currentUserId }: Props) {
                         <img
                           src={m.image}
                           alt=""
-                          className="w-8 h-8 rounded-full border border-gray-700"
+                          className="w-8 h-8 rounded-full border border-gray-300 dark:border-gray-700"
                         />
                       )}
                       <div>
@@ -98,7 +98,7 @@ export function MemberTable({ members, roles, currentUserId }: Props) {
                       </div>
                     </div>
                   </td>
-                  <td className="py-3 px-4 text-gray-400">
+                  <td className="py-3 px-4 text-gray-500 dark:text-gray-400">
                     {m.rankName ?? '—'}
                   </td>
                   <td className="py-3 px-4 tabular-nums">
@@ -114,7 +114,7 @@ export function MemberTable({ members, roles, currentUserId }: Props) {
                       }
                       onChange={(e) => handleRoleChange(m.id, e.target.value)}
                       disabled={pending}
-                      className="px-3 py-1.5 bg-gray-800 border border-gray-700 rounded text-sm focus:border-indigo-500 outline-none disabled:opacity-50"
+                      className="px-3 py-1.5 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded text-sm focus:border-indigo-500 outline-none disabled:opacity-50"
                     >
                       <option value="">Keine Rolle</option>
                       {roles.map((r) => (

@@ -95,11 +95,11 @@ export function RoleManagement({ roles }: Props) {
   }
 
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-lg p-6">
+    <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h2 className="text-lg font-semibold">Rollen</h2>
-          <p className="text-sm text-gray-400 mt-1">
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
             Rollen-Definitionen mit Permissions. System-Rollen ({' '}
             <code className="text-xs">admin, instructor, pilot, trainee</code>{' '}
             ) sind nicht löschbar — sie sind im Code namentlich referenziert.
@@ -132,7 +132,7 @@ export function RoleManagement({ roles }: Props) {
         {roles.map((role) => (
           <div
             key={role.id}
-            className="flex items-center justify-between gap-4 px-4 py-3 bg-gray-800/40 border border-gray-800 rounded"
+            className="flex items-center justify-between gap-4 px-4 py-3 bg-gray-100 dark:bg-gray-800/40 border border-gray-200 dark:border-gray-800 rounded"
           >
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-3 flex-wrap">
@@ -153,7 +153,7 @@ export function RoleManagement({ roles }: Props) {
                 </span>
               </div>
               {role.description && (
-                <p className="text-sm text-gray-400 mt-1 truncate">
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 truncate">
                   {role.description}
                 </p>
               )}
@@ -163,7 +163,7 @@ export function RoleManagement({ roles }: Props) {
                 type="button"
                 onClick={() => setEditor({ kind: 'edit', roleId: role.id })}
                 disabled={editor.kind !== 'closed' || pending}
-                className="px-3 py-1.5 text-xs bg-gray-700 hover:bg-gray-600 rounded transition disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-3 py-1.5 text-xs bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Bearbeiten
               </button>
@@ -196,7 +196,7 @@ export function RoleManagement({ roles }: Props) {
       {(editor.kind === 'new' || editor.kind === 'edit') && (
         <form
           action={handleSubmit}
-          className="border-t border-gray-800 pt-6 space-y-4"
+          className="border-t border-gray-200 dark:border-gray-800 pt-6 space-y-4"
         >
           <h3 className="text-sm uppercase tracking-wider text-gray-500">
             {editor.kind === 'new'
@@ -217,7 +217,7 @@ export function RoleManagement({ roles }: Props) {
                 minLength={2}
                 maxLength={40}
                 placeholder="z. B. dispatcher, ground_ops"
-                className="w-full px-3 py-2 bg-gray-950 border border-gray-700 rounded text-sm font-mono focus:border-indigo-500 outline-none"
+                className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-950 border border-gray-300 dark:border-gray-700 rounded text-sm font-mono focus:border-indigo-500 outline-none"
               />
               <p className="text-xs text-gray-500 mt-1">
                 Nur Kleinbuchstaben, Ziffern, "-" und "_". Beginnt mit Buchstabe.
@@ -236,7 +236,7 @@ export function RoleManagement({ roles }: Props) {
               maxLength={500}
               defaultValue={editingRole?.description ?? ''}
               placeholder="Optional — kurze Erklärung was diese Rolle darf"
-              className="w-full px-3 py-2 bg-gray-950 border border-gray-700 rounded text-sm focus:border-indigo-500 outline-none"
+              className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-950 border border-gray-300 dark:border-gray-700 rounded text-sm focus:border-indigo-500 outline-none"
             />
           </div>
 
@@ -249,7 +249,7 @@ export function RoleManagement({ roles }: Props) {
               rows={3}
               defaultValue={editingRole?.permissions.join('\n') ?? ''}
               placeholder={'z. B.\napprove.pireps\nmanage.fleet\nedit.routes'}
-              className="w-full px-3 py-2 bg-gray-950 border border-gray-700 rounded text-sm font-mono focus:border-indigo-500 outline-none"
+              className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-950 border border-gray-300 dark:border-gray-700 rounded text-sm font-mono focus:border-indigo-500 outline-none"
             />
             <p className="text-xs text-gray-500 mt-1">
               Eine Permission pro Zeile (oder Komma-getrennt). Aktuell rein
@@ -273,7 +273,7 @@ export function RoleManagement({ roles }: Props) {
                 setError(null);
               }}
               disabled={pending}
-              className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm transition"
+              className="px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded text-sm transition"
             >
               Abbrechen
             </button>

@@ -43,7 +43,7 @@ export function AirlineSettingsForm({ initial }: Props) {
   }
 
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-lg p-6">
+    <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold">Airline-Einstellungen</h2>
         <span className="text-xs text-gray-500 font-mono">
@@ -74,7 +74,7 @@ export function AirlineSettingsForm({ initial }: Props) {
             minLength={2}
             maxLength={80}
             defaultValue={initial.name}
-            className="w-full px-3 py-2 bg-gray-950 border border-gray-700 rounded text-sm focus:border-indigo-500 outline-none"
+            className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-950 border border-gray-300 dark:border-gray-700 rounded text-sm focus:border-indigo-500 outline-none"
           />
         </div>
 
@@ -89,7 +89,7 @@ export function AirlineSettingsForm({ initial }: Props) {
               maxLength={20}
               defaultValue={initial.callsign ?? ''}
               placeholder="z. B. LUFTHANSA"
-              className="w-full px-3 py-2 bg-gray-950 border border-gray-700 rounded text-sm font-mono uppercase focus:border-indigo-500 outline-none"
+              className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-950 border border-gray-300 dark:border-gray-700 rounded text-sm font-mono uppercase focus:border-indigo-500 outline-none"
             />
             <p className="text-xs text-gray-500 mt-1">
               Wird in ATC-Communication verwendet
@@ -107,7 +107,7 @@ export function AirlineSettingsForm({ initial }: Props) {
               pattern="[A-Z0-9]{2}"
               defaultValue={initial.iata ?? ''}
               placeholder="z. B. LH"
-              className="w-full px-3 py-2 bg-gray-950 border border-gray-700 rounded text-sm font-mono uppercase focus:border-indigo-500 outline-none"
+              className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-950 border border-gray-300 dark:border-gray-700 rounded text-sm font-mono uppercase focus:border-indigo-500 outline-none"
             />
             <p className="text-xs text-gray-500 mt-1">
               2-stelliger IATA-Code (optional)
@@ -125,7 +125,7 @@ export function AirlineSettingsForm({ initial }: Props) {
             maxLength={500}
             defaultValue={initial.logoUrl ?? ''}
             placeholder="https://example.com/logo.png"
-            className="w-full px-3 py-2 bg-gray-950 border border-gray-700 rounded text-sm focus:border-indigo-500 outline-none"
+            className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-950 border border-gray-300 dark:border-gray-700 rounded text-sm focus:border-indigo-500 outline-none"
           />
           <p className="text-xs text-gray-500 mt-1">
             Optional. URL zu einem öffentlich erreichbaren Bild.

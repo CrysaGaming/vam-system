@@ -36,21 +36,10 @@ export function ConnectionCard({
     : null;
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        padding: '1rem',
-        backgroundColor: 'rgba(31, 41, 55, 0.5)',
-        border: '1px solid rgb(31, 41, 55)',
-        borderRadius: '0.5rem',
-      }}
-    >
+    <div className="flex justify-between items-center p-4 bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-800 rounded-lg">
       <div className="flex items-center gap-4">
         <div
-          className={`w-10 h-10 rounded-full flex items-center justify-center ${colorClass}`}
-          style={{ flexShrink: 0 }}
+          className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${colorClass}`}
         >
           <span className="text-lg">{icon}</span>
         </div>
@@ -58,36 +47,18 @@ export function ConnectionCard({
           <div className="flex items-center gap-2">
             <p className="font-semibold">{name}</p>
             {connected && verified && (
-              <span
-                style={{
-                  fontSize: '0.7rem',
-                  padding: '0.1rem 0.5rem',
-                  backgroundColor: 'rgba(34, 197, 94, 0.15)',
-                  color: 'rgb(74, 222, 128)',
-                  borderRadius: '0.25rem',
-                  border: '1px solid rgba(34, 197, 94, 0.3)',
-                }}
-              >
+              <span className="text-xs px-2 py-0.5 bg-green-500/15 text-green-700 dark:text-green-400 border border-green-500/30 rounded">
                 ✓ verifiziert
               </span>
             )}
             {connected && !verified && (
-              <span
-                style={{
-                  fontSize: '0.7rem',
-                  padding: '0.1rem 0.5rem',
-                  backgroundColor: 'rgba(245, 158, 11, 0.15)',
-                  color: 'rgb(251, 191, 36)',
-                  borderRadius: '0.25rem',
-                  border: '1px solid rgba(245, 158, 11, 0.3)',
-                }}
-              >
+              <span className="text-xs px-2 py-0.5 bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30 rounded">
                 unverifiziert
               </span>
             )}
           </div>
           {connected ? (
-            <p className="text-xs text-gray-400 mt-1">
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
               {accountId && `ID: ${accountId}`}
               {verifiedDate && ` · verbunden am ${verifiedDate}`}
             </p>
@@ -105,22 +76,7 @@ export function ConnectionCard({
             <form action={`/api/auth/${provider}/disconnect`} method="POST">
               <button
                 type="submit"
-                style={{
-                  padding: '0.5rem 1rem',
-                  backgroundColor: 'rgba(239, 68, 68, 0.1)',
-                  color: 'rgb(248, 113, 113)',
-                  border: '1px solid rgba(239, 68, 68, 0.3)',
-                  borderRadius: '0.375rem',
-                  fontSize: '0.875rem',
-                  cursor: 'pointer',
-                  transition: 'background-color 150ms',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.2)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.1)';
-                }}
+                className="px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-700 dark:text-red-400 border border-red-500/30 rounded-md text-sm cursor-pointer transition-colors"
               >
                 Trennen
               </button>
@@ -131,16 +87,7 @@ export function ConnectionCard({
         ) : (
           <Link
             href={`/api/auth/${provider}/start`}
-            style={{
-              padding: '0.5rem 1rem',
-              backgroundColor: 'rgba(99, 102, 241, 0.1)',
-              color: 'rgb(165, 180, 252)',
-              border: '1px solid rgba(99, 102, 241, 0.3)',
-              borderRadius: '0.375rem',
-              fontSize: '0.875rem',
-              textDecoration: 'none',
-              transition: 'background-color 150ms',
-            }}
+            className="px-4 py-2 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30 rounded-md text-sm transition-colors no-underline inline-block"
           >
             Verbinden
           </Link>

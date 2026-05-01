@@ -127,7 +127,7 @@ export function AircraftOverlayCard({ initial }: Props) {
   const populatedCount = Object.values(values).filter((v) => v !== '').length;
 
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-lg p-6">
+    <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6">
       <div className="flex items-start justify-between mb-2">
         <h3 className="text-lg font-semibold">SimBrief Override (Aircraft)</h3>
         <span className="text-xs text-gray-500 mt-1">
@@ -135,7 +135,7 @@ export function AircraftOverlayCard({ initial }: Props) {
           {aircraft.length === 1 ? 'Aircraft' : 'Aircraft'}
         </span>
       </div>
-      <p className="text-sm text-gray-400 mb-4">
+      <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
         Ebene 3 der Override-Hierarchie. Pro individuellem Airframe (z. B.
         D-AIZA). Überschreibt Airline + Fleet defaults, wird selbst nur
         durch Route (Ebene 4) überschrieben. Aircraft-Rows werden vom
@@ -143,7 +143,7 @@ export function AircraftOverlayCard({ initial }: Props) {
       </p>
 
       {aircraft.length === 0 && (
-        <div className="text-sm text-gray-500 italic mb-4 px-3 py-4 border border-dashed border-gray-800 rounded text-center">
+        <div className="text-sm text-gray-500 italic mb-4 px-3 py-4 border border-dashed border-gray-200 dark:border-gray-800 rounded text-center">
           Keine Aircraft in deiner Airline registriert.
         </div>
       )}
@@ -172,7 +172,7 @@ export function AircraftOverlayCard({ initial }: Props) {
                 type="button"
                 onClick={() => openEdit(item)}
                 disabled={isPending}
-                className="px-3 py-1 text-sm bg-gray-800 hover:bg-gray-700 rounded disabled:opacity-50"
+                className="px-3 py-1 text-sm bg-gray-100 dark:bg-gray-800 hover:bg-gray-300 dark:hover:bg-gray-700 rounded disabled:opacity-50"
               >
                 Bearbeiten
               </button>
@@ -184,7 +184,7 @@ export function AircraftOverlayCard({ initial }: Props) {
       {editor && editingItem && (
         <form
           onSubmit={handleSubmit}
-          className="mt-4 pt-4 border-t border-gray-800"
+          className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-800"
         >
           <h4 className="text-base font-semibold mb-4">
             Aircraft bearbeiten:{' '}
@@ -213,7 +213,7 @@ export function AircraftOverlayCard({ initial }: Props) {
             {SECTIONS.map((section) => (
               <fieldset
                 key={section.title}
-                className="border-t border-gray-800 pt-4"
+                className="border-t border-gray-200 dark:border-gray-800 pt-4"
               >
                 <legend className="text-xs uppercase tracking-wider text-gray-500 mb-1 px-2 -ml-2">
                   {section.title}
@@ -233,7 +233,7 @@ export function AircraftOverlayCard({ initial }: Props) {
                           onChange={(e) =>
                             setField(f.key as string, e.target.value)
                           }
-                          className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-sm focus:border-indigo-500 focus:outline-none disabled:opacity-50"
+                          className="w-full px-3 py-2 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded text-sm focus:border-indigo-500 focus:outline-none disabled:opacity-50"
                           disabled={isPending}
                         >
                           {f.options.map((o) => (
@@ -255,7 +255,7 @@ export function AircraftOverlayCard({ initial }: Props) {
                           min={f.type === 'number' ? f.min : undefined}
                           max={f.type === 'number' ? f.max : undefined}
                           step={f.type === 'number' ? f.step : undefined}
-                          className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-sm focus:border-indigo-500 focus:outline-none disabled:opacity-50"
+                          className="w-full px-3 py-2 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded text-sm focus:border-indigo-500 focus:outline-none disabled:opacity-50"
                           disabled={isPending}
                         />
                       )}
@@ -269,13 +269,13 @@ export function AircraftOverlayCard({ initial }: Props) {
             ))}
           </div>
 
-          <div className="flex justify-between items-center mt-8 pt-4 border-t border-gray-800">
+          <div className="flex justify-between items-center mt-8 pt-4 border-t border-gray-200 dark:border-gray-800">
             <div className="flex items-center gap-3">
               <button
                 type="button"
                 onClick={closeEditor}
                 disabled={isPending}
-                className="px-3 py-2 text-sm text-gray-400 hover:text-gray-200 disabled:opacity-30 transition"
+                className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-200 disabled:opacity-30 transition"
               >
                 Abbrechen
               </button>
@@ -283,7 +283,7 @@ export function AircraftOverlayCard({ initial }: Props) {
                 type="button"
                 onClick={handleClearAll}
                 disabled={isPending || populatedCount === 0}
-                className="px-3 py-2 text-sm text-gray-400 hover:text-red-400 disabled:opacity-30 disabled:hover:text-gray-400 transition"
+                className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400 hover:text-red-400 disabled:opacity-30 disabled:hover:text-gray-500 dark:text-gray-400 transition"
               >
                 Alle löschen
               </button>

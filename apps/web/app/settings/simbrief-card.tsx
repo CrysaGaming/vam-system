@@ -100,12 +100,12 @@ export function SimBriefCard({
   }
 
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-lg p-6">
+    <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6">
       <div className="flex items-center justify-between mb-2">
         <h3 className="text-lg font-semibold">SimBrief Account</h3>
         <SaveStatusBadge status={status} />
       </div>
-      <p className="text-sm text-gray-400 mb-4">
+      <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
         Trage deinen SimBrief-Benutzernamen ein, damit VAM deine generierten
         Flight Plans mit deinen Buchungen verknüpfen kann. Den Benutzernamen
         findest du in deinem{' '}
@@ -128,13 +128,13 @@ export function SimBriefCard({
           placeholder="z.B. CrysaGaming"
           disabled={isPending}
           maxLength={50}
-          className="flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm font-mono text-gray-100 placeholder:text-gray-500 focus:outline-none focus:border-indigo-500 disabled:opacity-50"
+          className="flex-1 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded px-3 py-2 text-sm font-mono text-gray-900 dark:text-gray-100 placeholder:text-gray-500 focus:outline-none focus:border-indigo-500 disabled:opacity-50"
         />
         <button
           type="button"
           onClick={handleSave}
           disabled={!canSave || isPending}
-          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-700 disabled:cursor-not-allowed rounded text-sm font-medium transition"
+          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 dark:disabled:bg-gray-700 disabled:cursor-not-allowed rounded text-sm font-medium transition"
         >
           Speichern
         </button>
@@ -143,7 +143,7 @@ export function SimBriefCard({
             type="button"
             onClick={handleClear}
             disabled={isPending}
-            className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded text-sm transition"
+            className="px-4 py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-300 dark:hover:bg-gray-700 rounded text-sm transition"
           >
             Löschen
           </button>
@@ -178,7 +178,7 @@ export function SimBriefCard({
       {currentUsername && (
         <p className="text-xs text-gray-500 mt-3">
           Aktuell gespeichert:{' '}
-          <span className="font-mono text-gray-400">{currentUsername}</span>
+          <span className="font-mono text-gray-500 dark:text-gray-400">{currentUsername}</span>
         </p>
       )}
 
@@ -189,7 +189,7 @@ export function SimBriefCard({
           booking flow. The popup-form on a booking page hides itself
           silently when not available; this card is where the user finds
           out why. */}
-      <div className="mt-5 pt-4 border-t border-gray-800">
+      <div className="mt-5 pt-4 border-t border-gray-200 dark:border-gray-800">
         <p className="text-xs uppercase tracking-wider text-gray-500 mb-3">
           Verfügbare Dispatch-Modi
         </p>
@@ -203,7 +203,7 @@ export function SimBriefCard({
             >
               {currentUsername ? '●' : '○'}
             </span>
-            <span className="text-gray-400">Pattern α (Tab-Redirect)</span>
+            <span className="text-gray-500 dark:text-gray-400">Pattern α (Tab-Redirect)</span>
             {!currentUsername && (
               <span className="text-gray-600">— Username fehlt</span>
             )}
@@ -219,7 +219,7 @@ export function SimBriefCard({
             >
               {patternZAvailable && currentUsername ? '●' : '○'}
             </span>
-            <span className="text-gray-400">Pattern Z (Popup)</span>
+            <span className="text-gray-500 dark:text-gray-400">Pattern Z (Popup)</span>
             {!patternZAvailable && (
               <span className="text-gray-600">
                 — SIMBRIEF_API_KEY nicht konfiguriert
@@ -238,7 +238,7 @@ export function SimBriefCard({
 function SaveStatusBadge({ status }: { status: SaveStatus }) {
   if (status === 'idle') return null;
   if (status === 'saving') {
-    return <span className="text-xs text-gray-400">Speichern...</span>;
+    return <span className="text-xs text-gray-500 dark:text-gray-400">Speichern...</span>;
   }
   if (status === 'saved') {
     return <span className="text-xs text-green-400">✓ Gespeichert</span>;

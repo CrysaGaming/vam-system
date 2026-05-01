@@ -49,7 +49,7 @@ export function OverlayCard({ token: initialToken }: { token: string }) {
             type="text"
             readOnly
             value={overlayUrl}
-            className="flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm font-mono text-gray-300 select-all"
+            className="flex-1 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded px-3 py-2 text-sm font-mono text-gray-700 dark:text-gray-300 select-all"
             onClick={(e) => e.currentTarget.select()}
           />
           <button
@@ -66,12 +66,12 @@ export function OverlayCard({ token: initialToken }: { token: string }) {
       </div>
 
       {/* OBS-Anleitung */}
-      <details className="bg-gray-800/50 rounded p-4">
-        <summary className="cursor-pointer text-sm font-semibold text-gray-300">
+      <details className="bg-gray-100 dark:bg-gray-800/50 rounded p-4">
+        <summary className="cursor-pointer text-sm font-semibold text-gray-700 dark:text-gray-300">
           📋 So fügst du das Overlay in OBS ein
         </summary>
         <ol style={{ marginTop: '0.75rem', paddingLeft: '1.25rem', listStyleType: 'decimal' }}
-            className="text-sm text-gray-400 space-y-2">
+            className="text-sm text-gray-500 dark:text-gray-400 space-y-2">
           <li>OBS öffnen, in deine Szene wechseln</li>
           <li>Im Bereich <strong>Quellen</strong> auf das <strong>+</strong> klicken</li>
           <li><strong>Browser</strong> auswählen, Name vergeben (z.B. &quot;VAM Live&quot;)</li>
@@ -86,7 +86,7 @@ export function OverlayCard({ token: initialToken }: { token: string }) {
       </details>
 
       {/* Token-Rotation */}
-      <div className="border-t border-gray-800 pt-4">
+      <div className="border-t border-gray-200 dark:border-gray-800 pt-4">
         {!showConfirm ? (
           <button
             onClick={() => setShowConfirm(true)}
@@ -114,7 +114,7 @@ export function OverlayCard({ token: initialToken }: { token: string }) {
               <button
                 onClick={() => setShowConfirm(false)}
                 disabled={rotating}
-                className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-xs text-white transition"
+                className="px-3 py-1.5 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded text-xs text-gray-900 dark:text-white transition"
               >
                 Abbrechen
               </button>
