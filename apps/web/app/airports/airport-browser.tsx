@@ -2,6 +2,7 @@
 
 import { useState, useTransition, useCallback } from 'react';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
+import Link from 'next/link';
 
 interface Airport {
   id: string;
@@ -289,14 +290,26 @@ export function AirportBrowser({
                     className="hover:bg-gray-50 dark:hover:bg-gray-800/30"
                   >
                     <td className="px-4 py-3 font-mono">
-                      <div className="font-semibold">{a.icao}</div>
-                      {a.iata && (
-                        <div className="text-xs text-gray-500 dark:text-gray-400">
-                          {a.iata}
-                        </div>
-                      )}
+                      <Link
+                        href={`/airports/${a.icao}`}
+                        className="block hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+                      >
+                        <div className="font-semibold">{a.icao}</div>
+                        {a.iata && (
+                          <div className="text-xs text-gray-500 dark:text-gray-400">
+                            {a.iata}
+                          </div>
+                        )}
+                      </Link>
                     </td>
-                    <td className="px-4 py-3 font-medium">{a.name}</td>
+                    <td className="px-4 py-3 font-medium">
+                      <Link
+                        href={`/airports/${a.icao}`}
+                        className="hover:text-indigo-600 dark:hover:text-indigo-400 hover:underline transition-colors"
+                      >
+                        {a.name}
+                      </Link>
+                    </td>
                     <td className="px-4 py-3 text-gray-600 dark:text-gray-300">
                       <div className="font-mono text-xs">{a.country}</div>
                       {a.city && (
