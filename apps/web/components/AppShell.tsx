@@ -106,12 +106,14 @@ function Sidebar({ user, pathname }: SidebarProps) {
           <NavSection title="Airline">
             <NavLink href="/pilots" pathname={pathname} icon="👥" label="Piloten" />
             <NavLink href="/routes" pathname={pathname} icon="🛣️" label="Routen" />
+            <NavLink href="/airports" pathname={pathname} icon="🛫" label="Airports" />
           </NavSection>
         )}
 
         {user.isAdmin && user.hasAirline && (
           <NavSection title="Admin">
             <NavLink href="/airline" pathname={pathname} icon="🏢" label="Airline-Verwaltung" />
+            <NavLink href="/admin/requests" pathname={pathname} icon="📥" label="Requests" />
             <NavLink href="/admin/roles" pathname={pathname} icon="🔐" label="Rollen" />
           </NavSection>
         )}
