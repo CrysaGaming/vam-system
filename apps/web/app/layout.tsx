@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
+import Script from 'next/script';
 import './globals.css';
 import { auth } from '@/auth';
 import { prisma } from '@vam/db';
@@ -80,8 +81,18 @@ export default async function RootLayout({
             sets the .dark class on <html> based on localStorage + system
             pref. Without this, every page would flash light-mode briefly
             (FOUC) before the React provider mounts. The script body is
-            defined in components/Theme.tsx for centralized theme logic. */}
-        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+            defined in components/Theme.tsx for centralized theme logic.
+
+            Wrapped in next/script with strategy=beforeInteractive (statt
+            raw <script>): Next.js 16 warnt bei raw <script> tags innerhalb
+            React-components weil sie bei client-renders nicht ausgeführt
+            werden. beforeInteractive injiziert das script SSR-side ins
+            initial-HTML — funktional identisch, aber ohne dev-warning. */}
+        <Script
+          id="theme-init"
+          strategy="beforeInteractive"
+          dangerouslySetInnerHTML={{ __html: themeInitScript }}
+        />
       </head>
       <body className="min-h-full flex flex-col">
         <ThemeProvider>
