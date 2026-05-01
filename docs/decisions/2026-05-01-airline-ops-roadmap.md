@@ -1,12 +1,18 @@
-# Airline Ops — Complete Roadmap
+# Airline Ops — Complete Roadmap (v2)
 
 Stand: 2026-05-01. Roadmap für das Theme **"Airline rundum verwalten und
-anzeigen"** auf Basis des aktuellen `cc-experiment` branch state.
+anzeigen"**, restructured um den expliziten user-ask:
 
-Aufgeteilt in 9 Phasen, ungefähr nach Dependencies sortiert. Jede Phase ist
-einzeln shippable — du kannst jederzeit pausieren oder umsortieren. Total
-veranschlagter Aufwand: **38-58 Tage Coding-time**, mit Realistik-Faktor
-1.5x = **~12-18 Wochen** part-time.
+> "Routen welche die airline anbieten soll erstellen, bearbeiten, löschen
+> kann, das gleiche dann für fleet, aircraft, hubs, airports."
+
+V2 vs v1: **Resource-CRUD-first** statt feature-first. Die ersten 4 Phasen
+geben dem airline-admin volle Kontrolle über die foundational data —
+Airports, Aircraft-Types, Aircraft, Fleet, Hubs, Routes. Erst danach kommen
+operational depth, schedule, branding, analytics.
+
+11 Phasen, **48-72 Tage Coding**, calibrated **72-108 Tage** real-time =
+**~14-22 Wochen** part-time.
 
 ---
 
@@ -15,8 +21,9 @@ veranschlagter Aufwand: **38-58 Tage Coding-time**, mit Realistik-Faktor
 Eine virtual airline läuft nicht nur, sie *fühlt sich nach airline an*.
 Das heißt:
 
-- **Verwalten**: Flotte, Personal, Routen, Schedule, Branding, Communications
-  alles als first-class managed assets, nicht nur Listen
+- **Verwalten**: Airline-admin kann jede core-resource via UI managen —
+  Airports, Aircraft, Fleet, Routes, Hubs, Personal — vollständige CRUD,
+  nicht nur view
 - **Anzeigen**: Pilots sehen "wo ist meine 747 gerade", admins sehen "wie
   performed unsere Hub EDDF", besucher sehen eine richtige public-page
 - **Operations**: Tagesgeschäft hat einen UI-flow — announcements, NOTAMs,
@@ -26,166 +33,279 @@ Das heißt:
 - **Identität**: Jede airline hat brand-farben, livery, hubs, eigene rank-
   hierarchie, eigene awards — nicht alle sehen identisch aus
 
-Die Roadmap deckt die ersten 4 Aspekte komplett ab. Identität (Branding) ist
-Phase E, dort kürzer als oben angedeutet weil Schema-erweiterung minimal ist.
-
 ---
 
-## Current state baseline (was schon existiert)
+## Aktueller CRUD-Stand (gap analysis)
 
-**Schema-side (relevante models)**:
-- `Airline` — icao, iata, name, callsign, logoUrl, simBriefOverlay
-- `Aircraft` — registration, type (string), homeIcao, active, simBriefOverlay
-- `Fleet` — airline×type kombination mit type-level overlay
-- `Airport` — full lat/lon/elevation/country/city
-- `Route` — flightNumber, departure/arrival, aircraft assignment, distanceNm
-- `Rank` — airline-spezifisch, minFlightHours, order
-- `Award` + `UserAward` — schema fertig, granting-logic fehlt
-- `Pirep` — voller state-machine flow
-- `Booking` — voller state-machine mit scheduledDeparture
-- `LiveSession` + `LiveSessionPosition` — live tracking foundation
-- `DiscordRoleMapping` — discord integration scaffold
-- `Invite` — invite flow funktioniert
-- `User` — basic fields, role, airline assignment
+| Resource | Schema | Admin-UI | Status |
+|---|---|---|---|
+| Airline (own settings) | ✅ | ✅ `/airline` settings-form | Basic, kann erweitert werden |
+| Member-list | ✅ | ✅ `/airline` member-table | List-view, keine HR-actions |
+| Invite | ✅ | ✅ `/airline` invite-section | CRUD funktioniert |
+| Role | ✅ | ✅ `/admin/roles` | CRUD funktioniert |
+| **Airport** | ✅ | ❌ | Schema da, keine Admin-UI |
+| **AircraftType** | ❌ | ❌ | Weder Schema noch UI (currently nur `Aircraft.type` als String) |
+| **Fleet** | ✅ | ❌ | Schema da, keine UI um Types zu Airline hinzuzufügen |
+| **Aircraft** (airframe) | ✅ | ❌ | Schema da, keine UI um Tails zu managen |
+| **Route** | ✅ | ⚠️ | Nur public read-only `/routes`, KEIN admin CRUD |
+| **Hub** | ❌ | ❌ | Weder Schema noch UI |
+| Pirep | ✅ | ✅ `/pireps` | Submit + review flow funktioniert |
+| Booking | ✅ | ✅ `/bookings` | CRUD funktioniert |
 
-**UI-side (relevante pages)**:
-- `/airline` — basic admin panel mit member-list (Phase 6 ge-shipped)
-- `/airline/pilots` — member-list view
-- `/airline/routes` — route-list view
-- `/admin/roles` — role/permission management
-- `/invite/[token]` — invite consume flow
-- `/dashboard` — pilot-zentrisch, airline-info als card
-- Sidebar mit AIRLINE + ADMIN sections (Phase 6 ge-shipped)
-
-**Was funktioniert end-to-end**:
-- Auth + role gates (`requireAdmin`, `requireAirlineAdmin`)
-- PIREP submit → review → approve flow
-- Booking → SimBrief dispatch → PIREP-completion 1:1 link
-- Rank progression (computed from flightHours)
-- Override-hierarchy für SimBrief (Airline → Fleet → Aircraft → Route)
-
-Die Roadmap baut darauf auf — keine Schema-revolution, nur targeted additions.
+**Gap**: 5 von 6 core-resources die der user explizit nannte (Routes,
+Fleet, Aircraft, Hubs, Airports) haben **keine Admin-CRUD-UI**. Plus
+AircraftType fehlt komplett als Schema. Das ist der zentrale Block den
+diese Roadmap adressiert.
 
 ---
 
 ## Roadmap Übersicht
 
-| Phase | Theme | Days | Calibrated | Unlocks |
+| Phase | Theme | Days | Cal | Was es liefert |
 |---|---|---|---|---|
-| **A** | Aircraft & Fleet Depth | 4-6 | 6-9 | Real fleet view, type-rating gates (C) |
-| **B** | Hubs & Stations | 2-4 | 3-6 | Multi-hub airlines, hub-dashboards |
-| **C** | Personnel Depth | 4-6 | 6-9 | HR actions, type-rated booking gates |
-| **D** | Schedule Generator | 5-7 | 7-10 | Auto-bookings, route-frequency |
-| **E** | Branding & Public Identity | 3-5 | 4-7 | Public airline pages, recruiting CTA |
-| **F** | Ops Communications | 4-6 | 6-9 | Announcements, SOPs, bulletins |
-| **G** | Analytics & Reporting | 6-9 | 9-13 | KPI dashboards, performance reports |
-| **H** | Award/Achievement Activation | 3-5 | 4-7 | Existing schema → live unlock-system |
-| **I** | Multi-Airline & Alliance | 7-10 | 10-15 | Inter-airline transfers, alliances |
-| | **Total** | **38-58** | **55-85** | |
+| **1** | Airport & Aircraft-Type Catalogs | 3-5 | 4-7 | Foundation: alles andere referenced diese |
+| **2** | Fleet & Aircraft Management | 8-12 | 12-18 | Type-fleet + Tail-CRUD + operational depth |
+| **3** | Hubs CRUD | 2-4 | 3-6 | Multi-hub airlines, Hub-zuweisungen |
+| **4** | Routes Management | 4-6 | 6-9 | Vollständige Route-CRUD mit Map-Picker |
+| **5** | Personnel Management | 5-7 | 7-10 | HR actions, type-ratings, audit log |
+| **6** | Schedule Generator | 5-7 | 7-10 | RouteSchedule + Cron + Auto-bookings |
+| **7** | Branding & Public Identity | 3-5 | 4-7 | `/airlines/[icao]` showcase + brand-colors |
+| **8** | Ops Communications | 4-6 | 6-9 | Announcements + SOPs + Bulletins |
+| **9** | Analytics & Reporting | 6-9 | 9-13 | KPI dashboard + OTP + PDF reports |
+| **10** | Award Activation | 3-5 | 4-7 | Trigger engine für existing Award schema |
+| **11** | Multi-Airline & Alliance | 7-10 | 10-15 | Inter-airline transfers, alliances |
+| | **Total** | **50-76** | **72-111** | |
 
-Calibrated faktor 1.5x basiert auf Phase 6 actuals: reine coding-time matched
-estimates, aber learning + edge-cases + bugs frassen ~50% extra. Bei Schema-
-heavy phases (A, C, D) ist der faktor eher 1.3, bei UI-heavy (E, G) eher
-1.7-2.0.
+Phasen 1-4 (Foundation CRUD) = **17-27 Tage** = ~3-5 Wochen part-time. Wenn
+du nur das willst, ist das ein klar abgegrenzter scope.
 
 ---
 
-## Phase A — Aircraft & Fleet Depth (4-6 Tage)
+## Phase 1 — Airport & Aircraft-Type Catalogs (3-5 Tage)
 
-**Ziel**: "Wo ist welches Flugzeug? Wann ist Maintenance fällig? Wer darf's
-fliegen?" wird beantwortbar.
+**Ziel**: Die zwei "shared resource" catalogs auf die alles andere
+referenced. Foundation phase.
 
-### Schema-Erweiterungen
+### 1.1 Airport CRUD
+
+#### Was existiert
+- `Airport` schema mit icao, iata, name, city, country, lat/lon, elevation
+- Keine UI zum Erstellen/Editieren
+
+#### Auth-Strategy
+Airports sind **shared resources** (mehrere airlines nutzen EDDF). Daher:
+- **Create**: Airline-admin darf neue Airports anlegen (wenn ICAO frei)
+- **Edit**: Airline-admin darf editieren → markiert als `lastEditedBy`. Bei
+  conflict mit anderer airline-admin: system-admin entscheidet.
+- **Delete**: Soft-delete via `active=false`. Hard-delete nur system-admin
+  und nur wenn keine FK-references existieren.
+
+#### Schema-Erweiterung
 
 ```prisma
-// NEU: Aircraft type catalog (separate from Fleet which is airline×type)
+model Airport {
+  // existing: id, icao, iata, name, city, country, latitude, longitude, elevation
+  // ADD:
+  active        Boolean   @default(true)
+  createdById   String?
+  createdBy     User?     @relation("AirportCreator", fields: [createdById], references: [id])
+  lastEditedById String?
+  lastEditedBy  User?     @relation("AirportEditor", fields: [lastEditedById], references: [id])
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+```
+
+#### UI
+
+- `/airports` — public read-only catalog (existing /routes-style)
+- `/admin/airports` — system-admin full CRUD with conflict detection
+- `/airline/airports` — airline-admin: create new airport, edit-with-suggest,
+  view all (filtered to active by default)
+
+Forms:
+- Create: ICAO (required, validated as 4 letters), IATA (optional 3 letters),
+  Name, City, Country (dropdown), Lat (-90..90), Lon (-180..180), Elevation
+- Edit: same fields, with "Last edited by [user] on [date]" indicator
+
+### 1.2 Aircraft-Type Catalog
+
+#### Schema
+
+```prisma
 model AircraftType {
   id            String     @id @default(cuid())
-  icaoType      String     @unique  // "B738", "A320", "A20N"
+  icaoType      String     @unique  // "B738", "A20N", "A359"
   name          String                // "Boeing 737-800"
   manufacturer  String                // "Boeing"
   category      String                // "narrow_body" | "wide_body" | "regional" | "cargo"
-  rangeNm       Int                   // typische range
-  capacityPax   Int                   // typische pax-config
-  cruiseSpeedKt Int                   // typical cruise
-  fuelBurnKgH   Int                   // average kg/h
+  rangeNm       Int
+  capacityPax   Int
+  cruiseSpeedKt Int
+  fuelBurnKgH   Int
   imageUrl      String?
-  aircraft      Aircraft[]
-  ratings       AircraftTypeRating[]
-}
+  active        Boolean    @default(true)
+  createdById   String?
+  createdBy     User?      @relation(fields: [createdById], references: [id])
+  createdAt     DateTime   @default(now())
 
-// EXTEND Aircraft: jetzt mit ops-relevanten daten
+  aircraft      Aircraft[]
+  fleets        Fleet[]    // wenn Fleet via FK auf type-id refactored wird
+  ratings       AircraftTypeRating[]   // Phase 5
+  schedules     RouteSchedule[]        // Phase 6
+}
+```
+
+#### Seeding
+
+Initial seed mit 15 häufigen typen: B738, A20N, A21N, A319, A320, A321, A332,
+A333, A359, A35K, A388, B748, B772, B773, B788, CRJ9, E190.
+
+#### UI
+
+- `/admin/aircraft-types` — system-admin CRUD
+- `/airline/aircraft-types` — airline-admin: read-only browse, request-new
+  (creates entry mit `active=false` bis system-admin approved). v1 simpler:
+  airline-admin darf direkt anlegen, system-admin kann später duplikate
+  mergen.
+
+### 1.3 Migration
+
+- Backfill script: scan `Aircraft.type` strings (existing simple String
+  field), match against AircraftType.icaoType, set Aircraft.aircraftTypeId
+- Same für Fleet.type → Fleet.aircraftTypeId
+- Keep old `type` String columns für 1 release als fallback, dann remove
+
+### Risiken
+
+- AircraftType backfill kann fail wenn existing strings nicht ICAO sind
+  (z.B. "Boeing 737" statt "B738"). Manual fixup-pass nötig.
+- Conflict-resolution für concurrent airport edits — initial: last-write-wins
+  + history table als Phase 2-feature
+
+---
+
+## Phase 2 — Fleet & Aircraft Management (8-12 Tage)
+
+**Ziel**: Volles Aircraft + Fleet management — die airline-admin kann ihre
+Flotte komplett verwalten. Inkl. operational depth.
+
+### 2.1 Fleet CRUD
+
+Fleet = airline×type Kombination mit type-level SimBrief overlay.
+
+#### UI
+
+- `/airline/fleet/types` — Übersicht: Welche Aircraft-Types operiert diese
+  Airline?
+- "Add type to fleet" → modal mit AircraftType picker + simBrief overlay
+  editor
+- Per fleet entry: edit overlay, remove from fleet (mit warning falls
+  aircraft existieren)
+
+#### Schema-Refactor
+
+Fleet hat aktuell `type: String`. Migration auf `aircraftTypeId: String`
+mit FK. Backwards compatible über Phase-1 backfill.
+
+### 2.2 Aircraft (Airframe) CRUD
+
+#### Was existiert
+- `Aircraft` mit registration, type (String), homeIcao, active, simBriefOverlay
+- Keine Admin-UI
+
+#### Schema-Erweiterung
+
+```prisma
 model Aircraft {
-  // existing: id, registration, airlineId, type, homeIcao, active, simBriefOverlay
+  // existing: id, airlineId, registration, type, homeIcao, active, simBriefOverlay
   // ADD:
-  aircraftTypeId      String?       // FK zu AircraftType
+  aircraftTypeId      String?
   aircraftType        AircraftType? @relation(fields: [aircraftTypeId], references: [id])
   status              String        @default("active")  // active | maintenance | stored | retired
-  currentLocationIcao String?       // wo steht's gerade (last PIREP arrival)
-  totalHours          Float         @default(0)
+  currentLocationIcao String?       // updated bei PIREP-approve
+  totalHours          Float         @default(0)         // computed from PIREPs
   totalCycles         Int           @default(0)
   acquiredAt          DateTime      @default(now())
   retiredAt           DateTime?
-  livery              String?       // image URL or "default"
+  livery              String?
+  homeHubId           String?       // Phase 3
+  homeHub             Hub?          @relation(fields: [homeHubId], references: [id])
   maintenance         Maintenance[]
 }
 
-// NEU: Maintenance tracking
 model Maintenance {
   id          String    @id @default(cuid())
   aircraftId  String
   aircraft    Aircraft  @relation(fields: [aircraftId], references: [id])
-  type        String    // "A_check" | "B_check" | "C_check" | "D_check" | "AD" | "SB"
-  dueAtHours  Float?    // bei welchen total hours fällig
+  type        String    // "A_check" | "B_check" | "C_check" | "D_check"
+  dueAtHours  Float?
   dueAtDate   DateTime?
   completedAt DateTime?
   notes       String?
   createdAt   DateTime  @default(now())
-
-  @@index([aircraftId, completedAt])
 }
 ```
 
-### Server actions / business logic
+#### UI
 
-- `app/airline/fleet/actions.ts`:
-  - `addAircraftType()` (admin)
-  - `assignAircraftType(aircraftId, typeId)` (für legacy aircraft die nur
-    `type` String haben — backfill helper)
-  - `markMaintenanceCompleted(maintenanceId, completedAt)`
-  - `scheduleMaintenance(aircraftId, type, dueAtHours, dueAtDate)`
-- PIREP-completion-hook: bei `approvePirep` → aircraft.totalHours +=
-  flightTime, totalCycles += 1, currentLocationIcao = arrival.icao
-
-### UI
-
-- `/airline/fleet` — list page mit filter (type, status, hub), columns:
-  Reg | Type | Status | Location | Total Hours | Next Maint
+- `/airline/fleet` — list page mit:
+  - Columns: Reg | Type | Status | Location | Total Hours | Next Maint | Hub
+  - Filter: type, status, hub
+  - Sort: hours-desc, recently-updated, registration
+  - "Add Aircraft" button → form
+  - Per row: edit, retire, delete (delete only if no PIREPs reference)
 - `/airline/fleet/[reg]` — detail page mit:
-  - Header: registration + type + livery thumbnail
-  - Stats: total hours/cycles, acquired date, age
-  - Recent flights (last 10 from PIREPs)
-  - Maintenance schedule (upcoming + history)
-  - Edit-button (admin only)
-- `/airline/fleet/types` — aircraft type catalog (admin can add/edit types)
+  - Header: registration, type, livery thumbnail
+  - Stats card: total hours, cycles, age, status
+  - Location block: aktueller airport, home-hub
+  - Recent flights: last 10 PIREPs
+  - Maintenance schedule: upcoming + history
+  - SimBrief overlay editor (existing Json-editor pattern aus airline-settings)
+  - Action panel: Schedule maintenance, Mark for retirement, Edit basics
+- `/airline/fleet/new` — create form:
+  - Required: registration (unique per airline), aircraftType (picker)
+  - Optional: homeHub (Phase 3 picker), livery URL, simBrief overlay
+  - Auto-generate `acquiredAt = now()`
 
-### Dependencies
+### 2.3 Operational Depth
 
-- None außer existing Aircraft + PIREP flow
+#### PIREP-completion-hook
+
+Bei `approvePirep`:
+- `aircraft.totalHours += pirep.flightTimeMin / 60`
+- `aircraft.totalCycles += 1`
+- `aircraft.currentLocationIcao = pirep.arrival.icao`
+- Check maintenance thresholds → flag if due
+
+#### Maintenance flagging
+
+UI-side: rotes badge auf fleet-list und detail wenn `status==='active' &&
+nextMaintenance.dueAtHours <= totalHours + 50` (50h warning-window).
+
+#### Backfill
+
+Migration-script: für alle existing Aircraft, compute totalHours from
+historic PIREPs (sum of approved flightTimeMin / 60), set
+currentLocationIcao = latest approved PIREP arrival.
+
+### Phase 2 Dependencies
+
+- Phase 1 (AircraftType existieren muss vor Aircraft.aircraftTypeId)
+- Phase 3 deferred (homeHubId optional, FK-nullable)
 
 ### Risiken
 
-- Backfill für existing Aircraft (ohne aircraftTypeId) — script statt manual
-- Maintenance-rules sind initial simple ("next C-check at 6000h"), echte
-  type-spezifische rules kommen später
-- Total-hours computation aus historic PIREPs muss einmal als migration
-  nachgezogen werden
+- 8-12 Tage ist viel. Wenn nur CRUD ohne operational depth gewünscht:
+  cut auf 5-7 Tage. Operational depth dann als Phase 2.5 separat.
+- Aircraft-delete-cascade: Aircraft mit PIREPs blockiert delete. Soft-
+  delete via `retiredAt` ist der primary path.
 
 ---
 
-## Phase B — Hubs & Stations (2-4 Tage)
+## Phase 3 — Hubs CRUD (2-4 Tage)
 
-**Ziel**: Airlines können mehrere Hubs haben, Hub-spezifische ops-views.
+**Ziel**: Airline-admin kann mehrere Hubs definieren und assigned.
 
 ### Schema
 
@@ -196,72 +316,150 @@ model Hub {
   airline     Airline  @relation(fields: [airlineId], references: [id])
   airportId   String
   airport     Airport  @relation(fields: [airportId], references: [id])
-  isPrimary   Boolean  @default(false)  // main hub
+  isPrimary   Boolean  @default(false)
   description String?
   createdAt   DateTime @default(now())
+
+  aircraft    Aircraft[]
+  basedUsers  User[]   @relation("UserBaseHub")
 
   @@unique([airlineId, airportId])
   @@index([airlineId, isPrimary])
 }
 
-// EXTEND Aircraft
-model Aircraft {
-  // ADD:
-  homeHubId String?   // welcher hub ist heimat — sauberer als String homeIcao
-  homeHub   Hub?      @relation(fields: [homeHubId], references: [id])
-}
-
-// EXTEND User
+// User extension
 model User {
   // ADD:
-  baseHubId String?   // welcher hub ist deine base
-  baseHub   Hub?      @relation(fields: [baseHubId], references: [id])
+  baseHubId String?
+  baseHub   Hub?     @relation("UserBaseHub", fields: [baseHubId], references: [id])
 }
 ```
 
 ### UI
 
-- `/airline/hubs` — list page mit allen hubs der airline
-- `/airline/hubs/[icao]` — hub dashboard:
-  - Heute geplante departures/arrivals (aus Bookings)
-  - Aktive aircraft an diesem hub
-  - Pilots based hier
+- `/airline/hubs` — list page
+  - Columns: ICAO | Name | Primary | Aircraft-count | Pilots-count
+  - "Add Hub" → modal mit Airport-picker (autocomplete)
+  - Per row: set-primary, remove
+- `/airline/hubs/[icao]` — Hub dashboard:
+  - Today's departures + arrivals (aus Bookings)
+  - Aircraft based here
+  - Pilots based here
   - Recent activity (PIREPs from/to)
-- Admin actions: addHub, removeHub, setPrimary
+
+### Backfill
+
+Migration: für jede Airline mit existing aircraft, create hub aus dem
+häufigsten `homeIcao` value als primary. Dann set aircraft.homeHubId
+entsprechend.
 
 ### Dependencies
 
-- Phase A für aircraft.homeHubId migration
-
-### Risiken
-
-- Airport-FK braucht backfill (DLH hat homeIcao="EDDF" → Hub mit
-  airportId=EDDF). Auto-migration script.
+- Phase 1 (Airport exists)
 
 ---
 
-## Phase C — Personnel Depth (4-6 Tage)
+## Phase 4 — Routes Management (4-6 Tage)
 
-**Ziel**: Pilot-management ist nicht nur "list of users", sondern HR.
+**Ziel**: Airline-admin verwaltet das Streckennetz vollständig.
+
+### Was existiert
+- Route schema mit flightNumber, departure, arrival, aircraft (optional),
+  estimatedMinutes, distanceNm, active, simBriefOverlay
+- `/routes` public list-page (read-only)
+- KEINE admin CRUD
+
+### Schema-Erweiterung
+
+```prisma
+// EXTEND Route — minor additions
+model Route {
+  // existing: id, airlineId, flightNumber, departureId, arrivalId, aircraftId,
+  //           estimatedMinutes, distanceNm, active, simBriefOverlay
+  // ADD:
+  description    String?           // freitext über die route
+  preferredAircraftTypeId String?   // type-rating gate (Phase 5)
+  preferredAircraftType   AircraftType? @relation(fields: [preferredAircraftTypeId], references: [id])
+  category       String?           // "scheduled" | "charter" | "ferry" | "training"
+  createdById    String?
+  createdBy      User?             @relation(fields: [createdById], references: [id])
+  updatedAt      DateTime          @updatedAt
+}
+```
+
+### UI
+
+- `/airline/routes` (NEU als admin-CRUD) — list page:
+  - Columns: FlightNumber | Departure | Arrival | Distance | Time | Aircraft | Active
+  - Filters: dep-airport, arr-airport, aircraft-type, active
+  - Sort: flightNumber, distance, recently-updated
+  - "Add Route" button
+- `/airline/routes/[id]` — detail page:
+  - Header: flightNumber + dep→arr
+  - Map-view (mapbox) showing the route line
+  - Stats: distance, est-time, # times flown (from PIREPs)
+  - Performance: avg actual flight time vs estimate, OTP
+  - SimBrief overlay editor
+  - Action: edit, deactivate, schedule (Phase 6)
+- `/airline/routes/new` — create form:
+  - FlightNumber: prefix from airline ICAO + manual number
+  - Departure airport (autocomplete from Phase 1)
+  - Arrival airport (autocomplete)
+  - Auto-compute distance via great-circle from lat/lon
+  - Manual estimatedMinutes (default = distance / 460kt cruise speed)
+  - Optional: preferred aircraft type
+  - Optional: category, description
+  - SimBrief overlay (Json editor or wizard)
+- `/airline/network` — map view of all airline routes:
+  - Mapbox base, polylines per route
+  - Color by category (scheduled = blue, charter = orange)
+  - Hover tooltip shows flightNumber + airport names
+  - Filter by hub, type, active
+
+### Server actions
+
+- `createRoute()` — validates uniqueness `{airlineId, flightNumber}`
+- `updateRoute()` — admin-only, partial updates
+- `deactivateRoute()` — sets active=false (soft, preferred over delete)
+- `deleteRoute()` — hard-delete, only if no PIREPs/Bookings reference
+
+### Dependencies
+
+- Phase 1 (airports needed for picker)
+- Phase 1 (aircraft-types for preferred-type picker)
+- Phase 2 optional (if aircraft FK is used)
+
+### Risiken
+
+- Hard-delete blockiert oft (PIREPs reference). Default: deactivate.
+- Mapbox quota: 50k loads/month free tier — ausreichend für single-airline.
+
+---
+
+## Phase 5 — Personnel Management (5-7 Tage)
+
+**Ziel**: HR-management mit type-ratings, audit-log.
+
+(Inhalt unverändert von Roadmap v1 Phase C — siehe original-doc-history für
+details. Schema-summary:)
 
 ### Schema
 
 ```prisma
-// EXTEND User: employment fields
+// EXTEND User
 model User {
   // ADD:
   hireDate       DateTime  @default(now())
   status         String    @default("active")  // active | leave | inactive | terminated
-  statusUntil    DateTime? // wenn leave, bis wann
+  statusUntil    DateTime?
   leftAt         DateTime?
-  employeeId     String?   @unique  // "DLH-001"
-  lastActiveAt   DateTime? // updated on every server action
+  employeeId     String?   @unique
+  lastActiveAt   DateTime?
   rankAcquiredAt DateTime?
   ratings        AircraftTypeRating[]
   hrEvents       HrEvent[]
 }
 
-// NEU: Type-rating tracking — welcher pilot darf welche typen fliegen
 model AircraftTypeRating {
   id             String       @id @default(cuid())
   userId         String
@@ -269,69 +467,42 @@ model AircraftTypeRating {
   aircraftTypeId String
   aircraftType   AircraftType @relation(fields: [aircraftTypeId], references: [id])
   acquiredAt     DateTime     @default(now())
-  acquiredById   String?      // admin who granted
-  acquirer       User?        @relation("RatingGrantor", fields: [acquiredById], references: [id])
+  acquiredById   String?
   notes          String?
 
   @@unique([userId, aircraftTypeId])
 }
 
-// NEU: HR event log (audit trail)
 model HrEvent {
-  id          String   @id @default(cuid())
-  userId      String
-  user        User     @relation(fields: [userId], references: [id])
-  type        String   // "hired" | "promoted" | "demoted" | "leave_started" | "leave_ended" | "terminated" | "transferred" | "rating_granted"
-  fromValue   String?  // alter rank/status
-  toValue     String?  // neuer rank/status
-  reason      String?
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id])
+  type          String
+  fromValue     String?
+  toValue       String?
+  reason        String?
   performedById String?
-  createdAt   DateTime @default(now())
-
-  @@index([userId, createdAt])
+  createdAt     DateTime @default(now())
 }
 ```
 
-### Server actions
-
-`app/airline/hr/actions.ts`:
-- `promoteUser(userId, newRankId, reason)` — creates HrEvent
-- `changeUserStatus(userId, status, until?, reason)`
-- `grantTypeRating(userId, aircraftTypeId, notes)`
-- `terminateUser(userId, reason)` — soft-delete via leftAt
-- `transferToHub(userId, hubId)` — for multi-hub airlines
-
 ### UI
 
-- `/airline/pilots` — upgraded with sort/filter (rank, hours, status, hub)
-- `/airline/pilots/[id]` — pilot detail:
-  - Header: avatar, name, rank, hire-date, employee-id
-  - Stats: total hours, flights, on-time %
-  - Type-ratings list
-  - Recent flights
-  - HR-event timeline (admin only)
-  - Action panel (admin only): Promote, Status change, Grant rating, Terminate
-- `/airline/hr` — admin-only HR dashboard:
-  - Active count, leave count, recent hires, recent terminations
-  - Pending promotions (pilots near rank threshold)
-  - Inactivity warnings (lastActiveAt > 30d)
-
-### Booking gate addition
-
-Bei booking creation: check `pilot.ratings.includes(aircraft.aircraftType)`.
-Wenn nicht: error "Du hast kein Type Rating für B738. Frage einen Admin."
+- `/airline/pilots` (NEU als admin-CRUD) mit sort/filter
+- `/airline/pilots/[id]` — pilot detail mit type-ratings, HR-event timeline
+- `/airline/hr` — admin-only HR dashboard
+- Booking gate: type-rating check vor SimBrief-dispatch
 
 ### Dependencies
 
-- Phase A für aircraftType + ratings
-- Phase B optional für hub-basierte transfers
+- Phase 1 (AircraftType für ratings)
+- Phase 3 optional (hub-transfers)
 
 ---
 
-## Phase D — Schedule Generator (5-7 Tage)
+## Phase 6 — Schedule Generator (5-7 Tage)
 
-**Ziel**: Routes haben einen wiederkehrenden Schedule, Bookings werden
-automatisch erzeugt.
+**Ziel**: Routes haben wiederkehrende Schedules, Bookings werden auto-generated.
 
 ### Schema
 
@@ -340,118 +511,105 @@ model RouteSchedule {
   id              String   @id @default(cuid())
   routeId         String
   route           Route    @relation(fields: [routeId], references: [id])
-  daysOfWeek      String   // "1,2,3,4,5" für Mo-Fr (ISO 1=Monday)
+  daysOfWeek      String   // "1,2,3,4,5"
   departureTimeUtc String  // "12:30"
   validFrom       DateTime @default(now())
   validUntil      DateTime?
   active          Boolean  @default(true)
-  // optional: bestimmtes aircraft / type assignment
   preferredAircraftTypeId String?
   preferredAircraftType   AircraftType? @relation(fields: [preferredAircraftTypeId], references: [id])
   createdAt       DateTime @default(now())
-
-  @@index([routeId, active])
 }
 
-// EXTEND Booking
-model Booking {
-  // ADD:
+// NEW model (recommended over nullable Booking.userId)
+model PublishedFlight {
+  id              String        @id @default(cuid())
+  routeId         String
+  route           Route         @relation(fields: [routeId], references: [id])
+  scheduledDeparture DateTime
+  scheduledAircraftId String?
+  scheduledAircraft   Aircraft? @relation(fields: [scheduledAircraftId], references: [id])
   generatedFromScheduleId String?
   generatedFromSchedule   RouteSchedule? @relation(fields: [generatedFromScheduleId], references: [id])
-  isPublished             Boolean        @default(false) // ungebucht-but-published vs only-on-demand
-  // currently userId required; published-but-unbooked needs userId nullable
-  // OR new model PublishedFlight (preferred — siehe risk-section)
+  bookingId       String?       @unique  // 1:1 — wenn ein pilot gebucht hat
+  booking         Booking?      @relation(fields: [bookingId], references: [id])
+  status          String        @default("published")  // published | booked | flown | cancelled
+  createdAt       DateTime      @default(now())
+
+  @@index([routeId, scheduledDeparture])
+  @@unique([routeId, scheduledDeparture])  // prevent duplicates
 }
 ```
 
-### Cron job
-
-`apps/api/src/jobs/generate-schedule.ts` (via NestJS @Cron oder eigenen runner):
-- Läuft nightly um 00:00 UTC
-- Generiert Bookings für die nächsten 7 Tage aus aktiven Schedules
-- Skipped existing (idempotent via `generatedFromScheduleId + scheduledDeparture` unique-pair)
-
 ### UI
 
-- `/airline/routes/[id]/schedule` — schedule editor pro route:
-  - Day-of-week selector (Mo Tu We Th Fr Sa Su pillen)
-  - Time picker (UTC)
-  - Validity window
-  - Preferred aircraft type
-- `/airline/schedule` — wochen-view aller scheduled flights über fleet
+- `/airline/routes/[id]/schedule` — schedule editor pro route
+- `/airline/schedule` — wochen-view
 - `/airline/schedule/calendar` — kalender-view per hub
+
+### Cron
+
+`apps/api/src/jobs/generate-schedule.ts`:
+- Nightly 00:00 UTC
+- Generate PublishedFlights für nächste 7 Tage aus aktiven RouteSchedules
+- Idempotent via unique constraint
+
+### Pilot booking flow
+
+- `/bookings/new` zeigt jetzt published-flights als browse-and-book vs
+  existing manual route-pick
+- Bei booking: PublishedFlight.status='booked', PublishedFlight.bookingId=X
 
 ### Dependencies
 
-- Phases A + C für aircraft-type und type-rating gates
-
-### Risiken
-
-- **Big design decision**: Booking als published-flight verwenden (current
-  schema, userId nullable bis pilot bucht) ODER neues PublishedFlight model
-  einführen, Booking bleibt user-spezifisch. Empfehlung: **neues Model**,
-  wegen state-machine-cleanliness. Booking bleibt "ein user hat sich für
-  X gemeldet", PublishedFlight ist "die airline plant X". Das ist saubere
-  separation, kostet aber initial mehr Aufwand. Adjustiere phase auf 6-8d
-  wenn dieser pfad gewählt.
+- Phase 1 (aircraft types)
+- Phase 4 (routes)
+- Phase 5 (type-rating gate)
 
 ---
 
-## Phase E — Branding & Public Identity (3-5 Tage)
+## Phase 7 — Branding & Public Identity (3-5 Tage)
 
-**Ziel**: Jede Airline hat ein eigenes Gesicht. Public page für recruiting.
+**Ziel**: Jede airline hat eigenes Gesicht. Public page für recruiting.
 
 ### Schema
 
 ```prisma
-// EXTEND Airline
 model Airline {
   // ADD:
   founded             DateTime?
-  description         String?    // markdown about
+  description         String?    // markdown
   websiteUrl          String?
-  brandColorPrimary   String?    // "#FFCC00" für DLH yellow
+  brandColorPrimary   String?    // "#FFCC00"
   brandColorSecondary String?
-  motto               String?    // "Connecting Europe"
+  motto               String?
   publicPageEnabled   Boolean    @default(true)
 }
 ```
 
 ### UI
 
-- `/airline/branding` — admin editor:
-  - Color pickers (primary, secondary)
-  - Logo URL upload
-  - Description (markdown)
-  - Founded date
-  - Motto
-  - Toggle public-page-enabled
-- `/airlines/[icao]` — public page (kein auth required):
+- `/airline/branding` — admin editor (color pickers, logo, description)
+- `/airlines/[icao]` — public page (no auth):
   - Hero with brand-colors, logo, motto
   - About (description)
-  - Fleet showcase (top 5 aircraft images)
-  - Active hubs map
-  - Top pilots leaderboard (anonymized if user wants)
-  - Recent activity feed
+  - Fleet showcase (aus Phase 2 data)
+  - Hubs map (aus Phase 3 data)
+  - Routes preview (aus Phase 4 data)
+  - Top pilots leaderboard
   - "Apply to join" CTA → invite request
-- Brand-color application: ThemeProvider extension liest airline.brandColors
-  und appliziert als CSS-vars für authenticated users der airline.
-  Override-hierarchy: user-theme > airline-brand > default-indigo.
+
+Brand-color application: ThemeProvider extension, override für members.
 
 ### Dependencies
 
-- None (kann parallel zu A-D laufen)
-
-### Risiken
-
-- Brand-color clash mit dark/light theme — needs accessibility check
-  (contrast ratios). Validation in editor.
+- Phasen 1-4 für rich data on public page
 
 ---
 
-## Phase F — Ops Communications (4-6 Tage)
+## Phase 8 — Ops Communications (4-6 Tage)
 
-**Ziel**: Tagesgeschäft hat einen kommunikations-channel.
+**Ziel**: Day-to-day kommunikations-channel.
 
 ### Schema
 
@@ -459,57 +617,42 @@ model Airline {
 model Announcement {
   id          String   @id @default(cuid())
   airlineId   String
-  airline     Airline  @relation(fields: [airlineId], references: [id])
   authorId    String
-  author      User     @relation(fields: [authorId], references: [id])
   title       String
   body        String   // markdown
   pinned      Boolean  @default(false)
   publishedAt DateTime @default(now())
   expiresAt   DateTime?
-
-  @@index([airlineId, publishedAt])
 }
 
 model Document {
-  id          String   @id @default(cuid())
-  airlineId   String
-  airline     Airline  @relation(fields: [airlineId], references: [id])
-  category    String   // "SOP" | "Manual" | "Training" | "Reference"
-  title       String
-  body        String   // markdown
-  version     String   @default("1.0")
-  authorId    String
-  author      User     @relation(fields: [authorId], references: [id])
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  @@index([airlineId, category])
+  id        String   @id @default(cuid())
+  airlineId String
+  category  String   // "SOP" | "Manual" | "Training"
+  title     String
+  body      String   // markdown
+  version   String   @default("1.0")
+  authorId  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Bulletin {
   id          String   @id @default(cuid())
   airlineId   String
-  airline     Airline  @relation(fields: [airlineId], references: [id])
   type        String   // "NOTAM" | "SafetyAlert" | "ScheduleChange"
   severity    String   // "info" | "warning" | "critical"
   title       String
   body        String
   validFrom   DateTime @default(now())
   validUntil  DateTime?
-  affectedAirports String[]  // ICAO codes
-  createdAt   DateTime @default(now())
-
-  @@index([airlineId, validUntil])
+  affectedAirports String[]
 }
 
-// User-side read-tracking (so dashboard can show "3 unread announcements")
 model AnnouncementRead {
   id             String       @id @default(cuid())
   userId         String
-  user           User         @relation(fields: [userId], references: [id])
   announcementId String
-  announcement   Announcement @relation(fields: [announcementId], references: [id])
   readAt         DateTime     @default(now())
 
   @@unique([userId, announcementId])
@@ -518,309 +661,219 @@ model AnnouncementRead {
 
 ### UI
 
-- `/airline/announcements` — list + create form (admin)
-- `/airline/announcements/[id]` — detail view
-- `/airline/docs` — categorized list of SOPs/manuals
-- `/airline/docs/[id]` — markdown viewer with version history
-- `/airline/bulletins` — current active bulletins, severity-color-coded
-- Dashboard widget: "3 ungelesene Announcements" + "1 NOTAM aktiv"
-- Sidebar: notification dot wenn ungelesene Announcements
-
-### Dependencies
-
-- None
-
-### Risiken
-
-- Markdown rendering — needs sanitization (DOMPurify auf server side,
-  oder remark mit safe-mode). Don't allow embedded scripts/iframes.
+- `/airline/announcements` — list + create (admin)
+- `/airline/docs` — categorized list + viewer
+- `/airline/bulletins` — active bulletins, severity-color
+- Dashboard widget: unread count
 
 ---
 
-## Phase G — Analytics & Reporting (6-9 Tage)
+## Phase 9 — Analytics & Reporting (6-9 Tage)
 
-**Ziel**: Airline leadership kann fragen "wie performen wir?" und kriegt
-Zahlen.
+**Ziel**: KPI-driven airline-leadership view.
 
 ### Computed metrics (no schema changes — alles aus existing data)
 
-- **OTP** (On-Time Performance): % of PIREPs where `flightTimeMin` is within
-  ±10% of `route.estimatedMinutes`
-- **Completion rate**: % of bookings that reach Approved PIREP vs cancelled/expired
-- **Fleet utilization**: % of fleet that flew at least once in last 7 days
-- **Hub activity**: arrivals + departures per hub per day
-- **Pilot productivity**: hours per active pilot per month
-- **Route popularity**: bookings count per route per month
+- **OTP**: % PIREPs where flightTimeMin within ±10% of route.estimatedMinutes
+- **Completion rate**: bookings → approved PIREPs %
+- **Fleet utilization**: % of fleet flying ≥1 last 7 days
+- **Hub activity**: arr+dep per hub per day
+- **Pilot productivity**: hours/active-pilot/month
+- **Route popularity**: bookings/route/month
 
 ### UI
 
-- `/airline` — upgrade to dashboard with KPI cards:
-  - Active pilots (this month vs last month)
-  - Total flight hours this month
-  - OTP last 30 days
-  - Fleet utilization
-  - Top routes
-  - Recent rank-ups
-- `/airline/reports` — generated reports:
-  - Monthly summary (PDF)
-  - Pilot performance (per pilot, per period)
-  - Route performance
-  - Fleet utilization timeline
-- `/airline/leaderboard` — full leaderboard:
-  - Tabs: This Month | This Year | All Time
-  - Sort modes: hours, flights, rank, OTP, longest single flight
-  - Export to CSV
-
-### Tech notes
-
-- KPI computation: server actions mit raw SQL für aggregation efficiency
-  (Prisma's groupBy ist limited). Cache in memory mit 5min TTL — ist
-  acceptable für non-realtime dashboard.
-- PDF export: `puppeteer` oder `@react-pdf/renderer`. Empfehlung
-  react-pdf wegen bundle-size + style-control.
+- `/airline` upgrade → KPI dashboard cards
+- `/airline/reports` — generated reports (PDF export via @react-pdf/renderer)
+- `/airline/leaderboard` — full pilot leaderboard
 
 ### Dependencies
 
-- Phases A-D für rich data sources
-- Phase B für hub-level metrics
+- Phasen 1-6 für rich data
 
 ---
 
-## Phase H — Award/Achievement Activation (3-5 Tage)
+## Phase 10 — Award/Achievement Activation (3-5 Tage)
 
-**Ziel**: Existing Award/UserAward schema → live unlock-system.
+(Inhalt unverändert von v1.)
 
 ### Schema additions
 
 ```prisma
-// EXTEND Award
 model Award {
-  // existing: id, name, description, iconUrl, criteria (Json), createdAt
+  // existing: id, name, description, iconUrl, criteria, createdAt
   // ADD:
-  category    String?  // "milestone" | "rank" | "type-rating" | "longhaul" | "special"
-  rarity      String   @default("common")  // common | rare | epic | legendary
-  airlineId   String?  // null = system-wide award, set = airline-specific
-  airline     Airline? @relation(fields: [airlineId], references: [id])
+  category    String?
+  rarity      String   @default("common")
+  airlineId   String?  // null = system-wide
   active      Boolean  @default(true)
-  triggerType String   // "first_flight" | "total_hours_X" | "type_rating_X" | "manual"
-  triggerData Json?    // {hours: 100} oder {typeId: "..."} etc.
+  triggerType String   // "first_flight" | "total_hours_X" | etc.
+  triggerData Json?
 }
 ```
 
 ### Trigger engine
 
-`packages/db/awards.ts`:
-- `evaluateAwardsForUser(userId)` — runs all active triggers, grants any
-  matched awards (creates UserAward).
-- Hook: rufen aus PIREP-approve, type-rating-grant, rank-promote.
-- Retroactive scan: admin-action `awards.scanAll()` — runs für alle users
-  (für initial-grant nach award-creation).
+`packages/db/awards.ts` mit `evaluateAwardsForUser(userId)` aus PIREP-approve,
+type-rating-grant, rank-promote.
 
 ### UI
 
-- `/airline/awards` — admin: create/edit airline-spezifische awards
-- `/dashboard` — badge gallery widget: deine awards + 3 next-to-unlock
-- `/pilots/[id]` — public profile: awards display
-- `/airline/leaderboard` — awards-count column
-
-### System-wide awards seed
-
-Seed initiale awards die für alle airlines gelten:
-- "First Flight" — first approved PIREP
-- "100 Hour Club", "500 Hour Club", "1000 Hour Club"
-- "Long Haul Pilot" — flightTime > 600min
-- "Heavy Iron" — type-rating für wide-body
-- "Globe Trotter" — flights to 25 different airports
-- "Iron Pilot" — 30 days streak
-- "Type Master" — 5 type-ratings
-
-### Dependencies
-
-- Phase A für type-rating triggers
-- Phase C für employment-event triggers
+- `/airline/awards` — admin: create/edit
+- `/dashboard` — badge gallery widget
+- `/pilots/[id]` — public profile awards
 
 ---
 
-## Phase I — Multi-Airline & Alliance (7-10 Tage)
+## Phase 11 — Multi-Airline & Alliance (7-10 Tage)
 
-**Ziel**: Wenn das System 5+ airlines hat, brauchen wir cross-airline
-features. Bis dahin in der Roadmap zwecks Vollständigkeit.
+(Inhalt unverändert von v1.)
 
 ### Schema
 
 ```prisma
 model Alliance {
-  id          String   @id @default(cuid())
-  name        String
-  iata        String?  @unique
-  description String?
-  logoUrl     String?
-  founded     DateTime @default(now())
-
+  id, name, iata, description, logoUrl, founded
   members AllianceMember[]
 }
 
 model AllianceMember {
-  id         String   @id @default(cuid())
-  allianceId String
-  alliance   Alliance @relation(fields: [allianceId], references: [id])
-  airlineId  String
-  airline    Airline  @relation(fields: [airlineId], references: [id])
-  joinedAt   DateTime @default(now())
-  active     Boolean  @default(true)
-
-  @@unique([allianceId, airlineId])
+  id, allianceId, airlineId, joinedAt, active
 }
 
 model AirlineTransferRequest {
-  id              String   @id @default(cuid())
-  userId          String
-  user            User     @relation(fields: [userId], references: [id])
-  fromAirlineId   String
-  fromAirline     Airline  @relation("TransferFrom", fields: [fromAirlineId], references: [id])
-  toAirlineId     String
-  toAirline       Airline  @relation("TransferTo", fields: [toAirlineId], references: [id])
-  status          String   @default("pending")  // pending | approved | rejected | cancelled
-  reason          String?
-  createdAt       DateTime @default(now())
-  resolvedAt      DateTime?
-  resolvedById    String?
-  resolver        User?    @relation("TransferResolver", fields: [resolvedById], references: [id])
-  hourCreditMode  String   @default("partial")  // none | partial | full
+  id, userId, fromAirlineId, toAirlineId, status, reason,
+  createdAt, resolvedAt, resolvedById, hourCreditMode
 }
 ```
 
 ### UI
 
-- `/airlines` — public directory of all airlines (with public-page-enabled)
-- `/airlines/transfer` — pilot transfer request flow
-- `/airline/transfers` — admin: incoming transfer requests
-- `/alliances` — alliance directory (when implemented)
-- Cross-airline leaderboard option
-
-### Dependencies
-
-- Phases A-H sollten complete sein (sonst gibt's wenig zu cross-airline'n)
-
-### Risiken
-
-- Hour-credit-policies sind politische Decisions (Wieviel credit
-  bei transfer? 0%, 50%, 100%?). Per-target-airline configurable.
-- Existing data-references (Pireps, Bookings) bleiben mit
-  fromAirline assoziiert — historie bleibt zugeordnet, current-airline
-  ist user.airlineId.
+- `/airlines` — public directory
+- `/airlines/transfer` — pilot transfer flow
+- `/airline/transfers` — admin: incoming requests
+- Cross-airline leaderboards
 
 ---
 
 ## Empfohlene Reihenfolge
 
-### Falls du strategisch maximalen value pro woche willst
+### Pfad A: CRUD-First (empfohlen, matched user-ask)
 
 ```
-Woche 1-2:    Phase A (Aircraft & Fleet Depth)         ← unlocks vieles
-Woche 3:      Phase B (Hubs)                           ← schmal, building-block
-Woche 4-5:    Phase C (Personnel)                      ← parallel-able mit B
-Woche 6-7:    Phase E (Branding + Public)              ← außerordentlich sichtbarer impact
-Woche 8-10:   Phase G (Analytics)                      ← braucht A-C-data, hier dann fully ready
-Woche 11-12:  Phase F (Ops Comms)                      ← polishes day-to-day
-Woche 13-15:  Phase D (Schedule Generator)             ← nice-to-have, nicht critical
-Woche 16-17:  Phase H (Awards Activation)              ← engagement-layer
-Woche 18-20:  Phase I (Multi-Airline)                  ← nur wenn 5+ airlines existieren
+Woche 1:        Phase 1  (Airport + AircraftType catalogs)
+Woche 2-4:      Phase 2  (Fleet + Aircraft — der biggest)
+Woche 5:        Phase 3  (Hubs)
+Woche 6-7:      Phase 4  (Routes)
+              ─── Foundation CRUD complete (3-5 Wochen) ───
+Woche 8-9:      Phase 7  (Branding + Public Page) ← sofort sichtbarer impact
+Woche 10-11:    Phase 5  (Personnel)
+Woche 12-13:    Phase 9  (Analytics)
+Woche 14:       Phase 8  (Ops Comms)
+Woche 15-16:    Phase 6  (Schedule Generator)
+Woche 17:       Phase 10 (Awards)
+Woche 18-19:    Phase 11 (Multi-airline)
 ```
 
-Logik: A ist foundational, danach B+C parallel weil minimal overlap. E vorgezogen
-weil "public airline page" sofort dem owner +1 motivation gibt. G nach C
-sinnvoll weil dann genug data exists. D später weil es erst lohnt wenn
-mehrere routes existieren. H als engagement-cherry on top. I letzter.
+Logik: Foundation-CRUD (1-4) als block, dann Branding (7) als motivation-
+boost weil sofort zeigbar, Personnel (5) für tiefe, Analytics (9) sobald
+data-rich, dann der Rest.
 
-### Falls du minimalen viable airline ops willst (~3-4 Wochen)
-
-```
-A → B → C → E (skip D, F, G, H, I für now)
-```
-
-Das gibt dir: fleet-management, hubs, HR, branding + public page. Damit ist
-"airline rundum verwalten und anzeigen" zu ~70% gedeckt für den single-
-airline-case.
-
-### Falls du nur Quick-Wins für eigene Airline ohne UI-explosion willst
+### Pfad B: Minimum Viable Airline Management (~3-5 Wochen)
 
 ```
-A (4-6d) + Phase E (3-5d) + minimal slice von G (KPI dashboard, 3d)
-= ~10-14 Tage für massive perceived value
+Phase 1 → 2 → 3 → 4
 ```
+
+Nur die Foundation-CRUD-phasen. Du hast danach: Airports + Aircraft + Fleet
++ Hubs + Routes voll managebar via UI. ~17-27 Tage = ~3-5 Wochen part-time.
+
+### Pfad C: Quick wins für single-airline-demo (~2 Wochen)
+
+```
+Phase 1 (3-5d) → Phase 2 ohne operational depth (5-7d) → Phase 4 (4-6d)
+                                                                = 12-18d
+```
+
+Skip Hubs (Phase 3), defer operational depth (Phase 2 trim), skip Personnel.
+Du hast danach: airline-admin kann airports anlegen, aircraft hinzufügen,
+routes definieren. Genug für demo + erste 2-3 pilots.
 
 ---
 
-## Decision Points (vor Phase A)
+## Decision Points (vor Phase 1)
 
-Bevor du startest, klare Antworten auf:
+1. **Airport authority model**: airline-admin darf creates aber nicht edits
+   von "shared" airports? Oder edit-mit-history? Empfehle:
+   create-frei, edit-with-audit, delete-system-only.
 
-1. **PublishedFlight vs Booking-with-null-userId** (für Phase D) — empfehle
-   eigenes PublishedFlight model, aber Phase A-C entscheiden das nicht, kannst
-   später entscheiden.
+2. **AircraftType authority**: airline-admin darf neu anlegen, oder
+   request-flow mit system-admin approval? Empfehle: airline-admin direct,
+   system-admin merged duplikate später.
 
-2. **AircraftType backfill strategy** — manual (du editierst die 1-5 existing
-   aircraft) oder script (Aircraft.type-string parser → AircraftType.icaoType
-   match). Empfehlung: script + manual fallback.
+3. **Soft-delete vs hard-delete**: Standard für Aircraft/Route ist
+   soft-delete (active=false / retiredAt). Empfehle: alle non-shared
+   resources soft-delete, system-admin kann hard-purgen.
 
-3. **Maintenance-rules** — initial simple ("C-check alle 6000h") oder
-   type-spezifisch ("B738 hat C-check alle 6000h, A330 alle 7500h"). Empfehle
-   simple v1, type-specific v2.
+4. **PublishedFlight (Phase 6)**: eigenes Model oder nullable Booking.userId?
+   Empfehle: eigenes Model. Saubere state-machine separation.
 
-4. **Brand-color application scope** — nur public-page (no theme conflict)
-   oder full app (overrides indigo accent für members of that airline).
-   Empfehle full app mit dark/light contrast validation.
+5. **Backfill strategy**: scripts vs manual für bestehende DLH-data?
+   Empfehle: scripts mit dry-run-flag, dann apply.
 
-5. **HR audit-log retention** — lifetime oder 2-jahre-rolling? Empfehle
-   lifetime (records sind klein, audit-value ist hoch).
+6. **Brand-color scope**: nur public-page oder full-app theme override?
+   Empfehle: full-app mit dark/light contrast validation.
 
-6. **Schedule generator timezone** — alles UTC oder per-hub local time?
-   Empfehle UTC storage + UI-display in user-prefs-timezone.
+7. **HR audit retention**: lifetime oder rolling? Empfehle: lifetime.
+
+8. **Schedule-generator timezone**: UTC storage, user-tz display.
 
 ---
 
 ## Was NICHT in dieser Roadmap ist
 
-Diese Themen overlappen mit Airline Ops, gehören aber zu anderen Visionen:
+Themen die overlappen aber zu anderen visions gehören:
 
-- **Economy/Finance Simulation** (revenue, fuel-cost, P&L) — eigenes vision-
-  theme, würde Phase D+G stark erweitern wenn integriert
-- **ACARS Client** — pilot-side tool, nicht airline-side management
-- **IVAO Live Sync** — bereits foundation in LiveSession, Erweiterung ist
-  pilot-facing
-- **Tours & Events** — community-loop, nicht airline-management
-- **Training & Exam System** — separate career-theme, könnte Phase C+H
-  speisen
-- **Discord Bot** — integration-theme, role-mappings sind im Schema, der
-  bot selbst ist eigenes Projekt
+- **Economy/Finance Simulation** — eigenes vision-theme
+- **ACARS Client** — pilot-side tool, nicht airline-management
+- **IVAO Live Sync** — foundation existiert (LiveSession), Erweiterung
+  ist pilot-facing
+- **Tours & Events** — community-loop
+- **Training & Exam System** — separate career-theme
+- **Discord Bot** — integration-theme
 
 Wenn du eines davon mit Airline Ops fusionieren willst, sag bescheid —
-dann passe ich entsprechende Phasen an.
+ich passe phasen an.
 
 ---
 
 ## Zusammenfassung
 
-Roadmap deckt **9 Phasen über 38-58 Tage** Coding-time, calibrated **55-85
-Tage** real-time, **~12-18 Wochen part-time**.
+V2 Roadmap deckt **11 Phasen über 50-76 Tage** Coding-time, calibrated
+**72-111 Tage** = **~14-22 Wochen** part-time.
 
 Output bei Vollendung:
-- 5 neue Schema-models (AircraftType, Maintenance, Hub, AircraftTypeRating,
-  HrEvent, RouteSchedule, Announcement, Document, Bulletin, Alliance,
-  AllianceMember, AirlineTransferRequest, AnnouncementRead) — **13 models**
-- 12 neue Pages (`/airline/fleet`, `/airline/fleet/[reg]`, `/airline/hubs`,
-  `/airline/hubs/[icao]`, `/airline/pilots/[id]`, `/airline/hr`,
-  `/airline/schedule`, `/airline/branding`, `/airlines/[icao]`,
-  `/airline/announcements`, `/airline/docs`, `/airline/bulletins`,
-  `/airline/awards`, `/airline/transfers`, `/alliances`) — ~15 pages
-- ~30 server actions
-- 1 cron job
-- ~10-15 system-wide awards
-- Public airline directory + per-airline public page
-- Inter-airline transfer flow
-- Brand-customization across UI
+- **Volle CRUD-UI** für: Airports, AircraftTypes, Fleet, Aircraft, Hubs,
+  Routes, Personnel, Schedules, Announcements/Docs/Bulletins, Awards,
+  Alliances, Transfer-Requests
+- **~16 neue Schema-models** (AircraftType, Maintenance, Hub,
+  AircraftTypeRating, HrEvent, RouteSchedule, PublishedFlight,
+  Announcement, Document, Bulletin, AnnouncementRead, Alliance,
+  AllianceMember, AirlineTransferRequest, Airport-extensions, Award-extensions)
+- **~20 neue Pages** (`/airline/airports`, `/airline/fleet`,
+  `/airline/fleet/[reg]`, `/airline/aircraft-types`, `/airline/hubs`,
+  `/airline/hubs/[icao]`, `/airline/routes`, `/airline/routes/[id]`,
+  `/airline/network`, `/airline/pilots`, `/airline/pilots/[id]`,
+  `/airline/hr`, `/airline/schedule`, `/airline/branding`,
+  `/airlines/[icao]`, `/airline/announcements`, `/airline/docs`,
+  `/airline/bulletins`, `/airline/awards`, `/airline/transfers`)
+- **~50 neue server actions**
+- **1 cron job**
+- **~15 system-wide awards**
 
-Update-cadence: jede phase ist single-PR-shippable, also continous-delivery
-gegen die haupt-airline (Lufthansa Virtual). Du kannst jederzeit pausieren,
-re-priorisieren, oder phasen umsortieren — die Dependencies sind documented.
+Foundation-CRUD-block (Phasen 1-4) ist **17-27 Tage = ~3-5 Wochen part-time**
+und matched den expliziten user-ask.
+
+Update-cadence: jede Phase ist single-PR-shippable. Continuous-delivery
+gegen die haupt-airline (Lufthansa Virtual). Jederzeit pausen, re-prio,
+oder phasen splitten — alle Dependencies dokumentiert.
