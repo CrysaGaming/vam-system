@@ -43,63 +43,81 @@ enum BookingState {
   Expired
 }
 
+// State-machine für AirportRequest und AircraftTypeRequest. Mirrors PIREP-
+// pattern (Submitted → Approved/Rejected) mit Erweiterung UnderReview.
+// Approval ist binär hier, aber via `approvedAsVerified` Boolean auf den
+// Request-models in zwei Tiers: verified (system-admin hat daten geprüft)
+// vs unverified (provisional, mit warning-badge im UI).
+enum RequestStatus {
+  Submitted
+  UnderReview
+  Approved
+  Rejected
+}
+
 model Airline {
-  id          String   @id @default(cuid())
-  icao        String   @unique
-  iata        String?  @unique
-  name        String
-  callsign    String?
-  logoUrl     String?
+  id              String   @id @default(cuid())
+  icao            String   @unique
+  iata            String?  @unique
+  name            String
+  callsign        String?
+  logoUrl         String?
   // SimBrief Override-Hierarchie Ebene 1 (lowest precedence). Per-airline
   // defaults für SimBrief-Dispatch (cont_fuel_pct, units, OFP-Layout, etc).
   // Schema: apps/web/lib/simbrief/overlay.ts SimBriefOverlaySchema. Wird
   // beim Dispatch durch Fleet/Aircraft/Route-overlays übersteuert (höhere
   // Specificity gewinnt).
   simBriefOverlay Json?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
-  users       User[]
-  ranks       Rank[]
-  aircraft    Aircraft[]
-  fleets      Fleet[]
-  routes      Route[]
-  pireps      Pirep[]
-  sceneries   Scenery[]
-  featureFlags FeatureFlag[]
-  roleMappings DiscordRoleMapping[]
+  users            User[]
+  ranks            Rank[]
+  aircraft         Aircraft[]
+  fleets           Fleet[]
+  routes           Route[]
+  pireps           Pirep[]
+  sceneries        Scenery[]
+  featureFlags     FeatureFlag[]
+  roleMappings     DiscordRoleMapping[]
   bookings         Booking[]
   flightPlanCaches FlightPlanCache[]
   invites          Invite[]
+
+  // System-Catalog Request-Flow — eine Airline kann mehrere Requests
+  // einreichen. Optional FK auf Request damit auch user-ohne-airline
+  // (z.B. solo-pilot vor airline-zuweisung) requests stellen können.
+  airportRequests      AirportRequest[]      @relation("AirportRequestAirline")
+  aircraftTypeRequests AircraftTypeRequest[] @relation("AircraftTypeRequestAirline")
 }
 
 model User {
-  id             String   @id @default(cuid())
-  email          String   @unique
-  name           String?
-  discordId      String?  @unique
+  id        String  @id @default(cuid())
+  email     String  @unique
+  name      String?
+  discordId String? @unique
 
-  vatsimCid              Int?      @unique
-  vatsimVerifiedAt       DateTime?
-  vatsimAccessToken      String?   @db.Text
-  vatsimRefreshToken     String?   @db.Text
-  vatsimTokenExpiresAt   DateTime?
+  vatsimCid            Int?      @unique
+  vatsimVerifiedAt     DateTime?
+  vatsimAccessToken    String?   @db.Text
+  vatsimRefreshToken   String?   @db.Text
+  vatsimTokenExpiresAt DateTime?
 
-  ivaoVid                Int?      @unique
-  ivaoVerifiedAt         DateTime?
-  ivaoAccessToken        String?   @db.Text
-  ivaoRefreshToken       String?   @db.Text
-  ivaoTokenExpiresAt     DateTime?
+  ivaoVid            Int?      @unique
+  ivaoVerifiedAt     DateTime?
+  ivaoAccessToken    String?   @db.Text
+  ivaoRefreshToken   String?   @db.Text
+  ivaoTokenExpiresAt DateTime?
 
   // SimBrief-Account-Identifier für API-Dispatch. Wenn null, dispatcht User
   // via Browser-Fallback (prefilled URL).
-  simBriefUsername       String?
+  simBriefUsername String?
 
-  overlayToken           String?   @unique
+  overlayToken String? @unique
 
-  overlayLayout          String    @default("bar")          // "bar" | "card"
-  overlayCardPosition    String    @default("top-right")
-  overlayPhaseColors     Json?                              // optional override
+  overlayLayout       String @default("bar") // "bar" | "card"
+  overlayCardPosition String @default("top-right")
+  overlayPhaseColors  Json? // optional override
 
   image            String?
   totalFlightHours Float    @default(0)
@@ -107,64 +125,75 @@ model User {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
-  airlineId   String?
-  airline     Airline? @relation(fields: [airlineId], references: [id])
-  rankId      String?
-  rank        Rank?    @relation(fields: [rankId], references: [id])
-  roleId      String?
-  role        Role?    @relation(fields: [roleId], references: [id])
+  airlineId String?
+  airline   Airline? @relation(fields: [airlineId], references: [id])
+  rankId    String?
+  rank      Rank?    @relation(fields: [rankId], references: [id])
+  roleId    String?
+  role      Role?    @relation(fields: [roleId], references: [id])
 
-  liveSessions    LiveSession[]
-  pireps          Pirep[]
-  approvedPireps  Pirep[]  @relation("PirepApprover")
-  awards          UserAward[]
-  featureFlags    FeatureFlag[]
-  accounts        Account[]
-  sessions        Session[]
-  emailVerified   DateTime?
-  bookings        Booking[]
+  liveSessions   LiveSession[]
+  pireps         Pirep[]
+  approvedPireps Pirep[]       @relation("PirepApprover")
+  awards         UserAward[]
+  featureFlags   FeatureFlag[]
+  accounts       Account[]
+  sessions       Session[]
+  emailVerified  DateTime?
+  bookings       Booking[]
 
-  invitesCreated  Invite[] @relation("InviteCreator")
-  invitesUsed     Invite[] @relation("InviteUser")
+  invitesCreated Invite[] @relation("InviteCreator")
+  invitesUsed    Invite[] @relation("InviteUser")
+
+  // System-Catalog Request-Flow — Audit-Trail Beziehungen.
+  // Ein User kann gleichzeitig Submitter (airline-admin) und Reviewer
+  // (system-admin) sein wenn er beide Rollen hat. Verifier ist immer
+  // system-admin (gate via Role.permissions check).
+  airportRequests       AirportRequest[]      @relation("AirportRequester")
+  airportReviews        AirportRequest[]      @relation("AirportReviewer")
+  verifiedAirports      Airport[]             @relation("AirportVerifier")
+  aircraftTypeRequests  AircraftTypeRequest[] @relation("AircraftTypeRequester")
+  aircraftTypeReviews   AircraftTypeRequest[] @relation("AircraftTypeReviewer")
+  verifiedAircraftTypes AircraftType[]        @relation("AircraftTypeVerifier")
 }
 
 model LiveSession {
-  id                   String      @id @default(cuid())
-  userId               String
-  user                 User        @relation(fields: [userId], references: [id])
-  network              NetworkType
-  externalId           Int
-  callsign             String
+  id         String      @id @default(cuid())
+  userId     String
+  user       User        @relation(fields: [userId], references: [id])
+  network    NetworkType
+  externalId Int
+  callsign   String
 
   // ACARS Phase 1: Trennung Network (wo) vs DataSource (wer liefert)
-  dataSource           DataSource  @default(VATSIM_API)
-  acarsClientVersion   String?
-  lastAcarsHeartbeat   DateTime?
+  dataSource         DataSource @default(VATSIM_API)
+  acarsClientVersion String?
+  lastAcarsHeartbeat DateTime?
 
   aircraftType         String?
   aircraftRegistration String?
 
-  departureIcao        String?
-  arrivalIcao          String?
-  alternateIcao        String?
-  cruiseAltitude       Int?
-  flightRules          String?
-  flightRoute          String?     @db.Text
-  flightRemarks        String?     @db.Text
+  departureIcao  String?
+  arrivalIcao    String?
+  alternateIcao  String?
+  cruiseAltitude Int?
+  flightRules    String?
+  flightRoute    String? @db.Text
+  flightRemarks  String? @db.Text
 
-  latitude             Float
-  longitude            Float
-  altitude             Int
-  groundSpeed          Int
-  heading              Int
-  transponder          String?
-  onGround             Boolean     @default(false)
+  latitude    Float
+  longitude   Float
+  altitude    Int
+  groundSpeed Int
+  heading     Int
+  transponder String?
+  onGround    Boolean @default(false)
 
-  connectedAt          DateTime
-  lastUpdatedAt        DateTime
-  isActive             Boolean     @default(true)
+  connectedAt   DateTime
+  lastUpdatedAt DateTime
+  isActive      Boolean  @default(true)
 
-  positions            LiveSessionPosition[]
+  positions LiveSessionPosition[]
 
   @@unique([network, externalId])
   @@index([userId, isActive])
@@ -173,9 +202,9 @@ model LiveSession {
 }
 
 model LiveSessionPosition {
-  id          String      @id @default(cuid())
-  sessionId   String
-  session     LiveSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  id        String      @id @default(cuid())
+  sessionId String
+  session   LiveSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   latitude    Float
   longitude   Float
@@ -184,7 +213,7 @@ model LiveSessionPosition {
   heading     Int
   onGround    Boolean
 
-  recordedAt  DateTime    @default(now())
+  recordedAt DateTime @default(now())
 
   @@index([sessionId, recordedAt])
 }
@@ -212,23 +241,30 @@ model Role {
   permissions String[]
   createdAt   DateTime @default(now())
 
-  users       User[]
-  invites     Invite[]
+  users   User[]
+  invites Invite[]
 }
 
 model Aircraft {
-  id           String   @id @default(cuid())
-  airlineId    String
-  airline      Airline  @relation(fields: [airlineId], references: [id])
-  registration String   @unique
-  type         String
-  homeIcao     String?
-  active       Boolean  @default(true)
+  id              String        @id @default(cuid())
+  airlineId       String
+  airline         Airline       @relation(fields: [airlineId], references: [id])
+  registration    String        @unique
+  type            String
+  // FK zu System-curated AircraftType-Catalog. Nullable für 1-Release-
+  // Migration: existing airframes haben nur `type: String`, neue Logik
+  // resolves via aircraftTypeId mit Fallback auf type-string-match.
+  // Backfill-Script in Phase 1 matched bestehende `type` strings gegen
+  // AircraftType.icaoType seed.
+  aircraftTypeId  String?
+  aircraftType    AircraftType? @relation(fields: [aircraftTypeId], references: [id])
+  homeIcao        String?
+  active          Boolean       @default(true)
   // SimBrief Override-Hierarchie Ebene 3 (per individual airframe).
   // z.B. "this specific D-AIBL has reduced MTOW because of MEL". Über-
   // steuert Airline + Fleet defaults.
   simBriefOverlay Json?
-  createdAt    DateTime @default(now())
+  createdAt       DateTime      @default(now())
 
   routes Route[]
   pireps Pirep[]
@@ -253,7 +289,7 @@ model Fleet {
   id              String   @id @default(cuid())
   airlineId       String
   airline         Airline  @relation(fields: [airlineId], references: [id])
-  type            String   // ICAO type designator, e.g. "A320", "B738"
+  type            String // ICAO type designator, e.g. "A320", "B738"
   simBriefOverlay Json?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -271,6 +307,24 @@ model Airport {
   latitude  Float
   longitude Float
   elevation Int?
+
+  // System-curated catalog: airline-admins können einzelne airports nicht
+  // direkt anlegen; sie reichen einen AirportRequest ein, system-admin
+  // approved/rejects. `verified` = system-admin hat die daten geprüft;
+  // `false` = provisional (UI zeigt warning-badge). `active=false` ist
+  // soft-delete (z.B. flughafen geschlossen) ohne FK-cascades zu brechen.
+  active                Boolean         @default(true)
+  verified              Boolean         @default(false)
+  verifiedAt            DateTime?
+  verifiedById          String?
+  verifiedBy            User?           @relation("AirportVerifier", fields: [verifiedById], references: [id])
+  // Nullable + unique: 1:1 zu AirportRequest. Null wenn airport direkt von
+  // system-admin angelegt wurde (kein request-flow); set wenn aus approve-
+  // request-creation. Audit-trail über die request-relation.
+  proposedFromRequestId String?         @unique
+  proposedFromRequest   AirportRequest? @relation("AirportFromRequest", fields: [proposedFromRequestId], references: [id])
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @default(now()) @updatedAt
 
   routesFrom Route[] @relation("RouteDeparture")
   routesTo   Route[] @relation("RouteArrival")
@@ -295,11 +349,11 @@ model Route {
   // SimBrief Override-Hierarchie Ebene 4 (highest precedence). Per-route
   // overrides — z.B. "the cargo run to LFPG carries 0 pax + extra fuel".
   // Übersteuert alle anderen Ebenen.
-  simBriefOverlay Json?
+  simBriefOverlay  Json?
   createdAt        DateTime  @default(now())
 
-  pireps Pirep[]
-  bookings         Booking[]
+  pireps   Pirep[]
+  bookings Booking[]
 
   @@unique([airlineId, flightNumber])
   @@index([departureId])
@@ -307,37 +361,37 @@ model Route {
 }
 
 model Pirep {
-  id              String      @id @default(cuid())
+  id              String           @id @default(cuid())
   airlineId       String
-  airline         Airline     @relation(fields: [airlineId], references: [id])
+  airline         Airline          @relation(fields: [airlineId], references: [id])
   userId          String
-  user            User        @relation(fields: [userId], references: [id])
+  user            User             @relation(fields: [userId], references: [id])
   routeId         String?
-  route           Route?      @relation(fields: [routeId], references: [id])
+  route           Route?           @relation(fields: [routeId], references: [id])
   aircraftId      String?
-  aircraft        Aircraft?   @relation(fields: [aircraftId], references: [id])
+  aircraft        Aircraft?        @relation(fields: [aircraftId], references: [id])
   departureId     String
-  departure       Airport     @relation("PirepDeparture", fields: [departureId], references: [id])
+  departure       Airport          @relation("PirepDeparture", fields: [departureId], references: [id])
   arrivalId       String
-  arrival         Airport     @relation("PirepArrival", fields: [arrivalId], references: [id])
-  state           FlightState @default(Planned)
-  network         NetworkType @default(Offline)
-  status          PirepStatus @default(Submitted)
+  arrival         Airport          @relation("PirepArrival", fields: [arrivalId], references: [id])
+  state           FlightState      @default(Planned)
+  network         NetworkType      @default(Offline)
+  status          PirepStatus      @default(Submitted)
   flightTimeMin   Int?
   fuelUsedKg      Int?
   landingRateFpm  Int?
   remarks         String?
-  submittedAt     DateTime    @default(now())
+  submittedAt     DateTime         @default(now())
   approvedAt      DateTime?
   rejectedAt      DateTime?
   rejectionReason String?
   approvedById    String?
-  approver        User?       @relation("PirepApprover", fields: [approvedById], references: [id])
+  approver        User?            @relation("PirepApprover", fields: [approvedById], references: [id])
   // 1:1 — eine Booking hat max. einen abschließenden PIREP. DB-level Uniqueness
   // schützt vor Doppel-Submit-Race-Conditions; bei v2 Multi-Leg wird ein eigenes
   // Booking-Parent/Leg-Children-Pattern entstehen, nicht 1:n hier.
-  bookingId       String?     @unique
-  booking         Booking?    @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  bookingId       String?          @unique
+  booking         Booking?         @relation(fields: [bookingId], references: [id], onDelete: SetNull)
   flightPlanCache FlightPlanCache?
 
   @@index([userId, submittedAt])
@@ -442,19 +496,19 @@ model VerificationToken {
 }
 
 model Booking {
-  id              String       @id @default(cuid())
-  airlineId       String
-  airline         Airline      @relation(fields: [airlineId], references: [id])
-  userId          String
-  user            User         @relation(fields: [userId], references: [id])
+  id        String  @id @default(cuid())
+  airlineId String
+  airline   Airline @relation(fields: [airlineId], references: [id])
+  userId    String
+  user      User    @relation(fields: [userId], references: [id])
 
   // Required + onDelete: Restrict (default). Booking ohne Route ist Nonsense-State.
   // Hard-Delete einer Route erfordert vorheriges Cancel/Expire aller referenzierenden Bookings
   // — bewusste Operational Hygiene, nicht Bug.
-  routeId         String
-  route           Route        @relation(fields: [routeId], references: [id])
+  routeId String
+  route   Route  @relation(fields: [routeId], references: [id])
 
-  state           BookingState @default(Created)
+  state BookingState @default(Created)
 
   // Hint für UI/Filter, kein Hard-Lock — actual Network kommt vom PIREP/LiveSession
   intendedNetwork NetworkType?
@@ -467,16 +521,16 @@ model Booking {
   // Booking-Edit-Pattern Phase 2.
   scheduledDeparture DateTime?
 
-  dispatchedAt      DateTime?
+  dispatchedAt DateTime?
 
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
-  expiresAt          DateTime  // app-level: createdAt + 7d in v1
+  expiresAt          DateTime // app-level: createdAt + 7d in v1
   cancelledAt        DateTime?
   cancellationReason String?
 
-  pirep              Pirep?
-  flightPlanCache    FlightPlanCache?
+  pirep           Pirep?
+  flightPlanCache FlightPlanCache?
 
   @@index([userId, state])
   @@index([airlineId, state])
@@ -496,22 +550,22 @@ model Booking {
 //
 // SimBrief weather TTL — 6h hardcoded weil physikalisch, nicht airline-policy.
 model FlightPlanCache {
-  id            String   @id @default(cuid())
-  airlineId     String
-  airline       Airline  @relation(fields: [airlineId], references: [id])
-  bookingId     String?  @unique
-  booking       Booking? @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  pirepId       String?  @unique
-  pirep         Pirep?   @relation(fields: [pirepId], references: [id], onDelete: SetNull)
+  id        String   @id @default(cuid())
+  airlineId String
+  airline   Airline  @relation(fields: [airlineId], references: [id])
+  bookingId String?  @unique
+  booking   Booking? @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  pirepId   String?  @unique
+  pirep     Pirep?   @relation(fields: [pirepId], references: [id], onDelete: SetNull)
 
-  ofpId         String
-  rawResponse   Json
-  routeString   String?  @db.Text
-  fuelKg        Int?
-  blockTimeMin  Int?
+  ofpId        String
+  rawResponse  Json
+  routeString  String? @db.Text
+  fuelKg       Int?
+  blockTimeMin Int?
 
-  generatedAt   DateTime @default(now())
-  expiresAt     DateTime
+  generatedAt DateTime @default(now())
+  expiresAt   DateTime
 
   @@index([airlineId])
   @@index([expiresAt])
@@ -537,36 +591,170 @@ model FlightPlanCache {
 //     Discord-OAuth-Identity vom session)
 //   - Token-Replay: usedAt-Check ist die einzige Defense — first-accept-wins
 model Invite {
-  id          String    @id @default(cuid())
-  token       String    @unique // URL-safe random token (cuid format)
+  id    String @id @default(cuid())
+  token String @unique // URL-safe random token (cuid format)
 
   // Pre-fill / Hint — der Admin trägt ein wer eingeladen wurde, aber das
   // wird beim accept NICHT als gate genutzt. User-Identity kommt aus
   // dem authenticated NextAuth-session.
-  email       String?
+  email String?
 
-  airlineId   String
-  airline     Airline   @relation(fields: [airlineId], references: [id])
+  airlineId String
+  airline   Airline @relation(fields: [airlineId], references: [id])
 
   // Wenn null → User wird nur airline-zugewiesen, role muss admin später
   // manuell setzen (oder der User behält null-role und ist ein "pending pilot").
-  roleId      String?
-  role        Role?     @relation(fields: [roleId], references: [id])
+  roleId String?
+  role   Role?   @relation(fields: [roleId], references: [id])
 
-  expiresAt   DateTime
-  usedAt      DateTime? // null = pending; != null = used or revoked
+  expiresAt DateTime
+  usedAt    DateTime? // null = pending; != null = used or revoked
 
   // Wer hat das Invite erstellt
   createdById String
-  createdBy   User      @relation("InviteCreator", fields: [createdById], references: [id])
+  createdBy   User   @relation("InviteCreator", fields: [createdById], references: [id])
 
   // Wer hat das Invite eingelöst (null wenn pending)
-  usedById    String?
-  usedBy      User?     @relation("InviteUser", fields: [usedById], references: [id])
+  usedById String?
+  usedBy   User?   @relation("InviteUser", fields: [usedById], references: [id])
 
-  createdAt   DateTime  @default(now())
+  createdAt DateTime @default(now())
 
   @@index([airlineId, usedAt])
   @@index([token])
   @@index([expiresAt])
+}
+
+// ============================================================================
+// SYSTEM-CURATED CATALOGS — Airport, AircraftType
+//
+// Phase 1 Architektur:
+// - Airline-admins können nicht direkt anlegen — sie reichen einen Request ein.
+// - System-admin sieht queue (/admin/requests), approves oder rejects.
+// - Approve mit `asVerified=true` → catalog-entry mit verified-badge.
+// - Approve mit `asVerified=false` → unverified entry (UI warning + edit-flag).
+// - Subsequent verify-action: system-admin kann unverified entry später
+//   verified machen (Airport.verified true setzen) wenn daten geprüft.
+// - Airline-admins können trotzdem unverified entries nutzen — sie sehen
+//   nur das warning-badge im picker.
+//
+// Audit-Trail: Catalog-entry → proposedFromRequest → request.requestedBy
+// (proposer) + request.reviewer (approver). verifiedBy ist separater field
+// für späteren verify-step (kann anderer system-admin sein als approver).
+// ============================================================================
+
+// AircraftType — system-curated aircraft type designations (B738, A20N, etc.).
+// Initial seed: ~150 ICAO doc-8643 entries (manuell kurated TS array, alle
+// verified=true). Spätere additions kommen via AircraftTypeRequest-flow.
+//
+// Beziehung zu Aircraft: Aircraft.aircraftTypeId optional FK. Während Phase 1
+// koexistieren Aircraft.type:String und Aircraft.aircraftTypeId:String — neue
+// resolver-logik bevorzugt aircraftTypeId, fällt zurück auf type-string-match
+// gegen AircraftType.icaoType. Phase 2 backfill setzt aircraftTypeId für alle
+// existing airframes; Phase 3 deprecated Aircraft.type field.
+//
+// Fleet[] relation deferred zu Phase 2 — derzeit Fleet.type:String, refactor
+// auf FK braucht eigenes migration window.
+// AircraftTypeRating[] deferred zu Phase 5 (Pilot-Type-Ratings feature).
+model AircraftType {
+  id                    String               @id @default(cuid())
+  icaoType              String               @unique // ICAO doc-8643 designator: "B738", "A20N", "A359"
+  name                  String // "Boeing 737-800", "Airbus A320neo"
+  manufacturer          String // "Boeing", "Airbus", "Embraer"
+  category              String // "narrow_body" | "wide_body" | "regional" | "cargo" | "ga"
+  rangeNm               Int // Maximum range in nautical miles
+  capacityPax           Int // Typical 2-class passenger capacity
+  cruiseSpeedKt         Int // Cruise speed in knots
+  fuelBurnKgH           Int // Approximate fuel burn kg/hour
+  imageUrl              String? // Optional reference image (CC-licensed or owned)
+  active                Boolean              @default(true)
+  verified              Boolean              @default(false)
+  verifiedAt            DateTime?
+  verifiedById          String?
+  verifiedBy            User?                @relation("AircraftTypeVerifier", fields: [verifiedById], references: [id])
+  proposedFromRequestId String?              @unique
+  proposedFromRequest   AircraftTypeRequest? @relation("AircraftTypeFromRequest", fields: [proposedFromRequestId], references: [id])
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+
+  aircraft Aircraft[]
+}
+
+// AirportRequest — proposal von airline-admin für catalog-erweiterung.
+// State-machine: Submitted → UnderReview → (Approved | Rejected).
+// Rate-limit: max 10 open (status != terminal) per user (enforced in
+// server-action). Bei Approval mit `approvedAsVerified` Boolean wird:
+//   1. Airport-row erstellt (proposedFromRequestId = this.id)
+//   2. status = Approved, reviewedAt set, reviewer set
+//   3. Wenn approvedAsVerified=true → Airport.verified=true, verifiedById=reviewer
+//   4. Wenn approvedAsVerified=false → Airport.verified=false (provisional)
+model AirportRequest {
+  id                 String        @id @default(cuid())
+  // Proposed airport data (mirrors Airport schema, except no FK fields)
+  icao               String
+  iata               String?
+  name               String
+  city               String?
+  country            String
+  latitude           Float
+  longitude          Float
+  elevation          Int?
+  // Request meta
+  status             RequestStatus @default(Submitted)
+  reason             String? // Optional: "needed for new charter route to Greenland"
+  // Submitter
+  requestedById      String
+  requestedBy        User          @relation("AirportRequester", fields: [requestedById], references: [id])
+  // Optional airline-context — null wenn user solo (kein airline-admin)
+  requestedAirlineId String?
+  requestedAirline   Airline?      @relation("AirportRequestAirline", fields: [requestedAirlineId], references: [id])
+  submittedAt        DateTime      @default(now())
+  // Reviewer
+  reviewedById       String?
+  reviewer           User?         @relation("AirportReviewer", fields: [reviewedById], references: [id])
+  reviewedAt         DateTime?
+  rejectionReason    String? // Set wenn status=Rejected
+  reviewerNotes      String? // Optional internal notes (not shown to requester)
+  // Set wenn status=Approved: war approve-as-verified oder approve-as-unverified?
+  approvedAsVerified Boolean?
+  // Back-relation 1:1: ein approved request creates max einen Airport
+  createdAirport     Airport?      @relation("AirportFromRequest")
+
+  @@index([status, submittedAt])
+  @@index([requestedById, submittedAt])
+  @@index([icao])
+}
+
+// AircraftTypeRequest — analog zu AirportRequest. State-machine identisch.
+model AircraftTypeRequest {
+  id                  String        @id @default(cuid())
+  // Proposed aircraft type data
+  icaoType            String
+  name                String
+  manufacturer        String
+  category            String
+  rangeNm             Int
+  capacityPax         Int
+  cruiseSpeedKt       Int
+  fuelBurnKgH         Int
+  imageUrl            String?
+  // Request meta (analog AirportRequest)
+  status              RequestStatus @default(Submitted)
+  reason              String?
+  requestedById       String
+  requestedBy         User          @relation("AircraftTypeRequester", fields: [requestedById], references: [id])
+  requestedAirlineId  String?
+  requestedAirline    Airline?      @relation("AircraftTypeRequestAirline", fields: [requestedAirlineId], references: [id])
+  submittedAt         DateTime      @default(now())
+  reviewedById        String?
+  reviewer            User?         @relation("AircraftTypeReviewer", fields: [reviewedById], references: [id])
+  reviewedAt          DateTime?
+  rejectionReason     String?
+  reviewerNotes       String?
+  approvedAsVerified  Boolean?
+  createdAircraftType AircraftType? @relation("AircraftTypeFromRequest")
+
+  @@index([status, submittedAt])
+  @@index([requestedById, submittedAt])
+  @@index([icaoType])
 }

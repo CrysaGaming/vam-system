@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client';
+import { aircraftTypeSeed } from './aircraft-types';
 
 const prisma = new PrismaClient();
 
@@ -64,8 +65,25 @@ async function main() {
   for (const ap of airports) {
     await prisma.airport.upsert({
       where: { icao: ap.icao },
-      update: {},
-      create: ap,
+      // Pre-seeded airports sind system-curated → verified=true. update-branch
+      // sorgt dafür dass existing rows (vor verified-column-Migration angelegt)
+      // auch upgegradet werden. verifiedById bleibt null = "system, kein
+      // spezifischer User-Verifier".
+      update: { verified: true, verifiedAt: new Date() },
+      create: { ...ap, verified: true, verifiedAt: new Date() },
+    });
+  }
+
+  // ───── AircraftTypes (system-curated catalog, Phase 1) ─────
+  // Seed aus aircraft-types.ts (~100 ICAO-doc-8643 designators). Alle als
+  // verified=true markiert, da von Hand kuratiert. Wenn User einen fehlenden
+  // Type braucht, kann er einen AircraftTypeRequest stellen — system-admin
+  // approved/rejected via UI.
+  for (const at of aircraftTypeSeed) {
+    await prisma.aircraftType.upsert({
+      where: { icaoType: at.icaoType },
+      update: { ...at, verified: true, verifiedAt: new Date() },
+      create: { ...at, verified: true, verifiedAt: new Date() },
     });
   }
 
@@ -86,6 +104,34 @@ async function main() {
       update: {},
       create: { ...ac, airlineId: airline.id },
     });
+  }
+
+  // ───── Backfill Aircraft.aircraftTypeId from Aircraft.type (Phase 1) ─────
+  // Aircraft.type ist String (legacy). aircraftTypeId ist neuer FK auf
+  // AircraftType. Wir matchen via icaoType-equality. Aircraft mit unbekanntem
+  // type (kein matching AircraftType-row) bleiben aircraftTypeId=null —
+  // system-admin muss dann via Request-flow den fehlenden Type adden.
+  let aircraftBackfilled = 0;
+  let aircraftUnmatched = 0;
+  const allAircraft = await prisma.aircraft.findMany({
+    select: { id: true, type: true, aircraftTypeId: true, registration: true },
+  });
+  for (const ac of allAircraft) {
+    if (ac.aircraftTypeId) continue; // already linked
+    const aircraftType = await prisma.aircraftType.findUnique({ where: { icaoType: ac.type } });
+    if (aircraftType) {
+      await prisma.aircraft.update({
+        where: { id: ac.id },
+        data: { aircraftTypeId: aircraftType.id },
+      });
+      aircraftBackfilled++;
+    } else {
+      aircraftUnmatched++;
+      console.warn(`⚠️  Aircraft ${ac.registration} (type=${ac.type}) — kein matching AircraftType-row`);
+    }
+  }
+  if (aircraftBackfilled > 0) {
+    console.log(`Backfilled aircraftTypeId für ${aircraftBackfilled} Aircraft`);
   }
 
   // ───── Routes ─────
@@ -164,7 +210,10 @@ async function main() {
     ranks: ranks.length,
     roles: roles.length,
     airports: airports.length,
+    aircraftTypes: aircraftTypeSeed.length,
     aircraft: aircraftList.length,
+    aircraftBackfilled,
+    aircraftUnmatched,
     routes: routes.length,
   });
 }
