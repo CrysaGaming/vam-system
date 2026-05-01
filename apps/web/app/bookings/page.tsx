@@ -10,27 +10,27 @@ function stateStyle(state: BookingState): { className: string; label: string } {
   switch (state) {
     case 'Created':
       return {
-        className: 'bg-blue-500/10 border-blue-500/30 text-blue-400',
+        className: 'bg-blue-500/10 border-blue-500/30 text-blue-700 dark:text-blue-400',
         label: 'Erstellt',
       };
     case 'SimBriefDispatched':
       return {
-        className: 'bg-green-500/10 border-green-500/30 text-green-400',
+        className: 'bg-green-500/10 border-green-500/30 text-green-700 dark:text-green-400',
         label: 'OFP geplant',
       };
     case 'Cancelled':
       return {
-        className: 'bg-red-500/10 border-red-500/30 text-red-400',
+        className: 'bg-red-500/10 border-red-500/30 text-red-700 dark:text-red-400',
         label: 'Storniert',
       };
     case 'Completed':
       return {
-        className: 'bg-gray-500/10 border-gray-500/30 text-gray-400',
+        className: 'bg-gray-500/10 border-gray-500/30 text-gray-700 dark:text-gray-400',
         label: 'Abgeschlossen',
       };
     case 'Expired':
       return {
-        className: 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400',
+        className: 'bg-yellow-500/10 border-yellow-500/30 text-yellow-700 dark:text-yellow-400',
         label: 'Abgelaufen',
       };
   }
@@ -87,12 +87,12 @@ export default async function BookingsList() {
   );
 
   return (
-    <main className="min-h-screen bg-gray-950 text-white p-8">
+    <main className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-white p-8">
       <div className="max-w-6xl mx-auto">
-        <header className="flex justify-between items-center mb-8 pb-6 border-b border-gray-800">
+        <header className="flex justify-between items-center mb-8 pb-6 border-b border-gray-200 dark:border-gray-800">
           <div>
             <h1 className="text-3xl font-bold">Meine Bookings</h1>
-            <p className="text-gray-400 text-sm mt-1">
+            <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">
               {bookings.length}{' '}
               {bookings.length === 1 ? 'Booking gesamt' : 'Bookings gesamt'}
               {activeBookings.length > 0 &&
@@ -102,7 +102,7 @@ export default async function BookingsList() {
           <div className="flex gap-3">
             <Link
               href="/dashboard"
-              className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded text-sm transition"
+              className="px-4 py-2 bg-gray-200 hover:bg-gray-300 dark:bg-gray-800 dark:hover:bg-gray-700 rounded text-sm transition"
             >
               ← Dashboard
             </Link>
@@ -116,8 +116,8 @@ export default async function BookingsList() {
         </header>
 
         {bookings.length === 0 ? (
-          <div className="bg-gray-900 border border-gray-800 rounded-lg p-12 text-center">
-            <p className="text-gray-400 mb-4">
+          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-12 text-center">
+            <p className="text-gray-500 dark:text-gray-400 mb-4">
               Du hast noch keine Bookings angelegt.
             </p>
             <Link
@@ -166,10 +166,10 @@ function BookingSection({ title, bookings, muted }: BookingSectionProps) {
             <Link
               key={booking.id}
               href={`/bookings/${booking.id}`}
-              className="flex justify-between items-center px-4 py-3 bg-gray-900 hover:bg-gray-800 rounded border border-gray-800 hover:border-indigo-600/50 transition group"
+              className="flex justify-between items-center px-4 py-3 bg-white hover:bg-gray-50 dark:bg-gray-900 dark:hover:bg-gray-800 rounded border border-gray-200 dark:border-gray-800 hover:border-indigo-600/50 transition group"
             >
               <div className="flex items-center gap-4 min-w-0">
-                <span className="font-mono text-sm text-indigo-400 group-hover:text-indigo-300 transition w-16 flex-shrink-0">
+                <span className="font-mono text-sm text-indigo-600 dark:text-indigo-400 group-hover:text-indigo-700 dark:group-hover:text-indigo-300 transition w-16 flex-shrink-0">
                   {booking.route.flightNumber}
                 </span>
                 <span className="text-sm">
@@ -190,7 +190,7 @@ function BookingSection({ title, bookings, muted }: BookingSectionProps) {
               <div className="flex items-center gap-3 flex-shrink-0">
                 {hasOfp && (
                   <span
-                    className="text-xs text-indigo-400"
+                    className="text-xs text-indigo-600 dark:text-indigo-400"
                     title="OFP gecacht"
                   >
                     ✈ OFP

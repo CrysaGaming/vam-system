@@ -27,18 +27,18 @@ export default async function AdminRolesPage() {
   const roles = await listRoles();
 
   return (
-    <main className="min-h-screen bg-gray-950 text-white p-8">
+    <main className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-white p-8">
       <div className="max-w-4xl mx-auto">
-        <header className="flex justify-between items-center mb-8 pb-6 border-b border-gray-800">
+        <header className="flex justify-between items-center mb-8 pb-6 border-b border-gray-200 dark:border-gray-800">
           <div>
             <h1 className="text-3xl font-bold">Rollen-Verwaltung</h1>
-            <p className="text-gray-400 text-sm mt-1">
+            <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">
               Globale Rollen + Permissions. Admin-only.
             </p>
           </div>
           <Link
             href="/dashboard"
-            className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded text-sm transition"
+            className="px-4 py-2 bg-gray-200 hover:bg-gray-300 dark:bg-gray-800 dark:hover:bg-gray-700 rounded text-sm transition"
           >
             ← Dashboard
           </Link>
