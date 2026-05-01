@@ -1,4 +1,4 @@
-# Airline Ops — Complete Roadmap (v2)
+# Airline Ops — Complete Roadmap (v3)
 
 Stand: 2026-05-01. Roadmap für das Theme **"Airline rundum verwalten und
 anzeigen"**, restructured um den expliziten user-ask:
@@ -6,13 +6,18 @@ anzeigen"**, restructured um den expliziten user-ask:
 > "Routen welche die airline anbieten soll erstellen, bearbeiten, löschen
 > kann, das gleiche dann für fleet, aircraft, hubs, airports."
 
-V2 vs v1: **Resource-CRUD-first** statt feature-first. Die ersten 4 Phasen
-geben dem airline-admin volle Kontrolle über die foundational data —
-Airports, Aircraft-Types, Aircraft, Fleet, Hubs, Routes. Erst danach kommen
-operational depth, schedule, branding, analytics.
+**v3 vs v2**: Shared resources (Airport + AircraftType) sind jetzt
+**system-admin curated mit PIREP-style request-flow**. Airline-admin
+proposed neue entries, VAM-system-admin approved per 1-click (mit
+"verified" / "unverified" tier). Mirror eines bewährten patterns — gleicher
+mental-model wie PIREP submit/approve, gleiche UI-components reusable.
 
-11 Phasen, **48-72 Tage Coding**, calibrated **72-108 Tage** real-time =
-**~14-22 Wochen** part-time.
+**v2 vs v1**: Resource-CRUD-first statt feature-first. Die ersten 4 Phasen
+geben dem airline-admin volle Kontrolle über die foundational data —
+Airports, Aircraft-Types, Aircraft, Fleet, Hubs, Routes.
+
+11 Phasen, **52-78 Tage Coding**, calibrated **75-113 Tage** real-time =
+**~15-23 Wochen** part-time.
 
 ---
 
@@ -102,27 +107,67 @@ Konsequenz: DLH-admin kann nicht
 - BAW-HR-data sehen
 - BAW-announcements posten oder lesen
 
-### Shared-Resource-Handling
+### Shared-Resource-Handling (system-curated mit request-flow)
 
-**Airport** (geographische realität — EDDF ist EDDF für jeden):
-- **Create**: jeder airline-admin (validates ICAO-uniqueness global)
-- **Edit**: airline-admin kann editieren; `lastEditedById` getrackt für audit
-- **Delete**: nur wenn keine FK-references existieren; system-admin only
-- **Conflict**: gleichzeitige edits → last-write-wins v1 (mit audit-trail).
-  Edit-history-table als Phase-1.5 falls 5+ aktive airline-admins
-- **Risk**: DLH-admin könnte EDDF.latitude verändern und BAW-routes brechen.
-  Mitigation: lat/lon-edits bedürfen system-admin approval. Andere fields
-  (name, city) sind safe.
+Shared resources (Airport + AircraftType) sind **VAM-system-admin curated**.
+Airline-admin kann nicht direkt creates/editen — stattdessen submitted er
+einen **request** (mirror eines bewährten patterns: PIREP submit/approve).
+Das löst den potentiellen "DLH-admin verändert EDDF.lat und bricht BAW-
+routes"-conflict komplett: nur system-admin schreibt jemals in den catalog.
 
-**AircraftType** (engineering realität — B738 ist B738 für jeden):
-- **Create**: airline-admin direct (v1)
-- **Edit**: airline-admin kann eigene creations editieren; system-admin
-  alle. Bestehende fields (rangeNm, capacity) sind quasi-immutable.
-- **Delete**: nur wenn kein aircraft references; system-admin only
-- **Conflict**: airline-admins sollten gleiche `icaoType`-namen agreed
-  haben (B738 ist global standardized via ICAO-doc-8643). Custom variants
-  (B738MAX9, etc.) → system-admin merges duplikate. v2 könnte "verified"
-  flag mit approval-flow haben.
+**Pre-seeded baseline**:
+- Airport-catalog wird mit ~10k airports aus **OurAirports.com** (public
+  domain CSV) geseeded — alle als `verified=true`
+- AircraftType-catalog wird mit ~150 ICAO-standard-typen aus **ICAO-doc-8643**
+  geseeded — alle als `verified=true`
+- Airline-admin findet 99% der needed entries sofort in browse-UI
+
+**Request-flow** (neue entries):
+- Airline-admin sieht "Vorschlag einreichen"-button auf catalog-page
+- Submit-form fragt alle airport-felder (ICAO, IATA, name, city, country,
+  lat, lon, elevation) ODER alle aircraft-type-felder (icaoType, name,
+  manufacturer, category, rangeNm, capacityPax, etc.) plus optional reason
+- Status-pipeline: `Submitted → UnderReview → Approved / Rejected`
+- Airline-admin sieht status pro request in `/airline/requests` — gleiches
+  pattern wie `/pireps` für seine eigenen einreichungen
+- VAM-system-admin sieht sidebar-badge "X Anträge zur Prüfung" (mirror
+  PIREP "PIREPs zur Prüfung"), öffnet `/admin/requests`, reviewed in 1-click
+
+**Approve-tier (verified vs unverified)**:
+- **Approve as verified** — system-admin hat die daten geprüft (z.B. lat/lon
+  gegen externe quelle abgeglichen). Airport/Type wird mit `verified=true`
+  erstellt. Standard-fall für well-known entries.
+- **Approve as unverified** — system-admin hat keine zeit für deep-check
+  aber daten erscheinen plausibel. Airport/Type wird mit `verified=false`
+  erstellt + im catalog mit "⚠ Unverified"-badge markiert. Andere airlines
+  können nutzen aber wissen es ist user-contributed. System-admin kann
+  später async upgraden.
+- **Edit & approve** — system-admin korrigiert ein feld (z.B. tippfehler
+  in name) und approved dann als verified.
+- **Reject** — mit reason. Airline-admin sieht reason in `/airline/requests`,
+  kann re-submit mit korrigierten daten.
+
+**Risk eliminiert**: DLH-admin kann **nicht** EDDF.lat verändern. Alles was
+er kann ist einen edit-request submitten — system-admin entscheidet. Damit
+ist BAW-routes-breaking durch DLH-edit unmöglich.
+
+**Edge-cases**:
+- **Duplicate-detection bei submit**: Form prüft bei ICAO-eingabe ob bereits
+  im catalog ODER als pending request → zeigt "Existiert bereits" mit link,
+  oder "Antrag steht aus von [User]" mit join-link
+- **Rate-limiting**: max 10 offene requests pro airline-admin (verhindert
+  spam, großzügig genug für legitime needs)
+- **Approved-then-edit**: nach approval kann system-admin Airport-entity
+  direkt editieren (separater flow). Request bleibt approved als history.
+- **Re-submit nach reject**: airline-admin sieht reject-reason, kann neue
+  request stellen. Original-request bleibt in history.
+- **Unverified-warnings**: in route-creation form zeigt picker "⚠ Unverified"-
+  badge. Beim final create gibt's eine info-toast "Diese route nutzt einen
+  unverified airport — bitte daten ggf. melden".
+
+**Hard-delete von Airport/AircraftType**: nur system-admin via `/admin/...`-
+seite und nur wenn keine FK-references existieren. Soft-delete via
+`active=false`-flag für entries die obsolete sind (z.B. closed airports).
 
 ### Globale-Uniqueness-Constraints (per airline)
 
@@ -194,7 +239,7 @@ Per Phase visualisiert (was DLH-admin sieht in seiner eigenen UI):
 
 | Phase | Was DLH-admin selbst managen kann |
 |---|---|
-| 1 | Eigene preferred airports anlegen, eigene aircraft-types anlegen (alle anderen airlines können diese auch nutzen) |
+| 1 | Browse system-curated catalog (10k airports, 150 aircraft-types). Vorschläge für neue entries einreichen — system-admin approved als verified/unverified |
 | 2 | Eigene Fleet (Aircraft-Types die DLH operiert), eigene Aircraft (D-AIZA, D-AIBL, ...) — voll isoliert |
 | 3 | Eigene Hubs (EDDF, EDDM, ...) — BAW kann auch EDDF als hub haben, das ist parallel |
 | 4 | Eigene Routes (LH918, LH400, ...) — voll isoliert |
@@ -224,7 +269,7 @@ jeder airline-admin nur seine 1/100 der daten.
 
 | Phase | Theme | Days | Cal | Was es liefert |
 |---|---|---|---|---|
-| **1** | Airport & Aircraft-Type Catalogs | 3-5 | 4-7 | Foundation: alles andere referenced diese |
+| **1** | Airport & Aircraft-Type Catalogs | 5-7 | 7-10 | Foundation: system-curated mit request-flow |
 | **2** | Fleet & Aircraft Management | 8-12 | 12-18 | Type-fleet + Tail-CRUD + operational depth |
 | **3** | Hubs CRUD | 2-4 | 3-6 | Multi-hub airlines, Hub-zuweisungen |
 | **4** | Routes Management | 4-6 | 6-9 | Vollständige Route-CRUD mit Map-Picker |
@@ -235,31 +280,44 @@ jeder airline-admin nur seine 1/100 der daten.
 | **9** | Analytics & Reporting | 6-9 | 9-13 | KPI dashboard + OTP + PDF reports |
 | **10** | Award Activation | 3-5 | 4-7 | Trigger engine für existing Award schema |
 | **11** | Multi-Airline & Alliance | 7-10 | 10-15 | Inter-airline transfers, alliances |
-| | **Total** | **50-76** | **72-111** | |
+| | **Total** | **52-78** | **75-113** | |
 
-Phasen 1-4 (Foundation CRUD) = **17-27 Tage** = ~3-5 Wochen part-time. Wenn
+Phasen 1-4 (Foundation CRUD) = **19-29 Tage** = ~4-6 Wochen part-time. Wenn
 du nur das willst, ist das ein klar abgegrenzter scope.
 
 ---
 
-## Phase 1 — Airport & Aircraft-Type Catalogs (3-5 Tage)
+## Phase 1 — Airport & Aircraft-Type Catalogs (5-7 Tage)
 
 **Ziel**: Die zwei "shared resource" catalogs auf die alles andere
-referenced. Foundation phase.
+referenced. **System-curated mit PIREP-style request-flow** — airline-admin
+browse + propose, VAM-system-admin approve. Foundation phase.
 
-### 1.1 Airport CRUD
+### 1.1 Airport-Catalog (system-curated)
 
 #### Was existiert
 - `Airport` schema mit icao, iata, name, city, country, lat/lon, elevation
-- Keine UI zum Erstellen/Editieren
+- Keine UI zum browsen, keine seed-data, keine request-mechanik
 
-#### Auth-Strategy
-Airports sind **shared resources** (mehrere airlines nutzen EDDF). Daher:
-- **Create**: Airline-admin darf neue Airports anlegen (wenn ICAO frei)
-- **Edit**: Airline-admin darf editieren → markiert als `lastEditedBy`. Bei
-  conflict mit anderer airline-admin: system-admin entscheidet.
-- **Delete**: Soft-delete via `active=false`. Hard-delete nur system-admin
-  und nur wenn keine FK-references existieren.
+#### Strategie: comprehensive seed + request-flow
+
+**Seeding** aus OurAirports.com (public domain CSV):
+- `airports.csv` enthält ~80k airport-records weltweit
+- Filter auf `type IN ('large_airport', 'medium_airport', 'heliport')`
+  reduziert auf ~10k useful entries
+- Mapping: ident→icao, iata_code→iata, name, municipality→city, iso_country
+  →country, latitude_deg→latitude, longitude_deg→longitude, elevation_ft→elevation
+- Alle pre-seeded entries werden als `verified=true` markiert
+- Skript `packages/db/seeds/airports.ts` lädt CSV via stream, batch-insert
+  in chunks of 500
+- Idempotent via `upsert` auf `icao`
+
+**Request-flow** für nicht-pre-seeded airports:
+- Airline-admin findet airport nicht in browse → klickt "Vorschlag einreichen"
+- Form fragt alle airport-felder + optional reason
+- Status: Submitted → UnderReview → Approved (verified|unverified) | Rejected
+- Bei approve: Airport-entity wird erstellt + AirportRequest.createdAirportId
+  gesetzt + Airport.verified je nach approval-tier
 
 #### Schema-Erweiterung
 
@@ -268,28 +326,21 @@ model Airport {
   // existing: id, icao, iata, name, city, country, latitude, longitude, elevation
   // ADD:
   active        Boolean   @default(true)
-  createdById   String?
-  createdBy     User?     @relation("AirportCreator", fields: [createdById], references: [id])
-  lastEditedById String?
-  lastEditedBy  User?     @relation("AirportEditor", fields: [lastEditedById], references: [id])
+  verified      Boolean   @default(false)         // pre-seeded entries: true
+  verifiedAt    DateTime?
+  verifiedById  String?
+  verifiedBy    User?     @relation("AirportVerifier", fields: [verifiedById], references: [id])
+  // Provenance — wer hat den airport ursprünglich vorgeschlagen
+  proposedById  String?
+  proposedBy    User?     @relation("AirportProposer", fields: [proposedById], references: [id])
+  proposedFromRequestId String? @unique
+  proposedFromRequest   AirportRequest? @relation(fields: [proposedFromRequestId], references: [id])
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 }
 ```
 
-#### UI
-
-- `/airports` — public read-only catalog (existing /routes-style)
-- `/admin/airports` — system-admin full CRUD with conflict detection
-- `/airline/airports` — airline-admin: create new airport, edit-with-suggest,
-  view all (filtered to active by default)
-
-Forms:
-- Create: ICAO (required, validated as 4 letters), IATA (optional 3 letters),
-  Name, City, Country (dropdown), Lat (-90..90), Lon (-180..180), Elevation
-- Edit: same fields, with "Last edited by [user] on [date]" indicator
-
-### 1.2 Aircraft-Type Catalog
+### 1.2 AircraftType-Catalog (system-curated)
 
 #### Schema
 
@@ -306,43 +357,266 @@ model AircraftType {
   fuelBurnKgH   Int
   imageUrl      String?
   active        Boolean    @default(true)
-  createdById   String?
-  createdBy     User?      @relation(fields: [createdById], references: [id])
+  verified      Boolean    @default(false)
+  verifiedAt    DateTime?
+  verifiedById  String?
+  verifiedBy    User?      @relation("AircraftTypeVerifier", fields: [verifiedById], references: [id])
+  proposedById  String?
+  proposedBy    User?      @relation("AircraftTypeProposer", fields: [proposedById], references: [id])
+  proposedFromRequestId String? @unique
+  proposedFromRequest   AircraftTypeRequest? @relation(fields: [proposedFromRequestId], references: [id])
   createdAt     DateTime   @default(now())
 
   aircraft      Aircraft[]
-  fleets        Fleet[]    // wenn Fleet via FK auf type-id refactored wird
+  fleets        Fleet[]
   ratings       AircraftTypeRating[]   // Phase 5
   schedules     RouteSchedule[]        // Phase 6
 }
 ```
 
-#### Seeding
+#### Seeding aus ICAO-doc-8643
 
-Initial seed mit 15 häufigen typen: B738, A20N, A21N, A319, A320, A321, A332,
-A333, A359, A35K, A388, B748, B772, B773, B788, CRJ9, E190.
+ICAO Doc 8643 ist die offizielle aircraft-type-designators-liste, ~150
+common types. Public reference, kann manuell als JSON kuratiert werden.
 
-#### UI
+`packages/db/seeds/aircraft-types.ts` enthält die ~150 entries als
+TypeScript-array, alle mit `verified=true`. Beispiel-entries:
 
-- `/admin/aircraft-types` — system-admin CRUD
-- `/airline/aircraft-types` — airline-admin: read-only browse, request-new
-  (creates entry mit `active=false` bis system-admin approved). v1 simpler:
-  airline-admin darf direkt anlegen, system-admin kann später duplikate
-  mergen.
+```ts
+{
+  icaoType: "B738", name: "Boeing 737-800", manufacturer: "Boeing",
+  category: "narrow_body", rangeNm: 3060, capacityPax: 189,
+  cruiseSpeedKt: 460, fuelBurnKgH: 2500,
+}
+```
 
-### 1.3 Migration
+### 1.3 Request-Flow Schema
 
-- Backfill script: scan `Aircraft.type` strings (existing simple String
-  field), match against AircraftType.icaoType, set Aircraft.aircraftTypeId
-- Same für Fleet.type → Fleet.aircraftTypeId
-- Keep old `type` String columns für 1 release als fallback, dann remove
+Mirror der PIREP-state-machine.
+
+```prisma
+enum RequestStatus {
+  Submitted       // airline-admin hat eingereicht
+  UnderReview     // system-admin hat sich zugewiesen
+  Approved        // angenommen (verified oder unverified)
+  Rejected        // abgelehnt mit reason
+}
+
+model AirportRequest {
+  id                 String        @id @default(cuid())
+  // Proposed data — alle Airport-felder die der user ausgefüllt hat
+  icao               String
+  iata               String?
+  name               String
+  city               String?
+  country            String
+  latitude           Float
+  longitude          Float
+  elevation          Int?
+  // Request-meta
+  status             RequestStatus @default(Submitted)
+  reason             String?       // freitext: warum wird dieser airport gebraucht
+  // Submitter (mirrors Pirep.user)
+  requestedById      String
+  requestedBy        User          @relation("AirportRequester", fields: [requestedById], references: [id])
+  requestedAirlineId String?       // null wenn user nicht in airline
+  requestedAirline   Airline?      @relation("AirportRequestAirline", fields: [requestedAirlineId], references: [id])
+  submittedAt        DateTime      @default(now())
+  // Reviewer (mirrors Pirep.approver)
+  reviewedById       String?
+  reviewer           User?         @relation("AirportReviewer", fields: [reviewedById], references: [id])
+  reviewedAt         DateTime?
+  rejectionReason    String?
+  reviewerNotes      String?       // optional internal notes
+  approvedAsVerified Boolean?      // bei Approve: war es verified-tier oder unverified-tier?
+  // After approval — link zur erstellten Airport-entity
+  createdAirport     Airport?      // back-relation via Airport.proposedFromRequestId
+
+  @@index([status, submittedAt])           // für admin-queue sorted by oldest first
+  @@index([requestedById, submittedAt])    // für "meine requests" page
+  @@index([icao])                           // für duplicate-detection bei submit
+}
+
+model AircraftTypeRequest {
+  id                 String        @id @default(cuid())
+  // Proposed data
+  icaoType           String
+  name               String
+  manufacturer       String
+  category           String
+  rangeNm            Int
+  capacityPax        Int
+  cruiseSpeedKt      Int
+  fuelBurnKgH        Int
+  imageUrl           String?
+  // Request-meta (analog zu AirportRequest)
+  status             RequestStatus @default(Submitted)
+  reason             String?
+  requestedById      String
+  requestedBy        User          @relation("AircraftTypeRequester", fields: [requestedById], references: [id])
+  requestedAirlineId String?
+  requestedAirline   Airline?      @relation("AircraftTypeRequestAirline", fields: [requestedAirlineId], references: [id])
+  submittedAt        DateTime      @default(now())
+  reviewedById       String?
+  reviewer           User?         @relation("AircraftTypeReviewer", fields: [reviewedById], references: [id])
+  reviewedAt         DateTime?
+  rejectionReason    String?
+  reviewerNotes      String?
+  approvedAsVerified Boolean?
+  createdAircraftType AircraftType? // back-relation
+
+  @@index([status, submittedAt])
+  @@index([requestedById, submittedAt])
+  @@index([icaoType])
+}
+```
+
+### 1.4 UI Pages
+
+#### Airline-admin side
+
+- `/airline/airports` — browse system-curated catalog
+  - Search-bar (autocomplete by icao/iata/name/city)
+  - Filter: country, verified/unverified, active
+  - Table: ICAO | IATA | Name | City | Country | Verified-badge
+  - "⚠ Unverified" badge auf nicht-verified entries
+  - "Vorschlag einreichen"-button oben rechts
+- `/airline/airports/request` — submit-form
+  - Felder: ICAO (required, validated unique gegen catalog + pending requests),
+    IATA, Name, City, Country (dropdown), Lat, Lon, Elevation, Reason
+  - Submit → AirportRequest mit status='Submitted'
+  - Bestätigung: "Antrag eingereicht. Status verfolgen unter `/airline/requests`"
+- `/airline/aircraft-types` — analog: browse + "Vorschlag einreichen"
+- `/airline/aircraft-types/request` — submit-form analog
+- `/airline/requests` — meine eingereichten requests
+  - Tabs: "Alle" | "Submitted" | "UnderReview" | "Approved" | "Rejected"
+  - Per row: type-badge (Airport / AircraftType), proposed-name, status-pill,
+    submittedAt, reviewedAt
+  - Click → request-detail
+- `/airline/requests/[id]` — meine request-detail
+  - Header: status-pill + reason
+  - Submitted-data anzeigen (read-only)
+  - Bei Rejected: rejectionReason + "Neuen request mit korrigierten daten
+    stellen"-button
+  - Bei Approved: link zur erstellten Airport/AircraftType-entity
+
+#### VAM-system-admin side
+
+- Sidebar-badge "X Anträge zur Prüfung" — count aller `Submitted` requests
+  (mirror "PIREPs zur Prüfung" pattern)
+- `/admin/requests` — review-queue
+  - Filter: type (Airport | AircraftType), status, requesting-airline
+  - Sort: oldest-first als default
+  - Table: type-badge | proposed-name (icao/icaoType) | requester | airline |
+    submittedAt | status
+  - Click row → review-page
+- `/admin/requests/[id]` — review-page
+  - Header: request-type + status
+  - Submitted-data anzeigen (editable form fields — system-admin kann
+    korrekturen vor approval machen)
+  - Duplicate-check: zeigt warning "ICAO existiert bereits in catalog" mit
+    link, oder "Anderer pending request für gleiche ICAO" mit link
+  - Action-panel:
+    - **Approve as verified** — primary action, daten gelten als geprüft
+    - **Approve as unverified** — secondary action, daten go-live mit warning-badge
+    - **Reject** — modal mit reason-text-area
+  - Bei Approve: Airport/AircraftType-entity wird erstellt mit
+    `verified=approvedAsVerified`, `proposedById=request.requestedById`,
+    `verifiedById=approver` (nur wenn verified=true), Request-status →
+    Approved + approvedAsVerified gesetzt + reviewerId gesetzt
+  - Bei Reject: Request-status → Rejected + rejectionReason gesetzt
+- `/admin/airports` — system-admin direct CRUD auf Airport-entity
+  - Für nachträgliche edits + verify-toggle (unverified → verified upgrade)
+- `/admin/aircraft-types` — analog für AircraftType
+
+### 1.5 Server Actions
+
+```ts
+// Airline-admin actions
+async function submitAirportRequest(input: AirportRequestInput) {
+  // Validate ICAO format
+  // Check duplicate: existing airport OR pending request with same ICAO
+  // Check rate-limit: max 10 open requests per user
+  // Create AirportRequest with status=Submitted, requestedById=session.user.id
+  // Notify system-admin (sidebar-badge auto-updates via revalidatePath)
+}
+
+async function submitAircraftTypeRequest(input: AircraftTypeRequestInput) {
+  // analog
+}
+
+// System-admin actions
+async function approveAirportRequest(requestId: string, asVerified: boolean, edits?: AirportEdits) {
+  // requireSystemAdmin()
+  // Apply edits to request fields (if any)
+  // Create Airport with verified=asVerified, proposedById=request.requestedById,
+  //   verifiedById=session.user.id (nur wenn asVerified=true), proposedFromRequestId=requestId
+  // Update request: status=Approved, approvedAsVerified=asVerified,
+  //   reviewedById=session.user.id, reviewedAt=now()
+  // revalidatePath für catalog + admin-queue + airline-requests
+}
+
+async function rejectAirportRequest(requestId: string, rejectionReason: string) {
+  // requireSystemAdmin()
+  // Update request: status=Rejected, rejectionReason, reviewedById, reviewedAt
+}
+
+async function verifyAirport(airportId: string) {
+  // requireSystemAdmin()
+  // Upgrade unverified → verified, set verifiedAt + verifiedById
+}
+
+// analog für AircraftType
+```
+
+### 1.6 Migration aus existing data
+
+- **Existing Airport-records**: bereits 1 oder 2 entries (für DLH route).
+  Migration setzt `verified=true` (assume manuell kuratiert), `proposedById=null`
+- **Existing Aircraft.type strings**: backfill-script matched gegen die
+  ICAO-doc-8643-seed. Wenn match → set Aircraft.aircraftTypeId. Wenn kein
+  match (z.B. "Boeing 737" statt "B738") → log + manual fixup
+- **Existing Fleet.type**: gleicher backfill
+- Keep `Aircraft.type` und `Fleet.type` String columns für 1 release als
+  fallback, dann remove
+
+### 1.7 Edge-Cases & Sonderfälle
+
+- **Duplicate-detection**: bei `/airline/airports/request` form-submit wird
+  validated:
+  1. Existiert Airport mit dieser ICAO bereits? → "Airport existiert
+     bereits" + link `/airline/airports#EDDF`, kein submit
+  2. Pending AirportRequest mit dieser ICAO? → "Antrag steht bereits aus
+     von [User] seit [date]" + link `/airline/requests/[id]`, kein submit
+- **Rate-limiting**: server-action checked `count(AirportRequest WHERE
+  requestedById=user.id AND status IN [Submitted, UnderReview]) < 10`
+- **Re-submit nach reject**: airline-admin sieht reject-reason, klickt
+  "Neuen request stellen", form pre-filled mit submitted-data, user kann
+  korrigieren + resubmit. Original-request bleibt in history.
+- **Request-batching**: system-admin kann queue filtern auf "all EDDX-related"
+  → wenn duplicate-requests existieren, manually mergen (approve einen,
+  reject die anderen mit reason "duplicate, see [link]")
+- **Notification-fatigue**: nur sidebar-badge im UI, keine emails per
+  request. Optional digest "3 neue requests" einmal pro tag (Phase 1.5).
+- **Unverified-handling in routes**: in `/airline/routes/new` form picker
+  zeigt verified-badge. Beim final create gibt's eine info-toast falls
+  unverified airport gewählt: "Diese route nutzt einen unverified airport
+  — bitte daten ggf. melden via Vorschlag-form".
 
 ### Risiken
 
-- AircraftType backfill kann fail wenn existing strings nicht ICAO sind
-  (z.B. "Boeing 737" statt "B738"). Manual fixup-pass nötig.
-- Conflict-resolution für concurrent airport edits — initial: last-write-wins
-  + history table als Phase 2-feature
+- **OurAirports.com CSV download**: ~80k records, ~10MB. Stream-parsing
+  nötig damit memory-pressure nicht explodiert. `csv-parse/sync` reicht
+  für den seed-script (one-time) aber kann bei production-deploys
+  langsam sein.
+- **AircraftType backfill kann fail** wenn existing strings nicht ICAO
+  sind. Manual fixup-pass nötig — aber existing DB hat nur 1-2 aircraft,
+  also trivial.
+- **Naming-collisions in custom AircraftTypes**: airline-admin fragt
+  "B738MAX9" obwohl ICAO standardisiert "B38M" für 737 MAX 9. System-admin
+  muss aufpassen + edits-vor-approve nutzen.
+- **OurAirports.com data-quality**: lat/lon stimmen nicht immer für kleine
+  airfields. Mitigation: Filter auf large+medium reduces das problem.
 
 ---
 
@@ -964,13 +1238,15 @@ routes definieren. Genug für demo + erste 2-3 pilots.
 
 ## Decision Points (vor Phase 1)
 
-1. **Airport authority model**: airline-admin darf creates aber nicht edits
-   von "shared" airports? Oder edit-mit-history? Empfehle:
-   create-frei, edit-with-audit, delete-system-only.
+1. ~~**Airport authority model**~~ — **RESOLVED in v3**: System-curated catalog
+   mit OurAirports.com seed (~10k entries, alle verified=true). Airline-admin
+   submitted neue entries via PIREP-style request-flow. System-admin approved
+   als "verified" (geprüft) oder "unverified" (provisional, mit warning-badge).
+   Niemand außer system-admin schreibt jemals direkt in den Airport-catalog.
 
-2. **AircraftType authority**: airline-admin darf neu anlegen, oder
-   request-flow mit system-admin approval? Empfehle: airline-admin direct,
-   system-admin merged duplikate später.
+2. ~~**AircraftType authority**~~ — **RESOLVED in v3**: Same approach — ICAO-doc-
+   8643 seed (~150 types, alle verified=true) + request-flow + verified-tier.
+   Custom variants gehen durch system-admin review.
 
 3. **Soft-delete vs hard-delete**: Standard für Aircraft/Route ist
    soft-delete (active=false / retiredAt). Empfehle: alle non-shared
@@ -988,6 +1264,13 @@ routes definieren. Genug für demo + erste 2-3 pilots.
 7. **HR audit retention**: lifetime oder rolling? Empfehle: lifetime.
 
 8. **Schedule-generator timezone**: UTC storage, user-tz display.
+
+9. **Request-rate-limit threshold**: max 10 open requests pro airline-admin
+   in v3. Empfehle: start mit 10, monitor, anpassen falls nötig.
+
+10. **Unverified-airport-warnings stärke**: nur info-toast (v3 default), oder
+    explicit confirm-dialog "Confirm unverified airport"? Empfehle: info-toast
+    initially, upgrade falls user-feedback zeigt dass leute sie übersehen.
 
 ---
 
@@ -1010,30 +1293,46 @@ ich passe phasen an.
 
 ## Zusammenfassung
 
-V2 Roadmap deckt **11 Phasen über 50-76 Tage** Coding-time, calibrated
-**72-111 Tage** = **~14-22 Wochen** part-time.
+V3 Roadmap deckt **11 Phasen über 52-78 Tage** Coding-time, calibrated
+**75-113 Tage** = **~15-23 Wochen** part-time.
 
 Output bei Vollendung:
-- **Volle CRUD-UI** für: Airports, AircraftTypes, Fleet, Aircraft, Hubs,
-  Routes, Personnel, Schedules, Announcements/Docs/Bulletins, Awards,
-  Alliances, Transfer-Requests
-- **~16 neue Schema-models** (AircraftType, Maintenance, Hub,
-  AircraftTypeRating, HrEvent, RouteSchedule, PublishedFlight,
+- **Volle CRUD-UI** für: Fleet, Aircraft, Hubs, Routes, Personnel, Schedules,
+  Announcements/Docs/Bulletins, Awards, Alliances, Transfer-Requests
+- **System-curated catalogs** mit request-flow für: Airports (~10k seeded),
+  AircraftTypes (~150 seeded). Airline-admin browse + propose,
+  system-admin approve.
+- **~18 neue Schema-models** (AircraftType, AirportRequest, AircraftTypeRequest,
+  RequestStatus enum, Airport-verified-extension, AircraftType-verified-extension,
+  Maintenance, Hub, AircraftTypeRating, HrEvent, RouteSchedule, PublishedFlight,
   Announcement, Document, Bulletin, AnnouncementRead, Alliance,
-  AllianceMember, AirlineTransferRequest, Airport-extensions, Award-extensions)
-- **~20 neue Pages** (`/airline/airports`, `/airline/fleet`,
-  `/airline/fleet/[reg]`, `/airline/aircraft-types`, `/airline/hubs`,
-  `/airline/hubs/[icao]`, `/airline/routes`, `/airline/routes/[id]`,
-  `/airline/network`, `/airline/pilots`, `/airline/pilots/[id]`,
-  `/airline/hr`, `/airline/schedule`, `/airline/branding`,
-  `/airlines/[icao]`, `/airline/announcements`, `/airline/docs`,
-  `/airline/bulletins`, `/airline/awards`, `/airline/transfers`)
-- **~50 neue server actions**
-- **1 cron job**
+  AllianceMember, AirlineTransferRequest, Award-extensions)
+- **~28 neue Pages**:
+  - **Phase 1 (request-flow)**: `/admin/requests`, `/admin/requests/[id]`,
+    `/admin/airports`, `/admin/aircraft-types`, `/airline/airports`,
+    `/airline/airports/request`, `/airline/aircraft-types`,
+    `/airline/aircraft-types/request`, `/airline/requests`,
+    `/airline/requests/[id]`
+  - **Phase 2-11**: `/airline/fleet`, `/airline/fleet/[reg]`,
+    `/airline/fleet/types`, `/airline/hubs`, `/airline/hubs/[icao]`,
+    `/airline/routes`, `/airline/routes/[id]`, `/airline/network`,
+    `/airline/pilots`, `/airline/pilots/[id]`, `/airline/hr`,
+    `/airline/schedule`, `/airline/branding`, `/airlines/[icao]`,
+    `/airline/announcements`, `/airline/docs`, `/airline/bulletins`,
+    `/airline/awards`, `/airline/transfers`
+- **~55 neue server actions** (inkl. submit/approve/reject für request-flow)
+- **1 cron job** (schedule-generator Phase 6)
+- **2 seed scripts** (OurAirports.com → Airport, ICAO-doc-8643 → AircraftType)
 - **~15 system-wide awards**
 
-Foundation-CRUD-block (Phasen 1-4) ist **17-27 Tage = ~3-5 Wochen part-time**
-und matched den expliziten user-ask.
+Foundation-CRUD-block (Phasen 1-4) ist **19-29 Tage = ~4-6 Wochen part-time**
+und matched den expliziten user-ask + system-curated-approach.
+
+**Phase 1 (system-curated catalogs + request-flow) deliverables**:
+- Airline-admin: browse 10k airports + 150 aircraft-types, einreichen-flow für edge cases
+- System-admin: 1-click approval queue mit verified/unverified tier, sidebar-badge
+- Multi-tenancy: shared catalogs sind read-only für airlines, write nur durch system-admin
+- Provenance: jeder vom-airline-vorgeschlagene entry hat audit-trail (proposedBy + verifiedBy)
 
 Update-cadence: jede Phase ist single-PR-shippable. Continuous-delivery
 gegen die haupt-airline (Lufthansa Virtual). Jederzeit pausen, re-prio,
