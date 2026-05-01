@@ -308,6 +308,21 @@ model Airport {
   longitude Float
   elevation Int?
 
+  // OurAirports.com taxonomy fields. Eingeführt mit dem ~85k-airport-bulk-
+  // import. `type` ist eine kontrollierte enum (large_airport | medium_airport
+  // | small_airport | heliport | seaplane_base | balloonport | closed) — als
+  // String statt enum, damit OurAirports neue typen einführen kann ohne migration.
+  // `continent` ist 2-letter ISO continent code (NA/EU/AS/AF/OC/SA/AN).
+  // `scheduledService` = ob der airport regelmäßigen kommerziellen flug-
+  // verkehr hat — wichtigster filter für virtual-airline-kontext, weil die
+  // meisten heliports/balloonports/closed nicht für VAM-routes interessant sind.
+  // Alle nullable damit existing rows (vor migration) nicht brechen.
+  type             String?
+  continent        String?
+  scheduledService Boolean @default(false)
+  gpsCode          String?
+  wikipediaLink    String?
+
   // System-curated catalog: airline-admins können einzelne airports nicht
   // direkt anlegen; sie reichen einen AirportRequest ein, system-admin
   // approved/rejects. `verified` = system-admin hat die daten geprüft;
@@ -330,6 +345,14 @@ model Airport {
   routesTo   Route[] @relation("RouteArrival")
   pirepsFrom Pirep[] @relation("PirepDeparture")
   pirepsTo   Pirep[] @relation("PirepArrival")
+
+  // Indexes für die /airports filter-UI: type/continent/country erlauben
+  // schnelle multi-faceted queries auf 85k entries; scheduledService trennt
+  // commercial- von hobby-airports.
+  @@index([type])
+  @@index([continent])
+  @@index([country])
+  @@index([scheduledService])
 }
 
 model Route {
