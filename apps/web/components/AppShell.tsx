@@ -107,6 +107,7 @@ function Sidebar({ user, pathname }: SidebarProps) {
             <NavLink href="/pilots" pathname={pathname} icon="👥" label="Piloten" />
             <NavLink href="/routes" pathname={pathname} icon="🛣️" label="Routen" />
             <NavLink href="/airports" pathname={pathname} icon="🛫" label="Airports" />
+            <NavLink href="/aircraft-types" pathname={pathname} icon="✈️" label="Aircraft-Types" />
           </NavSection>
         )}
 
