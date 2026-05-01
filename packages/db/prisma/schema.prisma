@@ -346,6 +346,15 @@ model Airport {
   pirepsFrom Pirep[] @relation("PirepDeparture")
   pirepsTo   Pirep[] @relation("PirepArrival")
 
+  // Detail-tabellen aus OurAirports.com — runways/frequencies/navaids als
+  // separate models statt JSON-blobs damit sie indexierbar/durchsuchbar
+  // sind (z.B. "alle airports mit ILS auf einer 3000m+ runway"). Cascade
+  // delete: wenn ein airport gelöscht wird, gehen seine runways/freqs mit.
+  // Navaids haben optional FK weil manche standalone-stations sind.
+  runways     Runway[]
+  frequencies AirportFrequency[]
+  navaids     Navaid[]           @relation("NavaidAssociatedAirport")
+
   // Indexes für die /airports filter-UI: type/continent/country erlauben
   // schnelle multi-faceted queries auf 85k entries; scheduledService trennt
   // commercial- von hobby-airports.
@@ -780,4 +789,123 @@ model AircraftTypeRequest {
   @@index([status, submittedAt])
   @@index([requestedById, submittedAt])
   @@index([icaoType])
+}
+
+// ============================================================================
+// AIRPORT DETAIL DATA (Runways, Frequencies, Navaids)
+//
+// Importiert aus OurAirports.com CSVs (runways.csv, airport-frequencies.csv,
+// navaids.csv). Source-of-truth ist `ourAirportsId` (Int) damit re-imports
+// idempotent sind — wenn OurAirports einen entry updated, finden wir ihn
+// per source-id wieder und updaten in-place statt einen duplikat-row zu
+// erstellen.
+//
+// FK-strategie: Über `airportIcao` (String) statt `airportId` (cuid). Das
+// CSV bringt `airport_ident` mit, was identisch zu Airport.icao ist (selber
+// import-source). Cascade-delete: wenn ein Airport gelöscht wird, gehen
+// seine runways/frequencies mit. Navaids haben optional FK weil manche
+// navaids "associated" mit einem airport sind (e.g. FRA VOR), andere
+// standalone (en-route navaids).
+//
+// Verifications-policy: Im gegensatz zu Airport.verified gibt es hier kein
+// verified-flag — die daten sind aus OurAirports und werden 1:1 übernommen.
+// Falls airline-admins eine korrektur brauchen, geht das über einen edit-
+// flow auf den Airport selbst (zukünftig), nicht per request-flow auf die
+// detail-tabellen.
+// ============================================================================
+
+// Runway — physische landebahn an einem airport. Jede runway hat zwei
+// "ends" (low end + high end), z.B. RWY 09/27 hat le_ident=09 + he_ident=27.
+// Heading in degrees true (degT), nicht magnetic.
+model Runway {
+  id            String  @id @default(cuid())
+  ourAirportsId Int     @unique
+  airportIcao   String
+  airport       Airport @relation(fields: [airportIcao], references: [icao], onDelete: Cascade)
+
+  // Physische dimensionen
+  lengthFt Int? // Runway length in feet (e.g. 11000 = ~3350m)
+  widthFt  Int? // Runway width in feet (e.g. 200 = ~60m)
+  surface  String? // ASPH, CONC, GRASS, GRAVEL, WATER, etc — kontrolliertes vocab aus OurAirports
+  lighted  Boolean @default(false) // Hat runway lights?
+  closed   Boolean @default(false) // Permanent closed runway
+
+  // Low-end (numerisch niedrigere kennung, z.B. "09" für 09/27 paar)
+  leIdent       String? // "09", "13L", "32R"
+  leLatitude    Float?
+  leLongitude   Float?
+  leElevationFt Int?
+  leHeadingDegT Float? // True heading 0-359
+  leDisplacedFt Int? // Displaced threshold offset
+
+  // High-end (z.B. "27" für 09/27 paar)
+  heIdent       String?
+  heLatitude    Float?
+  heLongitude   Float?
+  heElevationFt Int?
+  heHeadingDegT Float?
+  heDisplacedFt Int?
+
+  // Indizes für: per-airport-lookup (häufigster query), filter "alle airports
+  // mit closed=false runways" für route-planning, surface-filter (z.B. "nur
+  // hartbahnen für jets").
+  @@index([airportIcao])
+  @@index([surface])
+  @@index([closed])
+}
+
+// AirportFrequency — radio-frequenzen pro airport (TWR, GND, APP, ATIS, etc).
+// Ein airport hat typisch 3-15 frequencies. `type` ist OurAirports-vocab
+// (TWR, GND, APP, DEP, ATIS, AWOS, ASOS, CTAF, ARCAL, MULTICOM, UNICOM, etc).
+model AirportFrequency {
+  id            String  @id @default(cuid())
+  ourAirportsId Int     @unique
+  airportIcao   String
+  airport       Airport @relation(fields: [airportIcao], references: [icao], onDelete: Cascade)
+
+  type         String // TWR, GND, APP, ATIS, etc
+  description  String? // Optional human-readable, z.B. "Tower South"
+  frequencyMhz Float // Civilian VHF aviation band 118-137 MHz
+
+  @@index([airportIcao])
+  @@index([type])
+}
+
+// Navaid — VOR/NDB/DME/ILS/etc stations. Manche sind "associated" mit einem
+// airport (e.g. ILS approach für RWY 25R), manche standalone (en-route VOR).
+// `ident` ist der callsign der station (3-5 chars, z.B. "FRA" für Frankfurt VOR).
+model Navaid {
+  id            String @id @default(cuid())
+  ourAirportsId Int    @unique
+
+  ident        String // Callsign, z.B. "FRA", "TGO", "WUR"
+  name         String // Voll-name, z.B. "Frankfurt VOR-DME"
+  type         String // VOR, VOR-DME, VORTAC, NDB, NDB-DME, DME, TACAN, ILS, GS, MARKER, OM, MM, IM
+  frequencyKhz Int? // Frequency in kHz (VOR/ILS sind MHz aber gespeichert *100, NDB ist kHz)
+  latitude     Float
+  longitude    Float
+  elevationFt  Int?
+  isoCountry   String // ISO 2-letter
+
+  // Optional DME-component für VOR-DME, VORTAC pairs
+  dmeFrequencyKhz Int?
+  dmeChannel      String?
+  dmeLatitude     Float?
+  dmeLongitude    Float?
+  dmeElevationFt  Int?
+
+  slavedVariationDeg   Float? // Magnetic variation slaved into the station
+  magneticVariationDeg Float?
+  usageType            String? // HI (high-altitude airway), LO (low), BOTH, TERM (terminal), RNAV
+  power                String? // LOW, MEDIUM, HIGH
+
+  // Optional FK zu Airport (manche navaids sind "owned by" einem airport,
+  // andere standalone). Cascade SetNull statt Cascade-Delete, damit ein
+  // navaid überlebt wenn der zugeordnete airport mal entfernt wird.
+  associatedAirportIcao String?
+  associatedAirport     Airport? @relation("NavaidAssociatedAirport", fields: [associatedAirportIcao], references: [icao], onDelete: SetNull)
+
+  @@index([associatedAirportIcao])
+  @@index([type])
+  @@index([ident])
 }
