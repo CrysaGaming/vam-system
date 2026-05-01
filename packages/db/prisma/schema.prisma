@@ -819,7 +819,7 @@ model AircraftTypeRequest {
 // Heading in degrees true (degT), nicht magnetic.
 model Runway {
   id            String  @id @default(cuid())
-  ourAirportsId Int     @unique
+  ourAirportsId Int?    @unique
   airportIcao   String
   airport       Airport @relation(fields: [airportIcao], references: [icao], onDelete: Cascade)
 
@@ -859,7 +859,7 @@ model Runway {
 // (TWR, GND, APP, DEP, ATIS, AWOS, ASOS, CTAF, ARCAL, MULTICOM, UNICOM, etc).
 model AirportFrequency {
   id            String  @id @default(cuid())
-  ourAirportsId Int     @unique
+  ourAirportsId Int?    @unique
   airportIcao   String
   airport       Airport @relation(fields: [airportIcao], references: [icao], onDelete: Cascade)
 
@@ -876,7 +876,7 @@ model AirportFrequency {
 // `ident` ist der callsign der station (3-5 chars, z.B. "FRA" für Frankfurt VOR).
 model Navaid {
   id            String @id @default(cuid())
-  ourAirportsId Int    @unique
+  ourAirportsId Int?   @unique
 
   ident        String // Callsign, z.B. "FRA", "TGO", "WUR"
   name         String // Voll-name, z.B. "Frankfurt VOR-DME"

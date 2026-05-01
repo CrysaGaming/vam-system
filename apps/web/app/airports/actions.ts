@@ -4,6 +4,13 @@ import { auth } from '@/auth';
 import { prisma } from '@vam/db';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
+import {
+  fetchAirportDb,
+  isAirportDbEnabled,
+  mapAirportDbFrequencies,
+  mapAirportDbNavaids,
+  mapAirportDbRunways,
+} from '@/lib/external-api/airportdb';
 
 // ───── Permission Gates ─────
 
@@ -310,11 +317,108 @@ export async function approveAirportRequest(input: ApproveAirportRequestInput) {
     return airport;
   });
 
+  // ───── AirportDB.io fallback-enrichment ─────
+  //
+  // Pfad C: Wenn der approved airport NICHT in OurAirports war (also keine
+  // runway/freq/navaid records existieren), versuchen wir das hobby-service
+  // AirportDB.io als fallback. Best-effort: errors loggen, aber nicht die
+  // approval scheitern lassen — der admin hat ja bereits zugestimmt.
+  //
+  // Idempotent: wenn das script später nochmal läuft (z.B. zweiter approve-
+  // versuch nach race), würden wir die selben records nochmal anlegen ohne
+  // unique-key. Daher nur ausführen wenn die detail-tabellen LEER sind für
+  // diese ICAO.
+  await tryEnrichFromAirportDb(result.icao).catch((err) => {
+    console.warn(
+      `[airportdb] Enrichment failed for ${result.icao} but approval already committed:`,
+      err instanceof Error ? err.message : err,
+    );
+  });
+
   revalidatePath('/airports');
   revalidatePath('/admin/requests');
   revalidatePath('/admin/airports');
 
   return { airportId: result.id, icao: result.icao };
+}
+
+/**
+ * AirportDB.io fallback-enrichment für einen frisch-approveten airport.
+ *
+ * Logik:
+ *   1. Skip wenn AIRPORTDB_API_TOKEN unset — graceful degradation
+ *   2. Skip wenn airport schon detail-records hat (war in OurAirports)
+ *   3. Fetch von AirportDB.io. Bei null (404/error) → silent skip
+ *   4. Insert mapped runways/frequencies/navaids in einer transaction
+ *
+ * Nur best-effort — errors werden geloggt aber propagiert nicht. Caller
+ * sollte den await mit .catch() einhüllen oder als fire-and-forget callen.
+ */
+async function tryEnrichFromAirportDb(icao: string): Promise<void> {
+  if (!isAirportDbEnabled()) return;
+
+  // Hat der airport schon detail-records? Wenn ja, war er in OurAirports
+  // und wir brauchen kein external enrichment. Single-query check:
+  const [runwayCount, freqCount] = await Promise.all([
+    prisma.runway.count({ where: { airportIcao: icao } }),
+    prisma.airportFrequency.count({ where: { airportIcao: icao } }),
+  ]);
+  if (runwayCount > 0 || freqCount > 0) {
+    console.info(
+      `[airportdb] Skipping enrichment for ${icao} — already has details ` +
+        `(${runwayCount} runways, ${freqCount} freqs from OurAirports)`,
+    );
+    return;
+  }
+
+  console.info(`[airportdb] Fetching enrichment for ${icao}...`);
+  const data = await fetchAirportDb(icao);
+  if (!data) return; // Network error, 404, or token-disabled — silent
+
+  // Mappe response → Prisma create-shapes
+  const runways = mapAirportDbRunways(data.runways);
+  // AirportDB.io könnte entweder `freqs` oder `frequencies` als key nutzen
+  const freqs = mapAirportDbFrequencies(data.freqs ?? data.frequencies);
+  const navaids = mapAirportDbNavaids(data.navaids);
+
+  if (runways.length === 0 && freqs.length === 0 && navaids.length === 0) {
+    console.info(`[airportdb] ${icao} response had no detail data — skip insert`);
+    return;
+  }
+
+  // Bulk-insert in transaction. Keine ourAirportsId (kommen ja von
+  // AirportDB.io) — daher nutzen wir die nullable-id-migration.
+  await prisma.$transaction([
+    ...(runways.length > 0
+      ? [
+          prisma.runway.createMany({
+            data: runways.map((r) => ({ ...r, airportIcao: icao })),
+          }),
+        ]
+      : []),
+    ...(freqs.length > 0
+      ? [
+          prisma.airportFrequency.createMany({
+            data: freqs.map((f) => ({ ...f, airportIcao: icao })),
+          }),
+        ]
+      : []),
+    ...(navaids.length > 0
+      ? [
+          prisma.navaid.createMany({
+            data: navaids.map((n) => ({
+              ...n,
+              associatedAirportIcao: icao,
+            })),
+          }),
+        ]
+      : []),
+  ]);
+
+  console.info(
+    `[airportdb] ✓ Enriched ${icao}: ${runways.length} runways, ` +
+      `${freqs.length} freqs, ${navaids.length} navaids`,
+  );
 }
 
 // ───── Reject ─────
