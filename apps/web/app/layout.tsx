@@ -4,6 +4,7 @@ import './globals.css';
 import { auth } from '@/auth';
 import { prisma } from '@vam/db';
 import { AppShell, type SidebarUser } from '@/components/AppShell';
+import { ThemeProvider, themeInitScript } from '@/components/Theme';
 
 const geistSans = Geist({
   variable: '--font-geist-sans',
@@ -71,10 +72,21 @@ export default async function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased dark`}
+      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      suppressHydrationWarning
     >
+      <head>
+        {/* Pre-hydration script. Runs synchronously before React hydrates,
+            sets the .dark class on <html> based on localStorage + system
+            pref. Without this, every page would flash light-mode briefly
+            (FOUC) before the React provider mounts. The script body is
+            defined in components/Theme.tsx for centralized theme logic. */}
+        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+      </head>
       <body className="min-h-full flex flex-col">
-        <AppShell user={sidebarUser}>{children}</AppShell>
+        <ThemeProvider>
+          <AppShell user={sidebarUser}>{children}</AppShell>
+        </ThemeProvider>
       </body>
     </html>
   );

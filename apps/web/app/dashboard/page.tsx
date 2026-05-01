@@ -94,12 +94,12 @@ export default async function Dashboard() {
     : 0;
 
   return (
-    <main className="min-h-screen bg-gray-950 text-white p-8">
+    <main className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-white p-8">
       <div className="max-w-6xl mx-auto">
-        <header className="flex justify-between items-center mb-8 pb-6 border-b border-gray-800">
+        <header className="flex justify-between items-center mb-8 pb-6 border-b border-gray-200 dark:border-gray-800">
           <div>
             <h1 className="text-3xl font-bold">VAM Dashboard</h1>
-            <p className="text-gray-400 text-sm mt-1">Willkommen zurück, {user.name ?? "Pilot"}</p>
+            <p className="text-gray-600 dark:text-gray-400 text-sm mt-1">Willkommen zurück, {user.name ?? "Pilot"}</p>
           </div>
           <form
             action={async () => {
@@ -109,7 +109,7 @@ export default async function Dashboard() {
           >
             <button
               type="submit"
-              className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded text-sm transition"
+              className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded text-sm text-white transition"
             >
               Abmelden
             </button>
@@ -118,7 +118,7 @@ export default async function Dashboard() {
 
         {/* Profile + Airline (bestehende Sektion) */}
         <div className="grid md:grid-cols-3 gap-6">
-          <section className="md:col-span-1 bg-gray-900 rounded-lg p-6 border border-gray-800">
+          <section className="md:col-span-1 bg-white dark:bg-gray-900 rounded-lg p-6 border border-gray-200 dark:border-gray-800">
             <h2 className="text-sm uppercase tracking-wider text-gray-500 mb-4">
               Profil
             </h2>
@@ -126,24 +126,24 @@ export default async function Dashboard() {
               <img
                 src={user.image}
                 alt={user.name ?? "Avatar"}
-                className="w-24 h-24 rounded-full mb-4 border-2 border-gray-700"
+                className="w-24 h-24 rounded-full mb-4 border-2 border-gray-300 dark:border-gray-700"
               />
             )}
             <p className="text-xl font-semibold">{user.name ?? "Unbenannt"}</p>
-            <p className="text-sm text-gray-400">{user.email}</p>
+            <p className="text-sm text-gray-600 dark:text-gray-400">{user.email}</p>
           </section>
 
-          <section className="md:col-span-2 bg-gray-900 rounded-lg p-6 border border-gray-800">
+          <section className="md:col-span-2 bg-white dark:bg-gray-900 rounded-lg p-6 border border-gray-200 dark:border-gray-800">
             <h2 className="text-sm uppercase tracking-wider text-gray-500 mb-4">
               Airline
             </h2>
             {user.airline ? (
               <div>
                 <p className="text-2xl font-bold">{user.airline.name}</p>
-                <p className="text-gray-400">
+                <p className="text-gray-600 dark:text-gray-400">
                   ICAO: {user.airline.icao} · Callsign: {user.airline.callsign}
                 </p>
-                <div className="mt-6 pt-6 border-t border-gray-800 grid grid-cols-4 gap-4">
+                <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-800 grid grid-cols-4 gap-4">
                   <div>
                     <p className="text-gray-500 uppercase tracking-wider text-xs">
                       Rang
@@ -178,7 +178,7 @@ export default async function Dashboard() {
               </div>
             ) : (
               <div>
-                <p className="text-gray-400 mb-3">
+                <p className="text-gray-600 dark:text-gray-400 mb-3">
                   Du bist noch keiner Airline zugeordnet.
                 </p>
                 <p className="text-sm text-gray-500">
@@ -192,7 +192,7 @@ export default async function Dashboard() {
 
         {/* Next-Rank Progress */}
         {user.airline && (
-          <section className="mt-6 bg-gray-900 rounded-lg p-6 border border-gray-800">
+          <section className="mt-6 bg-white dark:bg-gray-900 rounded-lg p-6 border border-gray-200 dark:border-gray-800">
             <h2 className="text-sm uppercase tracking-wider text-gray-500 mb-4">
               Nächster Rang
             </h2>
@@ -200,16 +200,16 @@ export default async function Dashboard() {
               <div>
                 <div className="flex justify-between items-baseline mb-2">
                   <p>
-                    <span className="text-gray-400">Aktuell: </span>
+                    <span className="text-gray-600 dark:text-gray-400">Aktuell: </span>
                     <span className="font-semibold">{user.rank?.name ?? "—"}</span>
                     <span className="text-gray-500 mx-2">→</span>
-                    <span className="font-semibold text-indigo-400">{nextRank.name}</span>
+                    <span className="font-semibold text-indigo-600 dark:text-indigo-400">{nextRank.name}</span>
                   </p>
-                  <p className="text-sm text-gray-400">
-                    Noch <span className="text-white font-semibold">{hoursToNextRank.toFixed(1)} h</span>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    Noch <span className="text-gray-900 dark:text-white font-semibold">{hoursToNextRank.toFixed(1)} h</span>
                   </p>
                 </div>
-                <div className="w-full bg-gray-800 rounded-full h-3 overflow-hidden">
+                <div className="w-full bg-gray-200 dark:bg-gray-800 rounded-full h-3 overflow-hidden">
                   <div
                     className="bg-indigo-600 h-full transition-all duration-500"
                     style={{ width: `${progressPercent}%` }}
@@ -220,8 +220,8 @@ export default async function Dashboard() {
                 </p>
               </div>
             ) : (
-              <p className="text-gray-400">
-                🏆 <span className="font-semibold text-yellow-400">Höchster Rang erreicht!</span>
+              <p className="text-gray-600 dark:text-gray-400">
+                🏆 <span className="font-semibold text-yellow-600 dark:text-yellow-400">Höchster Rang erreicht!</span>
               </p>
             )}
           </section>
@@ -230,24 +230,24 @@ export default async function Dashboard() {
         {/* Letzte PIREPs + Top-3-Leaderboard */}
         <div className="mt-6 grid md:grid-cols-3 gap-6">
           {/* Letzte PIREPs */}
-          <section className="md:col-span-2 bg-gray-900 rounded-lg p-6 border border-gray-800">
+          <section className="md:col-span-2 bg-white dark:bg-gray-900 rounded-lg p-6 border border-gray-200 dark:border-gray-800">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-sm uppercase tracking-wider text-gray-500">
                 Letzte Flüge
               </h2>
               <Link
                 href="/pireps"
-                className="text-xs text-indigo-400 hover:text-indigo-300 transition"
+                className="text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 transition"
               >
                 Alle ansehen →
               </Link>
             </div>
             {recentPireps.length === 0 ? (
-              <p className="text-gray-400 text-sm">
+              <p className="text-gray-600 dark:text-gray-400 text-sm">
                 Noch keine Flüge eingereicht.{" "}
                 <Link
                   href="/pireps/new"
-                  className="text-indigo-400 hover:text-indigo-300"
+                  className="text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300"
                 >
                   Ersten Flug einreichen →
                 </Link>
@@ -264,10 +264,10 @@ export default async function Dashboard() {
                     <Link
                       key={pirep.id}
                       href={`/pireps/${pirep.id}`}
-                      className="flex justify-between items-center px-4 py-3 bg-gray-800/50 hover:bg-gray-800 rounded border border-gray-800 hover:border-indigo-600/50 transition group"
+                      className="flex justify-between items-center px-4 py-3 bg-gray-50 dark:bg-gray-800/50 hover:bg-gray-100 dark:hover:bg-gray-800 rounded border border-gray-200 dark:border-gray-800 hover:border-indigo-500 dark:hover:border-indigo-600/50 transition group"
                     >
                       <div className="flex items-center gap-4">
-                        <span className="font-mono text-sm text-indigo-400 group-hover:text-indigo-300 transition">
+                        <span className="font-mono text-sm text-indigo-600 dark:text-indigo-400 group-hover:text-indigo-700 dark:group-hover:text-indigo-300 transition">
                           {flightNo}
                         </span>
                         <span className="text-sm">
@@ -277,7 +277,7 @@ export default async function Dashboard() {
                         </span>
                       </div>
                       <div className="flex items-center gap-4 text-sm">
-                        <span className="text-gray-400">{flightTime}</span>
+                        <span className="text-gray-600 dark:text-gray-400">{flightTime}</span>
                         {pirep.aircraft && (
                           <span className="text-gray-500 font-mono text-xs">
                             {pirep.aircraft.registration}
@@ -292,12 +292,12 @@ export default async function Dashboard() {
           </section>
 
           {/* Top-3-Leaderboard */}
-          <section className="md:col-span-1 bg-gray-900 rounded-lg p-6 border border-gray-800">
+          <section className="md:col-span-1 bg-white dark:bg-gray-900 rounded-lg p-6 border border-gray-200 dark:border-gray-800">
             <h2 className="text-sm uppercase tracking-wider text-gray-500 mb-4">
               Top Piloten
             </h2>
             {topPilots.length === 0 ? (
-              <p className="text-gray-400 text-sm">Noch keine Flüge.</p>
+              <p className="text-gray-600 dark:text-gray-400 text-sm">Noch keine Flüge.</p>
             ) : (
               <div className="space-y-3">
                 {topPilots.map((pilot, idx) => {
@@ -307,7 +307,7 @@ export default async function Dashboard() {
                     <div
                       key={pilot.id}
                       className={`flex items-center gap-3 p-2 rounded ${
-                        isMe ? "bg-indigo-600/10 border border-indigo-600/30" : ""
+                        isMe ? "bg-indigo-50 dark:bg-indigo-600/10 border border-indigo-300 dark:border-indigo-600/30" : ""
                       }`}
                     >
                       <span className="text-xl">{medal}</span>
@@ -315,10 +315,10 @@ export default async function Dashboard() {
                         <p className="text-sm font-semibold truncate">
                           {pilot.name ?? "Unbekannt"}
                           {isMe && (
-                            <span className="ml-2 text-xs text-indigo-400">(Du)</span>
+                            <span className="ml-2 text-xs text-indigo-600 dark:text-indigo-400">(Du)</span>
                           )}
                         </p>
-                        <p className="text-xs text-gray-400">
+                        <p className="text-xs text-gray-600 dark:text-gray-400">
                           {pilot.rank?.name ?? "—"}
                         </p>
                       </div>
@@ -335,7 +335,7 @@ export default async function Dashboard() {
 
         {/* Admin-Bereich: nur für admin/instructor */}
         {isApprover && (
-          <section className="mt-6 bg-gray-900 border border-gray-800 rounded-lg p-6">
+          <section className="mt-6 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-sm uppercase tracking-wider text-gray-500">
                 Admin-Bereich
@@ -358,14 +358,14 @@ export default async function Dashboard() {
                 className={`group flex justify-between items-center p-4 rounded border transition ${
                   pendingCount > 0
                     ? 'hover:opacity-90'
-                    : 'bg-gray-800/50 border-gray-800 hover:bg-gray-800'
+                    : 'bg-gray-50 dark:bg-gray-800/50 border-gray-200 dark:border-gray-800 hover:bg-gray-100 dark:hover:bg-gray-800'
                 }`}
               >
                 <div className="flex items-center gap-4">
                   <span className="text-2xl">📋</span>
                   <div>
                     <p className="font-semibold">PIREPs zur Prüfung</p>
-                    <p className="text-xs text-gray-400">
+                    <p className="text-xs text-gray-600 dark:text-gray-400">
                       {pendingCount === 0
                         ? 'Alle PIREPs sind geprüft'
                         : `${pendingCount} ${pendingCount === 1 ? 'PIREP wartet' : 'PIREPs warten'} auf Prüfung`}
@@ -389,13 +389,13 @@ export default async function Dashboard() {
 
               <Link
                 href="/admin/stats"
-                className="group flex justify-between items-center p-4 rounded border bg-gray-800/50 border-gray-800 hover:bg-gray-800 transition"
+                className="group flex justify-between items-center p-4 rounded border bg-gray-50 dark:bg-gray-800/50 border-gray-200 dark:border-gray-800 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
               >
                 <div className="flex items-center gap-4">
                   <span className="text-2xl">📊</span>
                   <div>
                     <p className="font-semibold">Statistiken</p>
-                    <p className="text-xs text-gray-400">
+                    <p className="text-xs text-gray-600 dark:text-gray-400">
                       Charts und KPIs der Airline
                     </p>
                   </div>
@@ -411,13 +411,13 @@ export default async function Dashboard() {
               {isAdmin && (
                 <Link
                   href="/admin/roles"
-                  className="group flex justify-between items-center p-4 rounded border bg-gray-800/50 border-gray-800 hover:bg-gray-800 transition"
+                  className="group flex justify-between items-center p-4 rounded border bg-gray-50 dark:bg-gray-800/50 border-gray-200 dark:border-gray-800 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
                 >
                   <div className="flex items-center gap-4">
                     <span className="text-2xl">🔐</span>
                     <div>
                       <p className="font-semibold">Rollen-Verwaltung</p>
-                      <p className="text-xs text-gray-400">
+                      <p className="text-xs text-gray-600 dark:text-gray-400">
                         Globale Rollen + Permissions
                       </p>
                     </div>
@@ -435,13 +435,13 @@ export default async function Dashboard() {
               {isAdmin && user.airlineId && (
                 <Link
                   href="/airline"
-                  className="group flex justify-between items-center p-4 rounded border bg-gray-800/50 border-gray-800 hover:bg-gray-800 transition"
+                  className="group flex justify-between items-center p-4 rounded border bg-gray-50 dark:bg-gray-800/50 border-gray-200 dark:border-gray-800 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
                 >
                   <div className="flex items-center gap-4">
                     <span className="text-2xl">🏢</span>
                     <div>
                       <p className="font-semibold">Airline-Verwaltung</p>
-                      <p className="text-xs text-gray-400">
+                      <p className="text-xs text-gray-600 dark:text-gray-400">
                         Mitglieder + Einstellungen
                       </p>
                     </div>
@@ -459,14 +459,14 @@ export default async function Dashboard() {
         <div className="mt-6 grid gap-6" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
           <Link
             href="/pilots"
-            className="group bg-gray-900 hover:bg-gray-800 border border-gray-800 hover:border-indigo-600/50 rounded-lg p-6 transition"
+            className="group bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800 border border-gray-200 dark:border-gray-800 hover:border-indigo-500 dark:hover:border-indigo-600/50 rounded-lg p-6 transition"
           >
             <div className="flex justify-between items-start">
               <div>
                 <h3 className="text-lg font-semibold mb-1">Piloten</h3>
-                <p className="text-sm text-gray-400">Alle Mitglieder ansehen</p>
+                <p className="text-sm text-gray-600 dark:text-gray-400">Alle Mitglieder ansehen</p>
               </div>
-              <span className="text-indigo-400 group-hover:translate-x-1 transition-transform">
+              <span className="text-indigo-600 dark:text-indigo-400 group-hover:translate-x-1 transition-transform">
                 →
               </span>
             </div>
@@ -474,14 +474,14 @@ export default async function Dashboard() {
 
           <Link
             href="/pireps/new"
-            className="group bg-indigo-900/20 hover:bg-indigo-900/40 border border-indigo-700/50 hover:border-indigo-500 rounded-lg p-6 transition"
+            className="group bg-indigo-50 dark:bg-indigo-900/20 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 border border-indigo-300 dark:border-indigo-700/50 hover:border-indigo-500 rounded-lg p-6 transition"
           >
             <div className="flex justify-between items-start">
               <div>
                 <h3 className="text-lg font-semibold mb-1">Neuen Flug</h3>
-                <p className="text-sm text-gray-400">PIREP einreichen</p>
+                <p className="text-sm text-gray-600 dark:text-gray-400">PIREP einreichen</p>
               </div>
-              <span className="text-indigo-400 group-hover:translate-x-1 transition-transform">
+              <span className="text-indigo-600 dark:text-indigo-400 group-hover:translate-x-1 transition-transform">
                 →
               </span>
             </div>
@@ -489,16 +489,16 @@ export default async function Dashboard() {
 
           <Link
             href="/routes"
-            className="group bg-gray-900 hover:bg-gray-800 border border-gray-800 hover:border-indigo-600/50 rounded-lg p-6 transition"
+            className="group bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800 border border-gray-200 dark:border-gray-800 hover:border-indigo-500 dark:hover:border-indigo-600/50 rounded-lg p-6 transition"
           >
             <div className="flex justify-between items-start">
               <div>
                 <h3 className="text-lg font-semibold mb-1">Routen</h3>
-                <p className="text-sm text-gray-400">
+                <p className="text-sm text-gray-600 dark:text-gray-400">
                   Verfügbare Strecken ansehen
                 </p>
               </div>
-              <span className="text-indigo-400 group-hover:translate-x-1 transition-transform">
+              <span className="text-indigo-600 dark:text-indigo-400 group-hover:translate-x-1 transition-transform">
                 →
               </span>
             </div>
@@ -506,16 +506,16 @@ export default async function Dashboard() {
 
           <Link
             href="/bookings"
-            className="group bg-gray-900 hover:bg-gray-800 border border-gray-800 hover:border-indigo-600/50 rounded-lg p-6 transition"
+            className="group bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800 border border-gray-200 dark:border-gray-800 hover:border-indigo-500 dark:hover:border-indigo-600/50 rounded-lg p-6 transition"
           >
             <div className="flex justify-between items-start">
               <div>
                 <h3 className="text-lg font-semibold mb-1">Bookings</h3>
-                <p className="text-sm text-gray-400">
+                <p className="text-sm text-gray-600 dark:text-gray-400">
                   Aktive Flugplanung &amp; SimBrief
                 </p>
               </div>
-              <span className="text-indigo-400 group-hover:translate-x-1 transition-transform">
+              <span className="text-indigo-600 dark:text-indigo-400 group-hover:translate-x-1 transition-transform">
                 →
               </span>
             </div>
@@ -523,16 +523,16 @@ export default async function Dashboard() {
 
           <Link
             href="/pireps"
-            className="group bg-gray-900 hover:bg-gray-800 border border-gray-800 hover:border-indigo-600/50 rounded-lg p-6 transition"
+            className="group bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800 border border-gray-200 dark:border-gray-800 hover:border-indigo-500 dark:hover:border-indigo-600/50 rounded-lg p-6 transition"
           >
             <div className="flex justify-between items-start">
               <div>
                 <h3 className="text-lg font-semibold mb-1">Alle PIREPs</h3>
-                <p className="text-sm text-gray-400">
+                <p className="text-sm text-gray-600 dark:text-gray-400">
                   Flugberichte ansehen
                 </p>
               </div>
-              <span className="text-indigo-400 group-hover:translate-x-1 transition-transform">
+              <span className="text-indigo-600 dark:text-indigo-400 group-hover:translate-x-1 transition-transform">
                 →
               </span>
             </div>

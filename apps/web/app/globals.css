@@ -80,11 +80,20 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* Class-based theme override. Pre-hydration script in layout.tsx adds the
+   `.dark` class to <html> based on localStorage + system preference, so
+   we don't use a `prefers-color-scheme` media query here — it would
+   conflict with the user's explicit toggle choice. The script also
+   defaults to system preference on first visit (no localStorage value),
+   so first-time dark-pref users still get dark.
+
+   2026-05-01: Forced dev-rebuild marker — Turbopack was serving cached
+   compiled CSS that still had the @media (prefers-color-scheme: dark)
+   block from before this rewrite. This comment ensures content-hash
+   bumps on save. */
+.dark {
+  --background: #0a0a0a;
+  --foreground: #ededed;
 }
 
 body {

@@ -2,6 +2,7 @@
 
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
+import { ThemeToggle } from './Theme';
 
 export type SidebarUser = {
   name: string | null;
@@ -76,18 +77,18 @@ interface SidebarProps {
 function Sidebar({ user, pathname }: SidebarProps) {
   return (
     <aside
-      className="hidden lg:flex lg:flex-col w-60 shrink-0 bg-gray-950 border-r border-gray-800"
+      className="hidden lg:flex lg:flex-col w-60 shrink-0 bg-white dark:bg-gray-950 border-r border-gray-200 dark:border-gray-800"
       aria-label="Hauptnavigation"
     >
       {/* Brand-block — sticky to top of sidebar. Airline name shown if the
           user is in one; otherwise just "VAM System" so the brand doesn't
           collapse to nothing. */}
-      <div className="px-5 py-5 border-b border-gray-800">
+      <div className="px-5 py-5 border-b border-gray-200 dark:border-gray-800">
         <Link href="/dashboard" className="block hover:opacity-80 transition">
-          <p className="text-lg font-bold tracking-tight">
+          <p className="text-lg font-bold tracking-tight text-gray-900 dark:text-white">
             {user.airlineIcao ?? 'VAM'}
           </p>
-          <p className="text-xs text-gray-500 truncate">
+          <p className="text-xs text-gray-500 dark:text-gray-500 truncate">
             {user.airlineName ?? 'VAM System'}
           </p>
         </Link>
@@ -120,33 +121,34 @@ function Sidebar({ user, pathname }: SidebarProps) {
         </NavSection>
       </nav>
 
-      {/* User-block at bottom — avatar + name + logout. signOut is a
-          server action via /api/auth/signout (NextAuth route). We use
-          a regular link rather than a form so the button-styling stays
-          consistent with the rest of the sidebar. */}
-      <div className="px-3 py-3 border-t border-gray-800">
+      {/* User-block at bottom — avatar + name + theme toggle + logout.
+          signOut is a server action via /api/auth/signout (NextAuth route).
+          The theme toggle sits between the user info and signout for
+          quick access without crowding the nav. */}
+      <div className="px-3 py-3 border-t border-gray-200 dark:border-gray-800">
         <div className="flex items-center gap-3 px-2 py-2">
           {user.image ? (
             <img
               src={user.image}
               alt={user.name ?? 'Avatar'}
-              className="w-8 h-8 rounded-full border border-gray-700 shrink-0"
+              className="w-8 h-8 rounded-full border border-gray-300 dark:border-gray-700 shrink-0"
             />
           ) : (
-            <div className="w-8 h-8 rounded-full bg-gray-800 border border-gray-700 shrink-0" />
+            <div className="w-8 h-8 rounded-full bg-gray-200 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 shrink-0" />
           )}
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium truncate">
+            <p className="text-sm font-medium truncate text-gray-900 dark:text-white">
               {user.name ?? 'Pilot'}
             </p>
             {user.isAdmin && (
-              <p className="text-xs text-indigo-400">Admin</p>
+              <p className="text-xs text-indigo-600 dark:text-indigo-400">Admin</p>
             )}
           </div>
         </div>
+        <ThemeToggle />
         <Link
           href="/api/auth/signout"
-          className="block px-3 py-2 mt-1 text-xs text-gray-500 hover:text-gray-300 hover:bg-gray-900 rounded transition text-center"
+          className="block px-3 py-2 mt-1 text-xs text-gray-500 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-900 rounded transition text-center"
         >
           Abmelden
         </Link>
@@ -158,7 +160,7 @@ function Sidebar({ user, pathname }: SidebarProps) {
 function NavSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div>
-      <p className="px-3 mb-1 text-xs uppercase tracking-wider text-gray-500 font-medium">
+      <p className="px-3 mb-1 text-xs uppercase tracking-wider text-gray-500 dark:text-gray-500 font-medium">
         {title}
       </p>
       <div className="space-y-0.5">{children}</div>
@@ -185,8 +187,8 @@ function NavLink({ href, pathname, icon, label, exact = false }: NavLinkProps) {
       href={href}
       className={`flex items-center gap-3 px-3 py-2 rounded text-sm transition ${
         isActive
-          ? 'bg-indigo-500/10 text-indigo-300 border-l-2 border-indigo-400 -ml-0.5 pl-[10px]'
-          : 'text-gray-400 hover:text-gray-100 hover:bg-gray-900 border-l-2 border-transparent -ml-0.5 pl-[10px]'
+          ? 'bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border-l-2 border-indigo-500 dark:border-indigo-400 -ml-0.5 pl-[10px]'
+          : 'text-gray-700 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-900 border-l-2 border-transparent -ml-0.5 pl-[10px]'
       }`}
       aria-current={isActive ? 'page' : undefined}
     >
