@@ -26,6 +26,13 @@ export type ShellUser = {
   // "PIREPs zur Prüfung"-link im Admin-sektor sieht — der rest des
   // Admin-sektors bleibt isAdmin-only.
   isApprover: boolean;
+  // canManageAirline: User darf die Airline-Verwaltung sehen + bearbeiten
+  // (admin OR airline-admin OR instructor). Spiegelt AIRLINE_MANAGER_ROLES
+  // in airline/actions.ts; muss synchron mit dem backend-gate bleiben sonst
+  // sieht der User den Sidebar-link aber kommt auf /dashboard zurück. Im
+  // Sidebar steuert das den "Airline-Admin"-sektor zwischen Airline und
+  // Admin (mit aktuell nur Airline-Verwaltung als link).
+  canManageAirline: boolean;
   hasAirline: boolean;
 };
 
@@ -492,26 +499,44 @@ function Sidebar({ user, pathname }: SidebarProps) {
 
         {user.hasAirline && (
           <NavSection title="Airline">
+            <NavLink href="/pilots" pathname={pathname} icon="👥" label="Piloten" />
             <NavLink href="/routes" pathname={pathname} icon="🛣️" label="Routen" />
             <NavLink href="/airports" pathname={pathname} icon="🛫" label="Airports" />
             <NavLink href="/aircraft-types" pathname={pathname} icon="✈️" label="Aircraft-Types" />
           </NavSection>
         )}
 
-        {/* Admin-sektor wird gezeigt wenn der User isApprover (instructor)
-            ODER isAdmin ist. Innerhalb des sektors sind die einzelnen
-            links nochmal granular gegated:
+        {/* Airline-Admin-sektor (2026-05-02 neu eingeführt). Sichtbar für
+            admin, airline-admin und instructor (canManageAirline). Enthält
+            airline-spezifische verwaltungs-aufgaben — aktuell nur die
+            Airline-Verwaltung (members + settings). Backend-gating in
+            airline/actions.ts AIRLINE_MANAGER_ROLES + airline/page.tsx
+            allowedRoles muss synchron mit canManageAirline bleiben.
+
+            Trennung von Admin: Admin ist system-weit (Statistiken, globale
+            Rollen, Requests), Airline-Admin ist airline-internal. Damit
+            kann airline-admin die airline verwalten ohne system-rechte.
+
+            hasAirline check: ein admin ohne airline-zuordnung hat hier
+            nichts zu tun (selbe logik wie alter Admin-sektor). */}
+        {user.canManageAirline && user.hasAirline && (
+          <NavSection title="Airline-Admin">
+            <NavLink href="/airline" pathname={pathname} icon="🏢" label="Airline-Verwaltung" />
+          </NavSection>
+        )}
+
+        {/* Admin-sektor — system-weite verwaltung. Wird gezeigt wenn der
+            User isApprover (instructor) ODER isAdmin ist. Innerhalb des
+            sektors sind die einzelnen links nochmal granular gegated:
               - PIREPs zur Prüfung: isApprover (instructor + admin)
-              - Statistiken / Piloten / Airline-Verwaltung / Requests / Rollen: isAdmin
+              - Statistiken / Piloten / Requests / Rollen: isAdmin
             Damit sieht ein instructor nur den approval-link, ein admin
             sieht den vollen sektor. Wer weder noch ist, sieht den
             sektor gar nicht.
 
-            /pilots wurde 2026-05-02 vom Airline-sektor (sichtbar für alle
-            airline-members) hierher verschoben — Kevin's design: pilot-
-            verwaltung ist eine admin-aufgabe, nicht teil der pilot-
-            navigation. Page-level auth-gating bleibt unverändert; wer
-            direkt /pilots aufruft kommt rein wenn die page das erlaubt. */}
+            Airline-Verwaltung war hier 2026-05-02 → wurde in den neuen
+            Airline-Admin-sektor verschoben damit airline-admin/instructor
+            es ohne admin-rolle erreichen können. */}
         {(user.isApprover || user.isAdmin) && user.hasAirline && (
           <NavSection title="Admin">
             {user.isApprover && (
@@ -521,7 +546,6 @@ function Sidebar({ user, pathname }: SidebarProps) {
               <>
                 <NavLink href="/admin/stats" pathname={pathname} icon="📊" label="Statistiken" />
                 <NavLink href="/pilots" pathname={pathname} icon="👥" label="Piloten" />
-                <NavLink href="/airline" pathname={pathname} icon="🏢" label="Airline-Verwaltung" />
                 <NavLink href="/admin/requests" pathname={pathname} icon="📥" label="Requests" />
                 <NavLink href="/admin/roles" pathname={pathname} icon="🔐" label="Rollen" />
               </>

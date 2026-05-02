@@ -81,6 +81,13 @@ export default async function RootLayout({
         // Admin-sektor einen einzigen link (PIREPs zur Prüfung) freigeschaltet,
         // der rest des sektors bleibt admin-only.
         isApprover: roleName !== null && ['admin', 'instructor'].includes(roleName),
+        // canManageAirline: admin OR airline-admin OR instructor.
+        // Spiegelt AIRLINE_MANAGER_ROLES in airline/actions.ts +
+        // allowedRoles in airline/page.tsx — alle drei müssen synchron
+        // bleiben, sonst sieht der User entweder einen broken Sidebar-link
+        // (gating zu eng hier) oder kommt durch ein non-functional gate
+        // (gating zu locker hier vs. backend).
+        canManageAirline: roleName !== null && ['admin', 'airline-admin', 'instructor'].includes(roleName),
         hasAirline: !!user.airline,
       };
     }

@@ -17,7 +17,7 @@ import { z } from 'zod';
  * shrink — but until then it's the safety-net that keeps role-renames
  * from causing silent auth-bypasses.
  */
-const SYSTEM_ROLE_NAMES = ['admin', 'instructor', 'pilot', 'trainee'];
+const SYSTEM_ROLE_NAMES = ['admin', 'airline-admin', 'instructor', 'pilot', 'trainee'];
 
 /** Admin-only gate. Returns the admin user, or throws if non-admin. */
 async function requireAdmin() {
@@ -163,7 +163,7 @@ export async function updateRole(
 
 /**
  * Delete a role. Two safety guards:
- *   1) System roles (admin, instructor, pilot, trainee) cannot be
+ *   1) System roles (admin, airline-admin, instructor, pilot) cannot be
  *      deleted — they're referenced by name in code.
  *   2) Roles with assigned users cannot be deleted — would orphan the
  *      users' role pointer (or worse, FK-fail at the DB level).

@@ -6,13 +6,30 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 
 /**
- * Admin gate scoped to a specific airline. Returns the admin user along
- * with their airlineId so callers don't need a second query. Throws on
- * any of: no session, no admin role, no airline assignment.
+ * Roles allowed to manage an airline. Mirrors the Sidebar-gating in
+ * components/AppShell.tsx (Airline-Admin-sektor) — diese drei rollen
+ * sehen den Sidebar-link UND dürfen die actions ausführen. Wenn diese
+ * liste hier aus dem sidebar-gating divergiert wird, sehen User links
+ * im Sidebar die zu errors auf der page führen.
  *
- * The "scoped to airline" part matters for the airline-admin-panel: a
- * global admin who isn't a member of any airline still has nothing to
- * manage here — the panel is for airline-internal management.
+ * - admin: System-admin, hat überall zugriff.
+ * - airline-admin: Airline-spezifischer admin (von 2026-05-02 commit
+ *   a2dxxxx neu eingeführt). Verwaltet die ihm zugewiesene airline.
+ * - instructor: Trainer-rolle, hat lt. Kevin's design auch zugriff zur
+ *   airline-verwaltung (kann new members onboarden + roles assignen).
+ */
+const AIRLINE_MANAGER_ROLES = ['admin', 'airline-admin', 'instructor'];
+
+/**
+ * Airline-management gate scoped to a specific airline. Returns the user
+ * along with their airlineId so callers don't need a second query.
+ * Throws on any of: no session, role not in AIRLINE_MANAGER_ROLES, no
+ * airline assignment.
+ *
+ * Name behält die alte semantik (`requireAirlineAdmin`) für minimal-
+ * invasive änderung — alle existing callers funktionieren ohne refactor.
+ * Das "scoped to airline" matters: ein global-admin ohne airline-zuordnung
+ * hat hier nichts zu verwalten — der panel ist airline-internal.
  */
 async function requireAirlineAdmin() {
   const session = await auth();
@@ -23,7 +40,7 @@ async function requireAirlineAdmin() {
     include: { role: true },
   });
 
-  if (!user?.role || user.role.name !== 'admin') {
+  if (!user?.role || !AIRLINE_MANAGER_ROLES.includes(user.role.name)) {
     throw new Error('forbidden');
   }
   if (!user.airlineId) {
@@ -99,18 +116,38 @@ const AssignRoleSchema = z.object({
 });
 
 /**
- * Assign (or unassign with null) a role to a member. Two safety guards:
+ * Assign (or unassign with null) a role to a member. Three safety guards:
  *   1) Target user must be a member of the admin's airline — prevents
  *      a malicious admin from elevating users in other airlines.
  *   2) Cannot demote the last admin of the airline — would lock out
  *      the airline from any future role-changes. The admin must
  *      explicitly promote a successor first.
+ *   3) Privilege-escalation guard: nur system-admins (role.name='admin')
+ *      dürfen die admin-rolle zuweisen. Sonst könnten airline-admin
+ *      oder instructor (die seit 2026-05-02 auch durch requireAirlineAdmin
+ *      kommen) sich selbst oder andere zum global-admin promoten.
  */
 export async function assignRoleToMember(
   input: z.infer<typeof AssignRoleSchema>,
 ) {
   const { airlineId, user: actingAdmin } = await requireAirlineAdmin();
   const parsed = AssignRoleSchema.parse(input);
+
+  // Resolve newRole once — used by both privilege-escalation guard und
+  // last-admin protection unten. Saves eine DB-roundtrip wenn beide
+  // checks zutreffen würden.
+  const newRole = parsed.roleId
+    ? await prisma.role.findUnique({ where: { id: parsed.roleId } })
+    : null;
+
+  // Privilege-escalation guard. airline-admin/instructor dürfen alle
+  // anderen rollen zuweisen, aber nicht 'admin' — sonst escalation-vector.
+  // Nur ein bestehender admin darf admin-rolle vergeben.
+  if (newRole?.name === 'admin' && actingAdmin.role?.name !== 'admin') {
+    throw new Error(
+      'Nur System-Admins dürfen die Rolle "admin" zuweisen.',
+    );
+  }
 
   // Scope-guard: target user must be in same airline.
   const target = await prisma.user.findUnique({
@@ -125,9 +162,6 @@ export async function assignRoleToMember(
   // last admin, refuse. Allow self-demotion only if there is at least
   // one other admin in the airline.
   if (target.role?.name === 'admin') {
-    const newRole = parsed.roleId
-      ? await prisma.role.findUnique({ where: { id: parsed.roleId } })
-      : null;
     const becomingNonAdmin = !newRole || newRole.name !== 'admin';
     if (becomingNonAdmin) {
       const otherAdmins = await prisma.user.count({

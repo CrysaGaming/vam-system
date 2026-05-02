@@ -33,6 +33,13 @@ async function main() {
   // ───── Roles ─────
   const roles = [
     { name: 'admin', permissions: ['*'], description: 'Full access' },
+    // airline-admin: Verwaltet eine zugewiesene Airline (Mitglieder, Rollen-
+    // Zuweisung innerhalb, Settings). Keine system-weiten Rechte wie globales
+    // Rollen-Management oder Statistiken — das bleibt admin. Permissions sind
+    // informativ; das aktuelle gating macht string-name-checks (siehe
+    // SYSTEM_ROLE_NAMES in admin/roles/actions.ts und requireAirlineAdmin in
+    // airline/actions.ts).
+    { name: 'airline-admin', permissions: ['airline:manage', 'pirep:review'], description: 'Verwaltet die zugewiesene Airline' },
     { name: 'pilot', permissions: ['pirep:submit', 'pirep:view_own'], description: 'Regular pilot' },
     { name: 'instructor', permissions: ['pirep:review', 'user:coach'], description: 'Instructor' },
   ];

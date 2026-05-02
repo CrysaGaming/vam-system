@@ -101,7 +101,7 @@ export function RoleManagement({ roles }: Props) {
           <h2 className="text-lg font-semibold">Rollen</h2>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
             Rollen-Definitionen mit Permissions. System-Rollen ({' '}
-            <code className="text-xs">admin, instructor, pilot, trainee</code>{' '}
+            <code className="text-xs">admin, airline-admin, instructor, pilot</code>{' '}
             ) sind nicht löschbar — sie sind im Code namentlich referenziert.
           </p>
         </div>

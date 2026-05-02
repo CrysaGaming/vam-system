@@ -13,9 +13,12 @@ import { AirlineSettingsForm } from './airline-settings-form';
 import { InviteSection } from './invite-section';
 
 /**
- * Airline-Admin-Panel. Gated on role.name === 'admin' AND user.airlineId
- * present. The double gate is intentional — global admin without an
- * airline still has nothing to manage here.
+ * Airline-Admin-Panel. Gated on role ∈ {admin, airline-admin, instructor}
+ * AND user.airlineId present. Die rolle-liste matcht AIRLINE_MANAGER_ROLES
+ * in actions.ts — wenn die liste hier divergiert, sehen User den Sidebar-
+ * link aber kommen auf /dashboard zurück (verwirrend). Die double gate
+ * ist intentional: ein global-admin ohne airline-zuordnung hat hier
+ * nichts zu verwalten.
  *
  * Two main sections:
  *   1) Members table with role-assignment dropdowns
@@ -30,7 +33,14 @@ export default async function AirlineAdminPage() {
     include: { role: true },
   });
 
-  if (!user?.role || user.role.name !== 'admin' || !user.airlineId) {
+  // Page-level gate: Spiegelt AIRLINE_MANAGER_ROLES in actions.ts.
+  // Falls roleName-liste hier vs. dort divergiert, ist das ein bug.
+  const allowedRoles = ['admin', 'airline-admin', 'instructor'];
+  if (
+    !user?.role ||
+    !allowedRoles.includes(user.role.name) ||
+    !user.airlineId
+  ) {
     redirect('/dashboard');
   }
 
