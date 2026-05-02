@@ -84,7 +84,7 @@ export function AppShell({ user, children }: Props) {
 
           Layout:
             ┌──────────────────────────────────────┐
-            │ <header> (h-28, fix oben)            │
+            │ <header> (auto-height, fix oben)     │
             ├──────┬───────────────────────────────┤
             │ <nav>│ <div overflow-y-auto>         │
             │ (fix)│   <main> ← von page geliefert │
@@ -127,15 +127,20 @@ export function AppShell({ user, children }: Props) {
  * tatsächlich ein no-op weil das viewport gar nicht scrollt. Bleibt
  * trotzdem als safety-net falls jemand das outer-pattern später ändert.
  *
- * Höhe ist h-28 (7rem = 112px) — chosen larger than typical SaaS headers
- * to give airline logos room to breathe (most airline logos are wider
- * than tall, ~2-4:1 ratio, and look stamp-sized at the standard h-14).
+ * Höhe ist NICHT mehr fix (vorher h-28 = 112px) — stattdessen wird die
+ * höhe durch padding + content (logo max-h-16 = 64px) bestimmt:
+ *   - mobile: py-4 + 64 + py-4 = 16 + 64 + 16 = 96px
+ *   - sm+:    py-6 + 64 + py-6 = 24 + 64 + 24 = 112px
+ *   - lg+:    py-8 + 64 + py-8 = 32 + 64 + 32 = 128px
+ * Das macht das padding ECHT sichtbar (vergrößert den header) statt
+ * nur die content-area in fixer höhe zu reduzieren — mit fixed h-28
+ * + items-center wäre py irrelevant weil das logo eh schon zentriert
+ * mit 24px gap oben/unten zu sehen war.
  *
- * Horizontal padding: px-6 sm:px-10 lg:px-12 (24/40/48px). Aggressives
- * ramping weil airline-logos selten ihren eigenen rand mitbringen —
- * ohne sichtbares padding klebt das logo direkt am header-rand und
- * wirkt "randlos". 24-48px schafft auf jedem viewport eine klar
- * sichtbare lücke zwischen logo + header-rand.
+ * Padding (sym auf x + y achsen, x ist breiter weil headers traditionell
+ * breiter als hoch):
+ *   - px: px-6 sm:px-10 lg:px-12 (24/40/48px)
+ *   - py: py-4 sm:py-6 lg:py-8 (16/24/32px)
  *
  * Layout: flex-row with airline-brand on the left, growing flex-spacer in
  * the middle, theme-toggle + user-dropdown on the right.
@@ -143,7 +148,7 @@ export function AppShell({ user, children }: Props) {
 function Header({ user }: { user: ShellUser }) {
   return (
     <header
-      className="sticky top-0 z-30 flex items-center justify-between gap-4 h-28 px-6 sm:px-10 lg:px-12 bg-white dark:bg-gray-950 border-b border-gray-200 dark:border-gray-800"
+      className="sticky top-0 z-30 flex items-center justify-between gap-4 px-6 py-4 sm:px-10 sm:py-6 lg:px-12 lg:py-8 bg-white dark:bg-gray-950 border-b border-gray-200 dark:border-gray-800"
       aria-label="Header"
     >
       <BrandLink user={user} />
@@ -433,15 +438,17 @@ interface SidebarProps {
 function Sidebar({ user, pathname }: SidebarProps) {
   return (
     <nav
-      className="hidden lg:flex lg:flex-col w-60 shrink-0 h-full bg-white dark:bg-gray-950 border-r border-gray-200 dark:border-gray-800"
+      className="hidden lg:flex lg:flex-col w-60 shrink-0 h-full overflow-hidden bg-white dark:bg-gray-950 border-r border-gray-200 dark:border-gray-800"
       aria-label="Hauptnavigation"
     >
       {/* Innerer container für nav-sections. flex-1 füllt die volle
           nav-höhe. Bewusst KEIN overflow-y-auto — die nav darf nicht
-          scrollen. Falls die nav-liste mal länger wird als verfügbare
-          höhe (z.B. mit vielen admin-sections), muss das design
-          umgestellt werden (sections kollabieren oder kleinere icons
-          statt scrolling). */}
+          scrollen. Outer <nav> hat zusätzlich overflow-hidden als
+          defensive guard, damit garantiert kein scroll auch wenn
+          content theoretisch overflowen würde (sonst clippt's einfach).
+          Falls die nav-liste mal länger wird als verfügbare höhe (z.B.
+          mit vielen admin-sections), muss das design umgestellt werden
+          (sections kollabieren oder kleinere icons statt scrolling). */}
       <div className="flex-1 px-3 py-4 space-y-6">
         <NavSection title="Flying">
           <NavLink href="/dashboard" pathname={pathname} icon="🏠" label="Dashboard" exact />
