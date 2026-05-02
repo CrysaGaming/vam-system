@@ -131,11 +131,11 @@ export function AppShell({ user, children }: Props) {
  * to give airline logos room to breathe (most airline logos are wider
  * than tall, ~2-4:1 ratio, and look stamp-sized at the standard h-14).
  *
- * Horizontal padding: px-4 sm:px-6 lg:px-8 (16/24/32px). Vorher waren
- * 10-15px versucht — das wirkte randlos weil airline-logos selten ihren
- * eigenen rand mitbringen, also klebte das logo direkt am header-rand.
- * 16-32px ramping schafft sichtbare lücke zwischen logo + header-rand
- * auf allen viewports.
+ * Horizontal padding: px-6 sm:px-10 lg:px-12 (24/40/48px). Aggressives
+ * ramping weil airline-logos selten ihren eigenen rand mitbringen —
+ * ohne sichtbares padding klebt das logo direkt am header-rand und
+ * wirkt "randlos". 24-48px schafft auf jedem viewport eine klar
+ * sichtbare lücke zwischen logo + header-rand.
  *
  * Layout: flex-row with airline-brand on the left, growing flex-spacer in
  * the middle, theme-toggle + user-dropdown on the right.
@@ -143,7 +143,7 @@ export function AppShell({ user, children }: Props) {
 function Header({ user }: { user: ShellUser }) {
   return (
     <header
-      className="sticky top-0 z-30 flex items-center justify-between gap-4 h-28 px-4 sm:px-6 lg:px-8 bg-white dark:bg-gray-950 border-b border-gray-200 dark:border-gray-800"
+      className="sticky top-0 z-30 flex items-center justify-between gap-4 h-28 px-6 sm:px-10 lg:px-12 bg-white dark:bg-gray-950 border-b border-gray-200 dark:border-gray-800"
       aria-label="Header"
     >
       <BrandLink user={user} />
@@ -436,11 +436,13 @@ function Sidebar({ user, pathname }: SidebarProps) {
       className="hidden lg:flex lg:flex-col w-60 shrink-0 h-full bg-white dark:bg-gray-950 border-r border-gray-200 dark:border-gray-800"
       aria-label="Hauptnavigation"
     >
-      {/* Innerer scroll-container für nav-listen die länger als sidebar
-          sind (admin-bereich + flying + airline + account zusammen).
-          flex-1 lässt es die volle nav-höhe füllen, overflow-y-auto
-          aktiviert vertikales scrollen wenn nötig. */}
-      <div className="flex-1 overflow-y-auto px-3 py-4 space-y-6">
+      {/* Innerer container für nav-sections. flex-1 füllt die volle
+          nav-höhe. Bewusst KEIN overflow-y-auto — die nav darf nicht
+          scrollen. Falls die nav-liste mal länger wird als verfügbare
+          höhe (z.B. mit vielen admin-sections), muss das design
+          umgestellt werden (sections kollabieren oder kleinere icons
+          statt scrolling). */}
+      <div className="flex-1 px-3 py-4 space-y-6">
         <NavSection title="Flying">
           <NavLink href="/dashboard" pathname={pathname} icon="🏠" label="Dashboard" exact />
           <NavLink href="/bookings" pathname={pathname} icon="✈️" label="Bookings" />
