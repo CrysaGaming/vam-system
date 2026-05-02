@@ -70,9 +70,10 @@ export function useTheme(): ThemeContextValue {
 }
 
 /**
- * Toggle button. Renders sun-icon in dark mode (click → light), moon-icon
- * in light mode (click → dark). Uses inline SVG instead of an icon library
- * to avoid bundle bloat for two icons.
+ * Toggle button. Icon-only, square, designed to sit in the header next to
+ * the user-dropdown. Renders sun-icon in dark mode (click → light), moon-
+ * icon in light mode (click → dark). Uses inline SVG instead of an icon
+ * library to avoid bundle bloat for two icons.
  *
  * The `mounted` guard prevents hydration mismatch: during SSR + initial
  * client render, theme is 'dark' (default state). Only after the mount
@@ -90,30 +91,25 @@ export function ThemeToggle() {
   return (
     <button
       onClick={toggle}
-      className="flex items-center gap-3 w-full px-3 py-2 rounded text-sm text-gray-700 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-900 transition border-l-2 border-transparent -ml-0.5 pl-[10px]"
+      className="flex items-center justify-center w-9 h-9 rounded-lg text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
       aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
-      title={`${theme === 'dark' ? 'Light' : 'Dark'} mode`}
+      title={mounted ? `${theme === 'dark' ? 'Light' : 'Dark'} mode` : 'Theme'}
     >
-      <span className="w-4 h-4 flex items-center justify-center" aria-hidden="true">
-        {!mounted ? (
-          // Placeholder during SSR/pre-mount to keep layout stable
-          <span className="block w-4 h-4" />
-        ) : theme === 'dark' ? (
-          // Sun icon — clicking switches to light
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
-            <circle cx="12" cy="12" r="4" />
-            <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
-          </svg>
-        ) : (
-          // Moon icon — clicking switches to dark
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
-            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-          </svg>
-        )}
-      </span>
-      <span className="flex-1 text-left">
-        {!mounted ? 'Theme' : theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
-      </span>
+      {!mounted ? (
+        // Placeholder during SSR/pre-mount to keep layout stable
+        <span className="block w-5 h-5" aria-hidden="true" />
+      ) : theme === 'dark' ? (
+        // Sun icon — clicking switches to light
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5" aria-hidden="true">
+          <circle cx="12" cy="12" r="4" />
+          <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+        </svg>
+      ) : (
+        // Moon icon — clicking switches to dark
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5" aria-hidden="true">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+        </svg>
+      )}
     </button>
   );
 }

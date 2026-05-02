@@ -4,7 +4,7 @@ import Script from 'next/script';
 import './globals.css';
 import { auth } from '@/auth';
 import { prisma } from '@vam/db';
-import { AppShell, type SidebarUser } from '@/components/AppShell';
+import { AppShell, type ShellUser } from '@/components/AppShell';
 import { ThemeProvider, themeInitScript } from '@/components/Theme';
 
 const geistSans = Geist({
@@ -24,15 +24,16 @@ export const metadata: Metadata = {
 
 /**
  * Root layout. Server component — fetches the auth session + minimal
- * user/airline/role data needed to render the sidebar nav, then hands
- * it to <AppShell/>. The shell is responsible for deciding whether to
- * actually render the sidebar (only on lg+ viewports + non-public pages).
+ * user/airline/role data needed to render the shell (header + sidebar),
+ * then hands it to <AppShell/>. The shell is responsible for deciding
+ * whether to actually render the chrome (only on lg+ viewports for
+ * sidebar; header always when authed + non-public).
  *
  * Why fetch user data here instead of per-page: every authenticated
  * page already does its own user lookup, so this is a small additive
- * query (~1ms) for the sidebar metadata that needs to render
- * consistently across pages. The query runs only when there's a
- * session — anonymous users hit zero DB queries from this layout.
+ * query (~1ms) for the shell metadata that needs to render consistently
+ * across pages. The query runs only when there's a session — anonymous
+ * users hit zero DB queries from this layout.
  */
 export default async function RootLayout({
   children,
@@ -41,7 +42,7 @@ export default async function RootLayout({
 }>) {
   const session = await auth();
 
-  let sidebarUser: SidebarUser | null = null;
+  let shellUser: ShellUser | null = null;
 
   if (session?.user) {
     const user = await prisma.user.findUnique({
@@ -49,17 +50,21 @@ export default async function RootLayout({
       select: {
         name: true,
         image: true,
-        airline: { select: { name: true, icao: true } },
+        // logoUrl mit fetchen für den header-brand-block. Optional auf der
+        // airline; wenn null, fällt der BrandLink auf einen ICAO-monogramm
+        // zurück.
+        airline: { select: { name: true, icao: true, logoUrl: true } },
         role: { select: { name: true } },
       },
     });
 
     if (user) {
-      sidebarUser = {
+      shellUser = {
         name: user.name,
         image: user.image,
         airlineName: user.airline?.name ?? null,
         airlineIcao: user.airline?.icao ?? null,
+        airlineLogoUrl: user.airline?.logoUrl ?? null,
         // Treat role.name === 'admin' as the admin gate. Mirrors the
         // existing convention in airline/actions.ts requireAirlineAdmin
         // and admin/roles/actions.ts requireAdmin. When permission-based
@@ -96,7 +101,7 @@ export default async function RootLayout({
       </head>
       <body className="min-h-full flex flex-col">
         <ThemeProvider>
-          <AppShell user={sidebarUser}>{children}</AppShell>
+          <AppShell user={shellUser}>{children}</AppShell>
         </ThemeProvider>
       </body>
     </html>
