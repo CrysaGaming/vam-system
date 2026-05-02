@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useTransition, useCallback } from 'react';
+import { useState, useTransition, useCallback, useEffect, useRef } from 'react';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import Link from 'next/link';
 
@@ -61,8 +61,14 @@ const CONTINENT_OPTIONS = [
  * AirportBrowser — client-component für filter-UI + table-render.
  *
  * State-management: Alle filter werden via URL-searchParams gesteuert.
- * Lokaler state nur für search-input (debounced auf 400ms damit nicht
- * bei jedem keystroke ein server-roundtrip passiert) und country-input.
+ * Lokaler state nur für den search-input (live-debounced auf 300ms damit
+ * nicht jeder keystroke einen server-roundtrip feuert) und country-input
+ * (commit on blur/Enter).
+ *
+ * Live-search-pattern: queryInput ist local truth während getippt wird,
+ * filters.query ist URL truth. Wenn die zwei divergieren startet ein
+ * 300ms-timer der updateFilter() callt; jeder weitere keystroke clearet
+ * den alten timer. Enter-key überspringt den debounce für instant-feuer.
  *
  * UX: useTransition() macht filter-changes nicht-blockierend — der ui
  * markiert sich als "pending" während der server die neue page liefert,
@@ -86,6 +92,10 @@ export function AirportBrowser({
   // würde der user bei jedem keystroke ein query feuern.
   const [queryInput, setQueryInput] = useState(filters.query);
   const [countryInput, setCountryInput] = useState(filters.country ?? '');
+
+  // Debounce-timer ref: behalten zwischen renders damit Enter-key den
+  // pending timer cancelen kann bevor er sein eigenes update feuert.
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ───── Filter update helpers ─────
   // Update einer einzelnen filter-dimension: cloned aktuelle searchParams,
@@ -122,8 +132,35 @@ export function AirportBrowser({
     updateFilter('type', newValue || null);
   };
 
+  // ───── Live-search-debounce ─────
+  // Wenn queryInput von filters.query divergiert, startet ein 300ms-timer
+  // der updateFilter('q', ...) feuert. Jeder weitere keystroke clearet den
+  // timer und startet neu. Cleanup-funktion clearet bei unmount + bei jedem
+  // re-render der zur dependency-änderung führte. Comparison verhindert eine
+  // endlosschleife wenn der server filter.query gleich queryInput ist.
+  useEffect(() => {
+    const trimmed = queryInput.trim();
+    if (trimmed === filters.query) return;
+
+    debounceTimerRef.current = setTimeout(() => {
+      updateFilter('q', trimmed || null);
+    }, 300);
+
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = null;
+      }
+    };
+  }, [queryInput, filters.query, updateFilter]);
+
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    // Enter-key: pending debounce abbrechen, sofort feuern.
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
     updateFilter('q', queryInput.trim() || null);
   };
 
@@ -146,21 +183,18 @@ export function AirportBrowser({
     <div className={isPending ? 'opacity-60 transition-opacity' : ''}>
       {/* ───── Filter Controls ───── */}
       <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-800 p-4 mb-4 space-y-4">
-        {/* Row 1: Search + reset */}
+        {/* Row 1: Search + reset.
+            Live-search via debounce-effect oben — kein expliziter Suchen-
+            button mehr. Form bleibt nur damit Enter-key den debounce
+            überspringen und sofort feuern kann. */}
         <form onSubmit={handleSearchSubmit} className="flex gap-2">
           <input
             type="text"
-            placeholder="ICAO, IATA, Name oder Stadt suchen…"
+            placeholder="ICAO, IATA, Name oder Stadt — automatisch beim Tippen…"
             value={queryInput}
             onChange={(e) => setQueryInput(e.target.value)}
             className="flex-1 px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
           />
-          <button
-            type="submit"
-            className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-500"
-          >
-            Suchen
-          </button>
           {!isDefaultState && (
             <button
               type="button"
