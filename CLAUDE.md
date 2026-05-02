@@ -100,6 +100,16 @@ pnpm typecheck                  # TS check
 - **Hosts-mapping**: `vam.kevindrack.de` is mapped to `127.0.0.1` in the Windows hosts file. Dev server `pnpm --filter @vam/web dev` listens on port 3000. **Always use `http://vam.kevindrack.de:3000` (not `localhost:3000`)** for any flow that goes through Discord/VATSIM/IVAO OAuth — callback URLs are registered for the FQDN. NextAuth's `NEXTAUTH_URL` is set to the FQDN; mixing hosts breaks sessions and cookies.
 - For headless tests (curl, db queries, etc.) `localhost:3000` is fine since no auth state needed.
 
+## HMR / cache / Tailwind v4 quirks
+
+Lessons hart gelernt 2026-05-01/02. Apply these when CSS/HMR look broken:
+
+- **Tailwind v4 + Turbopack detection-bug**: certain class patterns are not picked from content files even though they're definitely there. Confirmed flaky: `max-w-[Xrem]` arbitrary values, `h-14`/`w-14` (while `h-16` works), `sm:`/`lg:`-prefixed classes after HMR cycles. **Workaround**: explicit `@source inline("...")` in `apps/web/app/globals.css`. Two such blocks already exist there, comment-tagged with the rationale — append, don't replace.
+- **Verifying CSS compile**: a class is in the bundle when its **compiled form** appears, not the Tailwind name. `max-w-[100rem]` shows up as `max-width: 100rem`, not as `.max-w-\[100rem\]`. Search for the compiled property.
+- **Cloudflare cache after CSS/JS changes**: cf-cache is `max-age=14400` (4h). After bundle-affecting commits the user must hard-reload (Ctrl+Shift+R) — soft-reload serves the stale bundle.
+- **Dev-server hard restart**: when HMR drifts (server compiled state ≠ client state, hydration mismatches that don't go away), kill orphan node processes (`taskkill //F //IM node.exe`), `rm -rf apps/web/.next`, then restart. Don't trust hot-reload to recover from this.
+- **Spawn pattern that works**: `pnpm --filter @vam/web dev` via `run_in_background: true` works in-shell. PowerShell `Start-Process` resets PATH and breaks the `next` binary lookup.
+
 ## Working-style context
 
 - Solo developer. Tooling stack: Roo Code + Qwen3-Coder-30B (local LM Studio) + Claude sessions for strategy and code review. Claude Code is currently being evaluated on this branch.
