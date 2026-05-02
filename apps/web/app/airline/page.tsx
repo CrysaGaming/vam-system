@@ -83,6 +83,7 @@ export default async function AirlineAdminPage() {
             members={members}
             roles={roles}
             currentUserId={user.id}
+            currentUserIsAdmin={user.role.name === 'admin'}
           />
           <InviteSection
             invites={invites}

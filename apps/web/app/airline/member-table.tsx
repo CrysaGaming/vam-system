@@ -8,6 +8,15 @@ interface Props {
   members: AirlineMember[];
   roles: Array<{ id: string; name: string; description: string | null }>;
   currentUserId: string;
+  /**
+   * Ist der aktuell eingeloggte user ein system-admin? Wird verwendet
+   * um zu entscheiden ob die "admin"-rolle im dropdown auswählbar ist.
+   * Backend (assignRoleToMember in actions.ts) blockiert die zuweisung
+   * für non-admins eh, aber wir wollen die option erst gar nicht
+   * klickbar anbieten — sonst kriegt der user einen error-toast statt
+   * direktes feedback.
+   */
+  currentUserIsAdmin: boolean;
 }
 
 /**
@@ -20,8 +29,14 @@ interface Props {
  * "(Du)" suffix. The dropdown still works on themselves — the last-
  * admin guard on the server prevents the dangerous case where this
  * would lock them out.
+ *
+ * Privilege-escalation guard (UI-side): die "admin"-rolle ist im
+ * dropdown nur für system-admins auswählbar. Für airline-admin oder
+ * instructor erscheint sie als disabled mit hint-text. Das ist
+ * defense-in-depth — der echte schutz steht im backend, aber UI
+ * sollte unmögliche aktionen erst gar nicht anbieten.
  */
-export function MemberTable({ members, roles, currentUserId }: Props) {
+export function MemberTable({ members, roles, currentUserId, currentUserIsAdmin }: Props) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
@@ -117,12 +132,29 @@ export function MemberTable({ members, roles, currentUserId }: Props) {
                       className="px-3 py-1.5 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded text-sm focus:border-indigo-500 outline-none disabled:opacity-50"
                     >
                       <option value="">Keine Rolle</option>
-                      {roles.map((r) => (
-                        <option key={r.id} value={r.id}>
-                          {r.name}
-                          {r.description ? ` — ${r.description}` : ''}
-                        </option>
-                      ))}
+                      {roles.map((r) => {
+                        // admin-rolle ist nur für system-admins zuweisbar.
+                        // Backend wirft eh wenn ein non-admin sie zu setzen
+                        // versucht (siehe assignRoleToMember privilege-
+                        // escalation guard), aber UI-side disabled bevor
+                        // der user den fehler erlebt.
+                        const isPrivilegedRole = r.name === 'admin';
+                        const isLocked = isPrivilegedRole && !currentUserIsAdmin;
+                        return (
+                          <option
+                            key={r.id}
+                            value={r.id}
+                            disabled={isLocked}
+                          >
+                            {r.name}
+                            {isLocked
+                              ? ' (nur System-Admins)'
+                              : r.description
+                                ? ` — ${r.description}`
+                                : ''}
+                          </option>
+                        );
+                      })}
                     </select>
                   </td>
                 </tr>
