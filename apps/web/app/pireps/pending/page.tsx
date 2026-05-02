@@ -50,12 +50,12 @@ export default async function PirepsPending() {
   });
 
   return (
-    <main className="min-h-screen bg-gray-950 text-white p-4 sm:p-6 lg:p-8">
+    <main className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-white p-4 sm:p-6 lg:p-8">
       <div className="max-w-[100rem] mx-auto">
-        <header className="flex justify-between items-center mb-8 pb-6 border-b border-gray-800">
+        <header className="flex justify-between items-center mb-8 pb-6 border-b border-gray-200 dark:border-gray-800">
           <div>
             <h1 className="text-3xl font-bold">PIREPs zur Prüfung</h1>
-            <p className="text-gray-400 text-sm mt-1">
+            <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">
               {pending.length === 0
                 ? 'Keine PIREPs warten aktuell auf Prüfung'
                 : `${pending.length} ${pending.length === 1 ? 'PIREP wartet' : 'PIREPs warten'} auf Prüfung`}
@@ -64,13 +64,13 @@ export default async function PirepsPending() {
           <div className="flex gap-3">
             <Link
               href="/dashboard"
-              className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded text-sm transition"
+              className="px-4 py-2 bg-gray-200 hover:bg-gray-300 dark:bg-gray-800 dark:hover:bg-gray-700 rounded text-sm transition"
             >
               ← Dashboard
             </Link>
             <Link
               href="/pireps"
-              className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded text-sm transition"
+              className="px-4 py-2 bg-gray-200 hover:bg-gray-300 dark:bg-gray-800 dark:hover:bg-gray-700 rounded text-sm transition"
             >
               Meine PIREPs
             </Link>
@@ -78,9 +78,9 @@ export default async function PirepsPending() {
         </header>
 
         {pending.length === 0 ? (
-          <div className="bg-gray-900 border border-gray-800 rounded-lg p-12 text-center">
+          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-12 text-center">
             <p className="text-5xl mb-4">✅</p>
-            <p className="text-gray-300 font-semibold mb-2">
+            <p className="text-gray-700 dark:text-gray-300 font-semibold mb-2">
               Alle PIREPs sind geprüft.
             </p>
             <p className="text-gray-500 text-sm">
@@ -88,10 +88,10 @@ export default async function PirepsPending() {
             </p>
           </div>
         ) : (
-          <div className="bg-gray-900 rounded-lg border border-gray-800 overflow-hidden">
+          <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-800 overflow-hidden">
             <table className="w-full text-sm">
-              <thead className="bg-gray-800/50">
-                <tr className="text-left text-xs uppercase tracking-wider text-gray-400">
+              <thead className="bg-gray-100 dark:bg-gray-800/50">
+                <tr className="text-left text-xs uppercase tracking-wider text-gray-500 dark:text-gray-400">
                   <th className="px-4 py-3">Pilot</th>
                   <th className="px-4 py-3">Flug</th>
                   <th className="px-4 py-3">Strecke</th>
@@ -100,11 +100,11 @@ export default async function PirepsPending() {
                   <th className="px-4 py-3 text-right">Eingereicht</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-800">
+              <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
                 {pending.map((p) => (
                   <tr
                     key={p.id}
-                    className="hover:bg-gray-800/30 transition group cursor-pointer"
+                    className="hover:bg-gray-50 dark:hover:bg-gray-800/30 transition group cursor-pointer"
                   >
                     <td className="px-4 py-3">
                       <Link href={`/pireps/${p.id}`} className="block">
@@ -117,17 +117,17 @@ export default async function PirepsPending() {
                     <td className="px-4 py-3 font-mono font-semibold">
                       <Link
                         href={`/pireps/${p.id}`}
-                        className="block text-indigo-400"
+                        className="block text-indigo-600 dark:text-indigo-400"
                       >
                         {p.route?.flightNumber ?? '—'}
                       </Link>
                     </td>
-                    <td className="px-4 py-3 text-gray-300">
+                    <td className="px-4 py-3 text-gray-700 dark:text-gray-300">
                       <Link href={`/pireps/${p.id}`} className="block">
                         {p.departure.icao} → {p.arrival.icao}
                       </Link>
                     </td>
-                    <td className="px-4 py-3 text-gray-300">
+                    <td className="px-4 py-3 text-gray-700 dark:text-gray-300">
                       <Link href={`/pireps/${p.id}`} className="block">
                         {p.aircraft?.registration ?? '—'}
                       </Link>
@@ -139,7 +139,7 @@ export default async function PirepsPending() {
                           : '—'}
                       </Link>
                     </td>
-                    <td className="px-4 py-3 text-right text-gray-400 text-xs">
+                    <td className="px-4 py-3 text-right text-gray-500 dark:text-gray-400 text-xs">
                       <Link href={`/pireps/${p.id}`} className="block">
                         {new Date(p.submittedAt).toLocaleString('de-DE', {
                           dateStyle: 'short',

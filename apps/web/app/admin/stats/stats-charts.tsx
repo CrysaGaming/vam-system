@@ -19,7 +19,7 @@ export function StatsCharts({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
       {/* Flüge pro Monat */}
-      <section className="bg-gray-900 border border-gray-800 rounded-lg p-6">
+      <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6">
         <h2 className="text-sm uppercase tracking-wider text-gray-500 mb-4">
           Flüge pro Monat
         </h2>
@@ -38,12 +38,12 @@ export function StatsCharts({
         className="grid gap-6"
         style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))' }}
       >
-        <section className="bg-gray-900 border border-gray-800 rounded-lg p-6">
+        <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6">
           <h2 className="text-sm uppercase tracking-wider text-gray-500 mb-4">
             Top 5 Routen
           </h2>
           {topRoutes.length === 0 ? (
-            <p className="text-gray-400 text-sm">Noch keine Routen geflogen.</p>
+            <p className="text-gray-500 dark:text-gray-400 text-sm">Noch keine Routen geflogen.</p>
           ) : (
             <BarChart
               data={topRoutes}
@@ -57,12 +57,12 @@ export function StatsCharts({
           )}
         </section>
 
-        <section className="bg-gray-900 border border-gray-800 rounded-lg p-6">
+        <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6">
           <h2 className="text-sm uppercase tracking-wider text-gray-500 mb-4">
             PIREPs nach Status
           </h2>
           {statusData.length === 0 ? (
-            <p className="text-gray-400 text-sm">Keine Daten.</p>
+            <p className="text-gray-500 dark:text-gray-400 text-sm">Keine Daten.</p>
           ) : (
             <div className="flex items-center justify-center">
               <DonutChart

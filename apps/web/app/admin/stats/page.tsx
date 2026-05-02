@@ -134,18 +134,18 @@ export default async function AdminStats() {
   }));
 
   return (
-    <main className="min-h-screen bg-gray-950 text-white p-4 sm:p-6 lg:p-8">
+    <main className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-white p-4 sm:p-6 lg:p-8">
       <div className="max-w-[100rem] mx-auto">
-        <header className="flex justify-between items-center mb-8 pb-6 border-b border-gray-800">
+        <header className="flex justify-between items-center mb-8 pb-6 border-b border-gray-200 dark:border-gray-800">
           <div>
             <h1 className="text-3xl font-bold">Statistiken</h1>
-            <p className="text-gray-400 text-sm mt-1">
+            <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">
               {user.airline?.name} · Admin-Dashboard
             </p>
           </div>
           <Link
             href="/dashboard"
-            className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded text-sm transition"
+            className="px-4 py-2 bg-gray-200 hover:bg-gray-300 dark:bg-gray-800 dark:hover:bg-gray-700 rounded text-sm transition"
           >
             ← Dashboard
           </Link>
@@ -158,7 +158,7 @@ export default async function AdminStats() {
             gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
           }}
         >
-          <div className="bg-gray-900 border border-gray-800 rounded-lg p-6">
+          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6">
             <p className="text-xs uppercase tracking-wider text-gray-500 mb-2">
               Total Flüge
             </p>
@@ -166,7 +166,7 @@ export default async function AdminStats() {
             <p className="text-xs text-gray-500 mt-1">eingereichte PIREPs</p>
           </div>
 
-          <div className="bg-gray-900 border border-gray-800 rounded-lg p-6">
+          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6">
             <p className="text-xs uppercase tracking-wider text-gray-500 mb-2">
               Total Stunden
             </p>
@@ -174,7 +174,7 @@ export default async function AdminStats() {
             <p className="text-xs text-gray-500 mt-1">geflogen (genehmigt)</p>
           </div>
 
-          <div className="bg-gray-900 border border-gray-800 rounded-lg p-6">
+          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6">
             <p className="text-xs uppercase tracking-wider text-gray-500 mb-2">
               Aktive Piloten
             </p>
@@ -182,7 +182,7 @@ export default async function AdminStats() {
             <p className="text-xs text-gray-500 mt-1">mit ≥ 1 Flug</p>
           </div>
 
-          <div className="bg-gray-900 border border-gray-800 rounded-lg p-6">
+          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6">
             <p className="text-xs uppercase tracking-wider text-gray-500 mb-2">
               Ø Flugzeit
             </p>
