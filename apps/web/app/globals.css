@@ -9,6 +9,15 @@
 @source inline("fill-gray-500 dark:fill-gray-500 stroke-gray-200 dark:stroke-gray-800 stroke-1 fill-blue-500 stroke-blue-500 fill-emerald-500 stroke-emerald-500 fill-violet-500 fill-amber-500 fill-cyan-500 fill-pink-500 fill-lime-500 fill-fuchsia-500");
 @source inline("text-gray-700 dark:text-gray-300 text-gray-900 dark:text-gray-50 text-gray-500 dark:text-gray-500 border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950 hover:bg-gray-100 dark:hover:bg-gray-800");
 
+/* AppShell-spezifische classes — werden aus irgendeinem grund nicht von
+   tailwind v4's content-detection in components/AppShell.tsx detected,
+   obwohl andere classes aus der gleichen file (pl-[10px], w-60,
+   lg:flex-col, -ml-0.5) korrekt gefunden werden. Vermutlich ein
+   Tailwind-v4 + Turbopack inkompatibilität bei bestimmten patterns
+   (max-*, h-14/w-14 obwohl h-16 funktioniert, sm:/lg:-prefixes für
+   neue classes nach HMR-cycles). Workaround: explizit safelisten. */
+@source inline("max-h-16 max-w-[12rem] max-w-[8rem] sm:max-w-[10rem] h-14 w-14 py-4 sm:py-6 lg:py-8 sm:px-10 lg:px-12 overflow-hidden");
+
 @theme {
   --animate-hide: hide 150ms cubic-bezier(0.16, 1, 0.3, 1);
   --animate-slide-down-and-fade: slideDownAndFade 150ms cubic-bezier(0.16, 1, 0.3, 1);
