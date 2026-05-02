@@ -472,3 +472,300 @@ export async function deleteRoute(routeId: string): Promise<RouteFormState> {
   revalidatePath('/routes');
   return { ok: true, message: `Route ${existing.flightNumber} gelöscht.` };
 }
+
+// ============================================================================
+// CSV-Bulk-Import
+// ============================================================================
+
+/**
+ * CSV-row-schema (raw aus parser, alle felder strings). Wir validieren
+ * NICHT mit RouteInputSchema direkt weil:
+ *  1. Im CSV gibt der user ICAO-codes für airports (LSZH), nicht IDs.
+ *     Wir müssen erst zur airport-ID resolven bevor wir RouteInputSchema
+ *     anwenden können.
+ *  2. Wir wollen permissive boolean-parsing ("ja"/"nein"/"yes"/"1"/"true"
+ *     etc.) statt strikt — Excel exportiert je nach locale anders.
+ *  3. Per-row error-aggregation statt fail-fast — eine kaputte row darf
+ *     nicht 499 valide rows blocken.
+ */
+const CsvRowSchema = z.object({
+  flight_number: z.string().trim().min(1, 'flight_number fehlt'),
+  departure_icao: z.string().trim().min(1, 'departure_icao fehlt'),
+  arrival_icao: z.string().trim().min(1, 'arrival_icao fehlt'),
+  aircraft_type: z.string().trim().optional().default(''),
+  estimated_minutes: z.string().trim().optional().default(''),
+  distance_nm: z.string().trim().optional().default(''),
+  active: z.string().trim().optional().default('true'),
+});
+
+export type ImportRowResult = {
+  rowIndex: number; // 1-based, header ist row 0
+  status: 'created' | 'skipped' | 'error';
+  flightNumber?: string;
+  message: string;
+};
+
+export type BulkImportResult = {
+  ok: boolean;
+  message: string;
+  rows: ImportRowResult[];
+  summary: { created: number; skipped: number; errors: number };
+};
+
+/**
+ * Parse-helpers für CSV-felder die strings sind aber als zahlen/booleans
+ * interpretiert werden müssen. Permissive — der airline-admin soll nicht
+ * scheitern weil Excel "Wahr" statt "true" geschrieben hat.
+ */
+function parseCsvBoolean(v: string): boolean {
+  const s = v.trim().toLowerCase();
+  if (!s) return true; // empty default → active
+  return ['true', '1', 'ja', 'yes', 'y', 'wahr', 'aktiv', 'active'].includes(s);
+}
+
+function parseCsvInt(v: string): number | undefined {
+  const s = v.trim();
+  if (!s) return undefined;
+  const n = Number.parseInt(s, 10);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+/**
+ * Resolve airport via ICAO (primary, eindeutig) oder IATA (fallback,
+ * falls ICAO leer war oder user IATA-code geschickt hat). ICAO-codes sind
+ * 4 zeichen, IATA 3 — wir nutzen länge als hint für die suchreihenfolge,
+ * aber probieren immer beide damit "LSZH" und "ZRH" beide funktionieren.
+ */
+async function resolveAirportFromCode(code: string) {
+  const upper = code.trim().toUpperCase();
+  if (!upper) return null;
+
+  // Erst ICAO probieren (immer eindeutig). Dann IATA wenn nichts gefunden.
+  const byIcao = await prisma.airport.findUnique({ where: { icao: upper } });
+  if (byIcao) return byIcao;
+
+  if (upper.length === 3) {
+    // IATA ist nicht unique in der DB (historische codes können duplikate
+    // haben), also nehmen wir den ersten match. In 99% der fälle eindeutig.
+    return prisma.airport.findFirst({ where: { iata: upper } });
+  }
+  return null;
+}
+
+const CSV_MAX_ROWS = 500;
+
+/**
+ * Bulk-import von routes aus geparstem CSV (vom client als JS-array
+ * geschickt). Server-action verifiziert auth, validiert per-row und
+ * insertet alles was valide ist. Errors werden pro row aggregiert
+ * statt fail-fast — der admin sieht eine vollständige report-tabelle.
+ *
+ * Bewusst KEINE transaction: wenn 480 von 500 routes valide sind, wollen
+ * wir die 480 inserten. Der admin korrigiert die 20 fehlerhaften und
+ * importiert sie in einem zweiten run.
+ *
+ * Skip statt error wenn flight-number bereits existiert — re-imports
+ * eines bereits importierten CSV sollen idempotent sein, nicht
+ * 500x "duplicate" werfen. Update-on-conflict wäre auch eine option,
+ * ist aber riskanter (silent overwrite); skip ist konservativer.
+ */
+export async function bulkImportRoutes(
+  rows: Array<Record<string, string>>,
+): Promise<BulkImportResult> {
+  const { airlineId } = await requireAirlineAdmin();
+
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return {
+      ok: false,
+      message: 'Keine zeilen im CSV gefunden.',
+      rows: [],
+      summary: { created: 0, skipped: 0, errors: 0 },
+    };
+  }
+
+  if (rows.length > CSV_MAX_ROWS) {
+    return {
+      ok: false,
+      message: `Maximal ${CSV_MAX_ROWS} routes pro CSV-import erlaubt (du hast ${rows.length} hochgeladen). Splitte die datei auf.`,
+      rows: [],
+      summary: { created: 0, skipped: 0, errors: 0 },
+    };
+  }
+
+  const results: ImportRowResult[] = [];
+  let created = 0;
+  let skipped = 0;
+  let errors = 0;
+
+  // Existing flight-numbers für skip-detection vor-laden (1 query statt
+  // N queries). Performance: bei 500 rows × 1 query = 500 round-trips
+  // sonst, was bei remote-DBs significant ist.
+  const existingRoutes = await prisma.route.findMany({
+    where: { airlineId },
+    select: { flightNumber: true },
+  });
+  const existingFlightNumbers = new Set(existingRoutes.map((r) => r.flightNumber));
+
+  for (let i = 0; i < rows.length; i++) {
+    const rowIndex = i + 1; // 1-based für user-display
+    const raw = rows[i];
+
+    // Schritt 1: shape-validation
+    const parsed = CsvRowSchema.safeParse(raw);
+    if (!parsed.success) {
+      const firstError = parsed.error.issues[0];
+      errors++;
+      results.push({
+        rowIndex,
+        status: 'error',
+        message: `Zeile ${rowIndex}: ${firstError.message}`,
+      });
+      continue;
+    }
+
+    const row = parsed.data;
+    const flightNumber = row.flight_number.toUpperCase();
+
+    // Schritt 2: flight-number-format
+    if (!/^[A-Z]{2,3}\d{1,4}[A-Z]?$/.test(flightNumber)) {
+      errors++;
+      results.push({
+        rowIndex,
+        status: 'error',
+        flightNumber,
+        message: `Zeile ${rowIndex}: Flugnummer "${flightNumber}" ungültig (format: 2-3 buchstaben + 1-4 zahlen, z.B. KK101).`,
+      });
+      continue;
+    }
+
+    // Schritt 3: skip wenn bereits existiert
+    if (existingFlightNumbers.has(flightNumber)) {
+      skipped++;
+      results.push({
+        rowIndex,
+        status: 'skipped',
+        flightNumber,
+        message: `Zeile ${rowIndex}: ${flightNumber} existiert bereits — übersprungen.`,
+      });
+      continue;
+    }
+
+    // Schritt 4: airports resolven
+    const [departure, arrival] = await Promise.all([
+      resolveAirportFromCode(row.departure_icao),
+      resolveAirportFromCode(row.arrival_icao),
+    ]);
+
+    if (!departure) {
+      errors++;
+      results.push({
+        rowIndex,
+        status: 'error',
+        flightNumber,
+        message: `Zeile ${rowIndex}: Abflughafen "${row.departure_icao}" nicht gefunden (ICAO oder IATA).`,
+      });
+      continue;
+    }
+    if (!arrival) {
+      errors++;
+      results.push({
+        rowIndex,
+        status: 'error',
+        flightNumber,
+        message: `Zeile ${rowIndex}: Zielflughafen "${row.arrival_icao}" nicht gefunden (ICAO oder IATA).`,
+      });
+      continue;
+    }
+    if (departure.id === arrival.id) {
+      errors++;
+      results.push({
+        rowIndex,
+        status: 'error',
+        flightNumber,
+        message: `Zeile ${rowIndex}: Abflug- und Zielflughafen identisch (${departure.icao}).`,
+      });
+      continue;
+    }
+
+    // Schritt 5: aircraft-type validieren wenn angegeben
+    const aircraftTypeIcao = row.aircraft_type.toUpperCase().trim();
+    if (aircraftTypeIcao && !/^[A-Z0-9]{3,4}$/.test(aircraftTypeIcao)) {
+      errors++;
+      results.push({
+        rowIndex,
+        status: 'error',
+        flightNumber,
+        message: `Zeile ${rowIndex}: Aircraft-type "${aircraftTypeIcao}" ungültig (3-4 zeichen ICAO, z.B. B738, A20N).`,
+      });
+      continue;
+    }
+
+    // Schritt 6: distance + duration auto-calc wenn leer
+    let distanceNm = parseCsvInt(row.distance_nm);
+    let estimatedMinutes = parseCsvInt(row.estimated_minutes);
+
+    if (distanceNm === undefined) {
+      const km = haversineKm(
+        departure.latitude,
+        departure.longitude,
+        arrival.latitude,
+        arrival.longitude,
+      );
+      distanceNm = Math.round(km * 0.539957);
+    }
+    if (estimatedMinutes === undefined) {
+      // 450kt cruise + 25min taxi/climb/descent overhead
+      estimatedMinutes = Math.round((distanceNm / 450) * 60 + 25);
+    }
+
+    // Schritt 7: insert
+    try {
+      await prisma.route.create({
+        data: {
+          airlineId,
+          flightNumber,
+          departureId: departure.id,
+          arrivalId: arrival.id,
+          aircraftTypeIcao: aircraftTypeIcao || null,
+          distanceNm,
+          estimatedMinutes,
+          active: parseCsvBoolean(row.active),
+        },
+      });
+      existingFlightNumbers.add(flightNumber); // dedup im selben CSV
+      created++;
+      results.push({
+        rowIndex,
+        status: 'created',
+        flightNumber,
+        message: `Zeile ${rowIndex}: ${flightNumber} (${departure.icao}→${arrival.icao}) angelegt.`,
+      });
+    } catch (e) {
+      errors++;
+      const msg = e instanceof Error ? e.message : 'unbekannter fehler';
+      results.push({
+        rowIndex,
+        status: 'error',
+        flightNumber,
+        message: `Zeile ${rowIndex}: DB-fehler — ${msg}`,
+      });
+    }
+  }
+
+  if (created > 0) {
+    revalidatePath('/airline/routes');
+    revalidatePath('/routes');
+  }
+
+  return {
+    ok: created > 0 || (errors === 0 && skipped === 0),
+    message:
+      created > 0
+        ? `${created} routes importiert${skipped > 0 ? `, ${skipped} übersprungen` : ''}${errors > 0 ? `, ${errors} fehler` : ''}.`
+        : errors > 0
+          ? `Keine routes importiert — ${errors} fehler${skipped > 0 ? `, ${skipped} übersprungen` : ''}.`
+          : `Alle ${skipped} zeilen übersprungen (bereits vorhanden).`,
+    rows: results,
+    summary: { created, skipped, errors },
+  };
+}

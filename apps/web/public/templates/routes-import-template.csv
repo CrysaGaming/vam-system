@@ -1,0 +1,8 @@
+flight_number,departure_icao,arrival_icao,aircraft_type,estimated_minutes,distance_nm,active
+KK101,LSZH,EDDF,A320,75,150,true
+KK102,EDDF,LSZH,A320,75,150,true
+KK201,LSZH,EGLL,A20N,,,true
+KK202,EGLL,LSZH,A20N,,,true
+KK301,LSZH,LFPG,B738,90,260,true
+KK401,LSZH,LIRF,B738,,,true
+KK501,LSZH,LEMD,A320,,,false
