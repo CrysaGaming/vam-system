@@ -14,6 +14,10 @@ export type ShellUser = {
   // auf einen ICAO-monogramm-block zurück. Bisher nicht gefetcht im
   // app/layout.tsx — diese property kommt mit dem header-redesign dazu.
   airlineLogoUrl: string | null;
+  // Optional rank-name (z.B. "Captain", "First Officer"). Zeigt im header-
+  // user-button als sub-line unter dem namen (vAMSYS-style). Wenn null,
+  // fällt die UI auf "Pilot" als generic placeholder zurück.
+  rankName: string | null;
   isAdmin: boolean;
   hasAirline: boolean;
 };
@@ -93,13 +97,17 @@ export function AppShell({ user, children }: Props) {
  * `top-28` value below depends on this — if you change one, change the
  * other.
  *
+ * Horizontal padding ramps from 10px (mobile) → 12px (sm+) → 15px (lg+).
+ * Tighter than the typical px-4/px-6 SaaS-default to give the brand-block
+ * + user-info more horizontal room without the header feeling stuffed.
+ *
  * Layout: flex-row with airline-brand on the left, growing flex-spacer in
  * the middle, theme-toggle + user-dropdown on the right.
  */
 function Header({ user }: { user: ShellUser }) {
   return (
     <header
-      className="sticky top-0 z-30 flex items-center justify-between gap-4 h-28 px-4 lg:px-6 bg-white dark:bg-gray-950 border-b border-gray-200 dark:border-gray-800"
+      className="sticky top-0 z-30 flex items-center justify-between gap-4 h-28 px-[10px] sm:px-[12px] lg:px-[15px] bg-white dark:bg-gray-950 border-b border-gray-200 dark:border-gray-800"
       aria-label="Header"
     >
       <BrandLink user={user} />
@@ -232,7 +240,7 @@ function UserDropdown({ user }: { user: ShellUser }) {
         ref={buttonRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-2 pl-1 pr-2 sm:pr-3 py-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+        className="flex items-center gap-2 sm:gap-3 pl-1 pr-2 sm:pr-3 py-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition"
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label="User menu"
@@ -242,17 +250,32 @@ function UserDropdown({ user }: { user: ShellUser }) {
           <img
             src={user.image}
             alt={user.name ?? 'Avatar'}
-            className="w-8 h-8 rounded-full border border-gray-300 dark:border-gray-700 shrink-0"
+            className="w-12 h-12 rounded-full border border-gray-300 dark:border-gray-700 shrink-0"
           />
         ) : (
           <div
-            className="w-8 h-8 rounded-full bg-gray-200 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 shrink-0"
+            className="w-12 h-12 rounded-full bg-gray-200 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 shrink-0"
             aria-hidden="true"
           />
         )}
-        <span className="hidden sm:block text-sm font-medium text-gray-900 dark:text-white max-w-[10rem] truncate">
-          {user.name ?? 'Pilot'}
-        </span>
+        {/* Two-line text-zone (vAMSYS-style): pilot-name oben, rank-name
+            darunter als sub-line. `hidden sm:block` schützt vor mobile-
+            screens (<640px) wo header-platz knapp wird neben dem 48px-
+            avatar + brand-logo. text-left explizit weil das parent-button
+            sonst auf default-button-text-align fallback. max-w-[10rem]
+            mit truncate verhindert dass lange namen den header sprengen.
+
+            Rank-fallback: 'Pilot' als generic placeholder wenn user noch
+            keinen rank zugewiesen hat — vAMSYS macht das selbe um die
+            UI-zone konsistent zu halten. */}
+        <div className="hidden sm:block min-w-0 max-w-[10rem] text-left">
+          <p className="text-sm font-medium text-gray-900 dark:text-white truncate leading-tight">
+            {user.name ?? 'Pilot'}
+          </p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 truncate leading-tight mt-0.5">
+            {user.rankName ?? 'Pilot'}
+          </p>
+        </div>
         <svg
           className={`hidden sm:block w-4 h-4 text-gray-500 dark:text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`}
           viewBox="0 0 24 24"

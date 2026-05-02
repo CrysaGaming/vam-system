@@ -54,6 +54,10 @@ export default async function RootLayout({
         // airline; wenn null, fällt der BrandLink auf einen ICAO-monogramm
         // zurück.
         airline: { select: { name: true, icao: true, logoUrl: true } },
+        // rank.name für das header user-info display (vAMSYS-style:
+        // pilot-name oben, rank-bezeichnung darunter). Optional FK —
+        // user kann ohne rank existieren (z.B. neuer pilot vor zuweisung).
+        rank: { select: { name: true } },
         role: { select: { name: true } },
       },
     });
@@ -65,6 +69,7 @@ export default async function RootLayout({
         airlineName: user.airline?.name ?? null,
         airlineIcao: user.airline?.icao ?? null,
         airlineLogoUrl: user.airline?.logoUrl ?? null,
+        rankName: user.rank?.name ?? null,
         // Treat role.name === 'admin' as the admin gate. Mirrors the
         // existing convention in airline/actions.ts requireAirlineAdmin
         // and admin/roles/actions.ts requireAdmin. When permission-based
