@@ -97,6 +97,17 @@ export default async function AdminPilotsList() {
     .sort()
     .map((name) => ({ name }));
 
+  // Alle rollen aus DB für den bulk-assign-dropdown. Anders als
+  // availableRoles (nur rollen die mind. 1x vergeben sind, für den
+  // filter) brauchen wir hier ALLE rollen + ihre id, damit der admin
+  // auch eine bisher nicht zugewiesene rolle (z.B. neu erstellt) per
+  // bulk verteilen kann. Sortierung: createdAt asc damit system-rollen
+  // (die zuerst durch seed angelegt wurden) oben stehen.
+  const allRoles = await prisma.role.findMany({
+    select: { id: true, name: true, description: true },
+    orderBy: { createdAt: 'asc' },
+  });
+
   // Map zu AdminUser-shape — explicit typing damit der client-component
   // die richtige struktur kriegt, nicht das raw prisma-result mit allen
   // Date-objects, FK-felder etc.
@@ -147,6 +158,7 @@ export default async function AdminPilotsList() {
           users={adminUsers}
           availableAirlines={availableAirlines}
           availableRoles={availableRoles}
+          allRoles={allRoles}
           currentUserId={currentUser.id}
         />
       </div>
