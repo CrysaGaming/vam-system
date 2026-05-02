@@ -95,9 +95,9 @@ export default async function PirepDetail({
     isApprover && pirep.status === 'Submitted' && !isOwn;
 
   return (
-    <main className="min-h-screen bg-gray-950 text-white p-8">
+    <main className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-white p-8">
       <div className="max-w-4xl mx-auto">
-        <header className="flex justify-between items-center mb-8 pb-6 border-b border-gray-800">
+        <header className="flex justify-between items-center mb-8 pb-6 border-b border-gray-200 dark:border-gray-800">
           <div>
             <div className="flex items-center gap-3 mb-2">
               <h1 className="text-3xl font-bold font-mono">
@@ -109,7 +109,7 @@ export default async function PirepDetail({
                 {statusLabel}
               </span>
             </div>
-            <p className="text-gray-400 text-sm">
+            <p className="text-gray-500 dark:text-gray-400 text-sm">
               Eingereicht am{' '}
               {new Date(pirep.submittedAt).toLocaleString('de-DE', {
                 dateStyle: 'long',
@@ -119,7 +119,7 @@ export default async function PirepDetail({
           </div>
           <Link
             href={isApprover && pirep.status === 'Submitted' ? '/pireps/pending' : '/pireps'}
-            className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded text-sm transition"
+            className="px-4 py-2 bg-gray-200 hover:bg-gray-300 dark:bg-gray-800 dark:hover:bg-gray-700 rounded text-sm transition"
           >
             ← Zurück
           </Link>
@@ -142,13 +142,13 @@ export default async function PirepDetail({
             }`}
           >
             <p className="text-sm">
-              <span className="text-gray-400">
+              <span className="text-gray-500 dark:text-gray-400">
                 {pirep.status === 'Approved' ? 'Genehmigt von' : 'Abgelehnt von'}{' '}
               </span>
               <span className="font-semibold">
                 {pirep.approver.name ?? 'Unbenannt'}
               </span>
-              <span className="text-gray-400">
+              <span className="text-gray-500 dark:text-gray-400">
                 {' '}am{' '}
                 {new Date(
                   pirep.status === 'Approved'
@@ -164,26 +164,26 @@ export default async function PirepDetail({
         )}
 
         {/* Route - groß und prominent */}
-        <section className="bg-gray-900 border border-gray-800 rounded-lg p-6 mb-8">
+        <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6 mb-8">
           <div className="flex items-center justify-between gap-8">
             <div className="text-center flex-1">
               <p className="text-xs uppercase tracking-wider text-gray-500 mb-3">
                 Departure
               </p>
               <p className="text-3xl font-bold font-mono">{pirep.departure.icao}</p>
-              <p className="text-sm text-gray-400 mt-3">{pirep.departure.name}</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-3">{pirep.departure.name}</p>
               {pirep.departure.city && (
                 <p className="text-xs text-gray-500 mt-1">{pirep.departure.city}</p>
               )}
             </div>
 
             <div className="flex-1 max-w-xs">
-              <div className="border-t-2 border-dashed border-gray-700 relative">
-                <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-gray-900 px-3">
+              <div className="border-t-2 border-dashed border-gray-300 dark:border-gray-700 relative">
+                <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-white dark:bg-gray-900 px-3">
                   <span className="text-2xl">✈️</span>
                 </div>
               </div>
-              <p className="text-center text-sm text-gray-400 mt-5">
+              <p className="text-center text-sm text-gray-500 dark:text-gray-400 mt-5">
                 {pirep.route?.distanceNm ? `${pirep.route.distanceNm} nm` : '—'}
               </p>
             </div>
@@ -193,7 +193,7 @@ export default async function PirepDetail({
                 Arrival
               </p>
               <p className="text-3xl font-bold font-mono">{pirep.arrival.icao}</p>
-              <p className="text-sm text-gray-400 mt-3">{pirep.arrival.name}</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-3">{pirep.arrival.name}</p>
               {pirep.arrival.city && (
                 <p className="text-xs text-gray-500 mt-1">{pirep.arrival.city}</p>
               )}
@@ -203,7 +203,7 @@ export default async function PirepDetail({
 
         {/* Aircraft + Pilot + Stats */}
         <div className="grid md:grid-cols-3 gap-6 mb-8">
-          <section className="bg-gray-900 border border-gray-800 rounded-lg p-6">
+          <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6">
             <h2 className="text-sm uppercase tracking-wider text-gray-500 mb-4">
               Aircraft
             </h2>
@@ -212,7 +212,7 @@ export default async function PirepDetail({
                 <p className="text-2xl font-mono font-bold">
                   {pirep.aircraft.registration}
                 </p>
-                <p className="text-gray-400 mt-1">{pirep.aircraft.type}</p>
+                <p className="text-gray-600 dark:text-gray-400 mt-1">{pirep.aircraft.type}</p>
                 {pirep.aircraft.homeIcao && (
                   <p className="text-xs text-gray-500 mt-2">
                     Home: {pirep.aircraft.homeIcao}
@@ -224,35 +224,35 @@ export default async function PirepDetail({
             )}
           </section>
 
-          <section className="bg-gray-900 border border-gray-800 rounded-lg p-6">
+          <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6">
             <h2 className="text-sm uppercase tracking-wider text-gray-500 mb-4">
               Pilot
             </h2>
             <p className="text-lg font-semibold">
               {pirep.user.name ?? 'Unbenannt'}
             </p>
-            <p className="text-sm text-gray-400 mt-1">
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
               {pirep.user.rank?.name ?? 'Kein Rang'}
             </p>
             <p className="text-xs text-gray-500 mt-2">{pirep.airline.name}</p>
           </section>
 
-          <section className="bg-gray-900 border border-gray-800 rounded-lg p-6">
+          <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6">
             <h2 className="text-sm uppercase tracking-wider text-gray-500 mb-4">
               Flugzeit
             </h2>
             <p className="text-3xl font-bold">{flightTime}</p>
             <p className="text-xs text-gray-500 mt-2">
-              State: <span className="text-gray-400">{pirep.state}</span>
+              State: <span className="text-gray-500 dark:text-gray-400">{pirep.state}</span>
             </p>
             <p className="text-xs text-gray-500">
-              Network: <span className="text-gray-400">{pirep.network}</span>
+              Network: <span className="text-gray-500 dark:text-gray-400">{pirep.network}</span>
             </p>
           </section>
         </div>
 
         {/* Performance-Stats */}
-        <section className="bg-gray-900 border border-gray-800 rounded-lg p-6 mb-8">
+        <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6 mb-8">
           <h2 className="text-sm uppercase tracking-wider text-gray-500 mb-4">
             Performance
           </h2>
@@ -290,11 +290,11 @@ export default async function PirepDetail({
 
         {/* Bemerkungen (falls vorhanden) */}
         {pirep.remarks && (
-          <section className="bg-gray-900 border border-gray-800 rounded-lg p-6 mb-8">
+          <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6 mb-8">
             <h2 className="text-sm uppercase tracking-wider text-gray-500 mb-4">
               Bemerkungen
             </h2>
-            <p className="text-gray-300 whitespace-pre-wrap">{pirep.remarks}</p>
+            <p className="text-gray-700 dark:text-gray-300 whitespace-pre-wrap">{pirep.remarks}</p>
           </section>
         )}
 
