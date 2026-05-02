@@ -545,7 +545,7 @@ function Sidebar({ user, pathname }: SidebarProps) {
             {user.isAdmin && (
               <>
                 <NavLink href="/admin/stats" pathname={pathname} icon="📊" label="Statistiken" />
-                <NavLink href="/pilots" pathname={pathname} icon="👥" label="Piloten" />
+                <NavLink href="/admin/pilots" pathname={pathname} icon="👥" label="Piloten" />
                 <NavLink href="/admin/requests" pathname={pathname} icon="📥" label="Requests" />
                 <NavLink href="/admin/roles" pathname={pathname} icon="🔐" label="Rollen" />
               </>
