@@ -4,8 +4,7 @@ import { prisma } from '@vam/db';
 import Link from 'next/link';
 import { OfpSummary } from '@/components/OfpSummary';
 import { ApprovalActions } from './approval-actions';
-
-const APPROVER_ROLES = ['admin', 'instructor'];
+import { isApproverRole } from '@/lib/roles';
 
 export default async function PirepDetail({
   params,
@@ -30,8 +29,7 @@ export default async function PirepDetail({
     redirect('/');
   }
 
-  const isApprover =
-    !!currentUser.role && APPROVER_ROLES.includes(currentUser.role.name);
+  const isApprover = isApproverRole(currentUser.role?.name);
 
   const pirep = await prisma.pirep.findUnique({
     where: { id },

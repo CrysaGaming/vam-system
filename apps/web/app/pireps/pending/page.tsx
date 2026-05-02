@@ -2,8 +2,7 @@ import { auth } from '@/auth';
 import { redirect } from 'next/navigation';
 import { prisma } from '@vam/db';
 import Link from 'next/link';
-
-const ALLOWED_ROLES = ['admin', 'instructor'];
+import { isApproverRole } from '@/lib/roles';
 
 export default async function PirepsPending() {
   const session = await auth();
@@ -21,8 +20,10 @@ export default async function PirepsPending() {
     redirect('/');
   }
 
-  // Authorization: nur admin/instructor
-  if (!currentUser.role || !ALLOWED_ROLES.includes(currentUser.role.name)) {
+  // Authorization: nur approver-rollen (admin / airline-admin / instructor).
+  // Liste in @/lib/roles.ts. Wenn sich das ändert MUSS auch
+  // /pireps/actions.ts assertCanApprove + layout.tsx isApprover folgen.
+  if (!isApproverRole(currentUser.role?.name)) {
     redirect('/dashboard');
   }
 

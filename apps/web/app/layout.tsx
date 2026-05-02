@@ -6,6 +6,7 @@ import { auth } from '@/auth';
 import { prisma } from '@vam/db';
 import { AppShell, type ShellUser } from '@/components/AppShell';
 import { ThemeProvider, themeInitScript } from '@/components/Theme';
+import { isApproverRole } from '@/lib/roles';
 
 const geistSans = Geist({
   variable: '--font-geist-sans',
@@ -76,11 +77,11 @@ export default async function RootLayout({
         // and admin/roles/actions.ts requireAdmin. When permission-based
         // gating ships, this single read can switch to permissions.includes.
         isAdmin: roleName === 'admin',
-        // isApprover: admin oder instructor. Spiegelt die `isApprover`-
-        // berechnung in dashboard/page.tsx; instructor bekommt im Sidebar-
-        // Admin-sektor einen einzigen link (PIREPs zur Prüfung) freigeschaltet,
-        // der rest des sektors bleibt admin-only.
-        isApprover: roleName !== null && ['admin', 'instructor'].includes(roleName),
+        // isApprover: admin, airline-admin oder instructor. Single source
+        // of truth ist APPROVER_ROLES in @/lib/roles.ts — siehe dort warum
+        // airline-admin seit 2026-05-02 dabei ist (seed-permission war
+        // schon 'pirep:review', wurde aber nie ge-enforced).
+        isApprover: isApproverRole(roleName),
         // canManageAirline: admin OR airline-admin OR instructor.
         // Spiegelt AIRLINE_MANAGER_ROLES in airline/actions.ts +
         // allowedRoles in airline/page.tsx — alle drei müssen synchron

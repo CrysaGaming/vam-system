@@ -18,7 +18,7 @@ export default async function PilotProfile({
 
   const currentUser = await prisma.user.findUnique({
     where: { id: session.user.id },
-    select: { id: true, airlineId: true },
+    select: { id: true, airlineId: true, role: { select: { name: true } } },
   });
 
   if (!currentUser?.airlineId) {
@@ -38,8 +38,15 @@ export default async function PilotProfile({
     notFound();
   }
 
-  // Authorization: nur Piloten der eigenen Airline sichtbar
-  if (pilot.airlineId !== currentUser.airlineId) {
+  // Authorization: piloten der eigenen Airline sind für jeden member
+  // sichtbar. System-admins dürfen ZUSÄTZLICH user anderer airlines
+  // (oder ohne airline) sehen — sonst wäre der link aus /admin/pilots
+  // (cross-airline übersicht) für admins kaputt. Andere rollen kriegen
+  // weiter den redirect zur airline-scoped pilots-liste.
+  const isAdmin = currentUser.role?.name === 'admin';
+  const sameAirline = pilot.airlineId === currentUser.airlineId;
+
+  if (!isAdmin && !sameAirline) {
     redirect('/pilots');
   }
 

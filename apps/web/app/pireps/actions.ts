@@ -5,9 +5,13 @@ import { prisma } from '@vam/db';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { emitPirepApproved, emitPirepRejected } from '@/lib/bot-events';
+import { APPROVER_ROLES, isApproverRole } from '@/lib/roles';
 
 /**
- * Wer darf approven/rejecten? admin oder instructor.
+ * Server-side guard: throws wenn der current user keine approver-rolle hat.
+ * Approver-rollen sind in @/lib/roles.ts (APPROVER_ROLES) zentralisiert
+ * damit die liste nicht in mehreren files driftet — siehe dortigen
+ * dokumentations-block.
  */
 async function assertCanApprove() {
   const session = await auth();
@@ -25,16 +29,17 @@ async function assertCanApprove() {
     throw new Error('User nicht gefunden');
   }
 
-  const allowedRoles = ['admin', 'instructor'];
-  if (!user.role || !allowedRoles.includes(user.role.name)) {
-    throw new Error('Keine Berechtigung — nur Admins und Instructors dürfen PIREPs prüfen');
+  if (!isApproverRole(user.role?.name)) {
+    throw new Error(
+      `Keine Berechtigung — nur ${APPROVER_ROLES.join(', ')} dürfen PIREPs prüfen`,
+    );
   }
 
   return user;
 }
 
 /**
- * Genehmigt einen PIREP. Nur für admin/instructor.
+ * Genehmigt einen PIREP. Nur für rollen aus APPROVER_ROLES.
  * Postet Bot-Event nach #pireps.
  */
 export async function approvePirep(pirepId: string) {
@@ -104,7 +109,7 @@ export async function approvePirep(pirepId: string) {
 }
 
 /**
- * Lehnt einen PIREP ab. Nur für admin/instructor.
+ * Lehnt einen PIREP ab. Nur für rollen aus APPROVER_ROLES.
  * Grund ist erforderlich.
  * Postet Bot-Event nach #pireps.
  */
