@@ -164,6 +164,11 @@ export async function assignRoleToMember(
 
 const AirlineSettingsSchema = z.object({
   name: z.string().min(2).max(80),
+  icao: z
+    .string()
+    .min(3)
+    .max(4)
+    .regex(/^[A-Z]{3,4}$/, 'ICAO muss 3-4 Großbuchstaben sein (A-Z)'),
   callsign: z
     .string()
     .min(2)
@@ -196,10 +201,22 @@ export async function getAirlineSettings(): Promise<AirlineSettings> {
 }
 
 /**
- * Update airline metadata. ICAO is intentionally not editable here —
- * it's the unique identifier referenced by aircraft, routes, and bookings,
- * so a rename would cascade across the system. If a user truly needs to
- * change ICAO, that's a migration-level operation, not a UI action.
+ * Update airline metadata including ICAO. Although ICAO is the human-
+ * readable identifier shown across the UI (dashboard, bookings, ATC
+ * communication), it is NOT used as a foreign key — all relations to
+ * Airline go through `airlineId` (cuid). So renaming ICAO is safe at
+ * the DB-level: aircraft, routes, bookings, members all keep their
+ * airlineId reference and just see the new ICAO on next read.
+ *
+ * The `@unique` constraint is preserved by the DB itself; we catch
+ * the Prisma P2002 error and return a friendly message instead of
+ * letting it bubble as "Unbekannter Fehler".
+ *
+ * Note: external systems (VATSIM/IVAO callsigns, SimBrief OFP, ATIS
+ * lookups) reference ICAO as text — those will see the new code on
+ * the next flight. There's no migration needed because ICAO isn't
+ * persisted as historical data anywhere; PIREPs reference airlineId,
+ * not ICAO.
  */
 export async function updateAirlineSettings(
   input: z.infer<typeof AirlineSettingsSchema>,
@@ -207,16 +224,44 @@ export async function updateAirlineSettings(
   const { airlineId } = await requireAirlineAdmin();
   const parsed = AirlineSettingsSchema.parse(input);
 
-  await prisma.airline.update({
-    where: { id: airlineId },
-    data: {
-      name: parsed.name,
-      callsign: parsed.callsign?.trim().toUpperCase() || null,
-      iata: parsed.iata?.trim().toUpperCase() || null,
-      logoUrl: parsed.logoUrl?.trim() || null,
-    },
-  });
+  const newIcao = parsed.icao.trim().toUpperCase();
+
+  try {
+    await prisma.airline.update({
+      where: { id: airlineId },
+      data: {
+        name: parsed.name,
+        icao: newIcao,
+        callsign: parsed.callsign?.trim().toUpperCase() || null,
+        iata: parsed.iata?.trim().toUpperCase() || null,
+        logoUrl: parsed.logoUrl?.trim() || null,
+      },
+    });
+  } catch (e: unknown) {
+    // Prisma unique-constraint violation. The error code P2002 is the
+    // only one we expect here since (name, callsign, logoUrl) have no
+    // unique constraints — only icao and iata do. We don't differentiate
+    // which field collided because the user can see it in the form.
+    if (
+      e &&
+      typeof e === 'object' &&
+      'code' in e &&
+      (e as { code: string }).code === 'P2002'
+    ) {
+      const target = (e as { meta?: { target?: string[] } }).meta?.target ?? [];
+      const field = target.includes('icao')
+        ? 'ICAO'
+        : target.includes('iata')
+          ? 'IATA'
+          : 'Code';
+      throw new Error(
+        `${field} ist bereits von einer anderen Airline vergeben`,
+      );
+    }
+    throw e;
+  }
 
   revalidatePath('/airline');
   revalidatePath('/dashboard');
+  revalidatePath('/'); // header shows ICAO too
 }
