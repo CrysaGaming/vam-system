@@ -63,6 +63,7 @@ export default async function RootLayout({
     });
 
     if (user) {
+      const roleName = user.role?.name ?? null;
       shellUser = {
         name: user.name,
         image: user.image,
@@ -74,7 +75,12 @@ export default async function RootLayout({
         // existing convention in airline/actions.ts requireAirlineAdmin
         // and admin/roles/actions.ts requireAdmin. When permission-based
         // gating ships, this single read can switch to permissions.includes.
-        isAdmin: user.role?.name === 'admin',
+        isAdmin: roleName === 'admin',
+        // isApprover: admin oder instructor. Spiegelt die `isApprover`-
+        // berechnung in dashboard/page.tsx; instructor bekommt im Sidebar-
+        // Admin-sektor einen einzigen link (PIREPs zur Prüfung) freigeschaltet,
+        // der rest des sektors bleibt admin-only.
+        isApprover: roleName !== null && ['admin', 'instructor'].includes(roleName),
         hasAirline: !!user.airline,
       };
     }

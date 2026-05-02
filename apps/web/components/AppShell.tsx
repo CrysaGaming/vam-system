@@ -19,6 +19,13 @@ export type ShellUser = {
   // fällt die UI auf "Pilot" als generic placeholder zurück.
   rankName: string | null;
   isAdmin: boolean;
+  // isApprover: User darf PIREPs prüfen (admin ODER instructor). Separat von
+  // isAdmin weil instructor zwar approval-rechte hat aber nicht die
+  // vollständigen admin-rechte (Rollen-verwaltung, Statistiken-zugriff,
+  // Airline-settings etc.). Im Sidebar steuert das, ob der User den
+  // "PIREPs zur Prüfung"-link im Admin-sektor sieht — der rest des
+  // Admin-sektors bleibt isAdmin-only.
+  isApprover: boolean;
   hasAirline: boolean;
 };
 
@@ -485,18 +492,40 @@ function Sidebar({ user, pathname }: SidebarProps) {
 
         {user.hasAirline && (
           <NavSection title="Airline">
-            <NavLink href="/pilots" pathname={pathname} icon="👥" label="Piloten" />
             <NavLink href="/routes" pathname={pathname} icon="🛣️" label="Routen" />
             <NavLink href="/airports" pathname={pathname} icon="🛫" label="Airports" />
             <NavLink href="/aircraft-types" pathname={pathname} icon="✈️" label="Aircraft-Types" />
           </NavSection>
         )}
 
-        {user.isAdmin && user.hasAirline && (
+        {/* Admin-sektor wird gezeigt wenn der User isApprover (instructor)
+            ODER isAdmin ist. Innerhalb des sektors sind die einzelnen
+            links nochmal granular gegated:
+              - PIREPs zur Prüfung: isApprover (instructor + admin)
+              - Statistiken / Piloten / Airline-Verwaltung / Requests / Rollen: isAdmin
+            Damit sieht ein instructor nur den approval-link, ein admin
+            sieht den vollen sektor. Wer weder noch ist, sieht den
+            sektor gar nicht.
+
+            /pilots wurde 2026-05-02 vom Airline-sektor (sichtbar für alle
+            airline-members) hierher verschoben — Kevin's design: pilot-
+            verwaltung ist eine admin-aufgabe, nicht teil der pilot-
+            navigation. Page-level auth-gating bleibt unverändert; wer
+            direkt /pilots aufruft kommt rein wenn die page das erlaubt. */}
+        {(user.isApprover || user.isAdmin) && user.hasAirline && (
           <NavSection title="Admin">
-            <NavLink href="/airline" pathname={pathname} icon="🏢" label="Airline-Verwaltung" />
-            <NavLink href="/admin/requests" pathname={pathname} icon="📥" label="Requests" />
-            <NavLink href="/admin/roles" pathname={pathname} icon="🔐" label="Rollen" />
+            {user.isApprover && (
+              <NavLink href="/pireps/pending" pathname={pathname} icon="📋" label="PIREPs zur Prüfung" />
+            )}
+            {user.isAdmin && (
+              <>
+                <NavLink href="/admin/stats" pathname={pathname} icon="📊" label="Statistiken" />
+                <NavLink href="/pilots" pathname={pathname} icon="👥" label="Piloten" />
+                <NavLink href="/airline" pathname={pathname} icon="🏢" label="Airline-Verwaltung" />
+                <NavLink href="/admin/requests" pathname={pathname} icon="📥" label="Requests" />
+                <NavLink href="/admin/roles" pathname={pathname} icon="🔐" label="Rollen" />
+              </>
+            )}
           </NavSection>
         )}
 

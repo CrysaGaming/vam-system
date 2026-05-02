@@ -1,4 +1,4 @@
-import { auth, signOut } from "@/auth";
+import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@vam/db";
 import Link from "next/link";
@@ -60,25 +60,6 @@ export default async function Dashboard() {
       })
     : [];
 
-   // Admin-Stats: Anzahl pending PIREPs der Airline
-  const isApprover =
-    !!user.role && ['admin', 'instructor'].includes(user.role.name);
-
-  // Admin-only flag for higher-privilege actions (role-management,
-  // future airline-admin-panel etc). Instructor is approver but not
-  // admin — finer distinction than isApprover.
-  const isAdmin = user.role?.name === 'admin';
-
-  const pendingCount =
-    isApprover && user.airlineId
-      ? await prisma.pirep.count({
-          where: {
-            airlineId: user.airlineId,
-            status: 'Submitted',
-          },
-        })
-      : 0; 
-
   // Progress in Prozent
   const progressPercent = nextRank
     ? Math.min(
@@ -96,24 +77,9 @@ export default async function Dashboard() {
   return (
     <main className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-white p-8">
       <div className="max-w-6xl mx-auto">
-        <header className="flex justify-between items-center mb-8 pb-6 border-b border-gray-200 dark:border-gray-800">
-          <div>
-            <h1 className="text-3xl font-bold">VAM Dashboard</h1>
-            <p className="text-gray-600 dark:text-gray-400 text-sm mt-1">Willkommen zurück, {user.name ?? "Pilot"}</p>
-          </div>
-          <form
-            action={async () => {
-              "use server";
-              await signOut({ redirectTo: "/" });
-            }}
-          >
-            <button
-              type="submit"
-              className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded text-sm text-white transition"
-            >
-              Abmelden
-            </button>
-          </form>
+        <header className="mb-8 pb-6 border-b border-gray-200 dark:border-gray-800">
+          <h1 className="text-3xl font-bold">VAM Dashboard</h1>
+          <p className="text-gray-600 dark:text-gray-400 text-sm mt-1">Willkommen zurück, {user.name ?? "Pilot"}</p>
         </header>
 
         {/* Profile + Airline (bestehende Sektion) */}
@@ -340,145 +306,11 @@ export default async function Dashboard() {
           </section>
         </div>
 
-        {/* Admin-Bereich: nur für admin/instructor */}
-        {isApprover && (
-          <section className="mt-6 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-sm uppercase tracking-wider text-gray-500">
-                Admin-Bereich
-              </h2>
-              <span className="text-xs text-gray-500">
-                {user.role?.name === 'admin' ? 'Administrator' : 'Instructor'}
-              </span>
-            </div>
-            <div className="grid md:grid-cols-2 gap-4">
-              <Link
-                href="/pireps/pending"
-                style={
-                  pendingCount > 0
-                    ? {
-                        backgroundColor: 'rgba(99, 102, 241, 0.1)',
-                        borderColor: 'rgba(99, 102, 241, 0.3)',
-                      }
-                    : undefined
-                }
-                className={`group flex justify-between items-center p-4 rounded border transition ${
-                  pendingCount > 0
-                    ? 'hover:opacity-90'
-                    : 'bg-gray-50 dark:bg-gray-800/50 border-gray-200 dark:border-gray-800 hover:bg-gray-100 dark:hover:bg-gray-800'
-                }`}
-              >
-                <div className="flex items-center gap-4">
-                  <span className="text-2xl">📋</span>
-                  <div>
-                    <p className="font-semibold">PIREPs zur Prüfung</p>
-                    <p className="text-xs text-gray-600 dark:text-gray-400">
-                      {pendingCount === 0
-                        ? 'Alle PIREPs sind geprüft'
-                        : `${pendingCount} ${pendingCount === 1 ? 'PIREP wartet' : 'PIREPs warten'} auf Prüfung`}
-                    </p>
-                  </div>
-                </div>
-                {pendingCount > 0 && (
-                  <span
-                    style={{ backgroundColor: '#6366f1' }}
-                    className="px-3 py-1 rounded-full text-xs font-bold text-white"
-                  >
-                    {pendingCount}
-                  </span>
-                )}
-                {pendingCount === 0 && (
-                  <span className="text-gray-500 group-hover:translate-x-1 transition-transform">
-                    →
-                  </span>
-                )}
-              </Link>
-
-              <Link
-                href="/admin/stats"
-                className="group flex justify-between items-center p-4 rounded border bg-gray-50 dark:bg-gray-800/50 border-gray-200 dark:border-gray-800 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
-              >
-                <div className="flex items-center gap-4">
-                  <span className="text-2xl">📊</span>
-                  <div>
-                    <p className="font-semibold">Statistiken</p>
-                    <p className="text-xs text-gray-600 dark:text-gray-400">
-                      Charts und KPIs der Airline
-                    </p>
-                  </div>
-                </div>
-                <span className="text-gray-500 group-hover:translate-x-1 transition-transform">
-                  →
-                </span>
-              </Link>
-
-              {/* Admin-only: Role management. Instructor sees Stats +
-                  PIREPs but not this — role-mgmt is global config and
-                  needs the highest privilege gate. */}
-              {isAdmin && (
-                <Link
-                  href="/admin/roles"
-                  className="group flex justify-between items-center p-4 rounded border bg-gray-50 dark:bg-gray-800/50 border-gray-200 dark:border-gray-800 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
-                >
-                  <div className="flex items-center gap-4">
-                    <span className="text-2xl">🔐</span>
-                    <div>
-                      <p className="font-semibold">Rollen-Verwaltung</p>
-                      <p className="text-xs text-gray-600 dark:text-gray-400">
-                        Globale Rollen + Permissions
-                      </p>
-                    </div>
-                  </div>
-                  <span className="text-gray-500 group-hover:translate-x-1 transition-transform">
-                    →
-                  </span>
-                </Link>
-              )}
-
-              {/* Admin-only: Airline-Admin-Panel. Members + Settings.
-                  Requires both admin role AND airline-membership — the
-                  page gates on both, so no point showing the link to
-                  airline-less admins. */}
-              {isAdmin && user.airlineId && (
-                <Link
-                  href="/airline"
-                  className="group flex justify-between items-center p-4 rounded border bg-gray-50 dark:bg-gray-800/50 border-gray-200 dark:border-gray-800 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
-                >
-                  <div className="flex items-center gap-4">
-                    <span className="text-2xl">🏢</span>
-                    <div>
-                      <p className="font-semibold">Airline-Verwaltung</p>
-                      <p className="text-xs text-gray-600 dark:text-gray-400">
-                        Mitglieder + Einstellungen
-                      </p>
-                    </div>
-                  </div>
-                  <span className="text-gray-500 group-hover:translate-x-1 transition-transform">
-                    →
-                  </span>
-                </Link>
-              )}
-            </div>
-          </section>
-        )}
-
-        {/* Quick Actions (bestehende Sektion mit drittem Button erweitert) */}
+        {/* Quick Actions — nur die zwei häufigsten flying-aktionen.
+            "Bookings", "Piloten", "Alle PIREPs" wurden entfernt weil sie
+            schon im Sidebar-Nav (Flying / Admin) zu finden sind und es
+            redundant gewesen wäre. */}
         <div className="mt-6 grid gap-6" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
-          <Link
-            href="/pilots"
-            className="group bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800 border border-gray-200 dark:border-gray-800 hover:border-indigo-500 dark:hover:border-indigo-600/50 rounded-lg p-6 transition"
-          >
-            <div className="flex justify-between items-start">
-              <div>
-                <h3 className="text-lg font-semibold mb-1">Piloten</h3>
-                <p className="text-sm text-gray-600 dark:text-gray-400">Alle Mitglieder ansehen</p>
-              </div>
-              <span className="text-indigo-600 dark:text-indigo-400 group-hover:translate-x-1 transition-transform">
-                →
-              </span>
-            </div>
-          </Link>
-
           <Link
             href="/pireps/new"
             className="group bg-indigo-50 dark:bg-indigo-900/20 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 border border-indigo-300 dark:border-indigo-700/50 hover:border-indigo-500 rounded-lg p-6 transition"
@@ -503,40 +335,6 @@ export default async function Dashboard() {
                 <h3 className="text-lg font-semibold mb-1">Routen</h3>
                 <p className="text-sm text-gray-600 dark:text-gray-400">
                   Verfügbare Strecken ansehen
-                </p>
-              </div>
-              <span className="text-indigo-600 dark:text-indigo-400 group-hover:translate-x-1 transition-transform">
-                →
-              </span>
-            </div>
-          </Link>
-
-          <Link
-            href="/bookings"
-            className="group bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800 border border-gray-200 dark:border-gray-800 hover:border-indigo-500 dark:hover:border-indigo-600/50 rounded-lg p-6 transition"
-          >
-            <div className="flex justify-between items-start">
-              <div>
-                <h3 className="text-lg font-semibold mb-1">Bookings</h3>
-                <p className="text-sm text-gray-600 dark:text-gray-400">
-                  Aktive Flugplanung &amp; SimBrief
-                </p>
-              </div>
-              <span className="text-indigo-600 dark:text-indigo-400 group-hover:translate-x-1 transition-transform">
-                →
-              </span>
-            </div>
-          </Link>
-
-          <Link
-            href="/pireps"
-            className="group bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800 border border-gray-200 dark:border-gray-800 hover:border-indigo-500 dark:hover:border-indigo-600/50 rounded-lg p-6 transition"
-          >
-            <div className="flex justify-between items-start">
-              <div>
-                <h3 className="text-lg font-semibold mb-1">Alle PIREPs</h3>
-                <p className="text-sm text-gray-600 dark:text-gray-400">
-                  Flugberichte ansehen
                 </p>
               </div>
               <span className="text-indigo-600 dark:text-indigo-400 group-hover:translate-x-1 transition-transform">
