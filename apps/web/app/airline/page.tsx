@@ -63,8 +63,8 @@ export default async function AirlineAdminPage() {
     process.env.NEXTAUTH_URL?.replace(/\/$/, '') ?? 'http://localhost:3000';
 
   return (
-    <main className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-white p-8">
-      <div className="max-w-5xl mx-auto">
+    <main className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-white p-4 sm:p-6 lg:p-8">
+      <div className="max-w-[100rem] mx-auto">
         <header className="flex justify-between items-center mb-8 pb-6 border-b border-gray-200 dark:border-gray-800">
           <div>
             <h1 className="text-3xl font-bold">{settings.name}</h1>
@@ -89,12 +89,19 @@ export default async function AirlineAdminPage() {
             currentUserId={user.id}
             currentUserIsAdmin={user.role.name === 'admin'}
           />
-          <InviteSection
-            invites={invites}
-            roles={inviteRoles}
-            appUrl={appUrl}
-          />
-          <AirlineSettingsForm initial={settings} />
+          {/* InviteSection + Settings nebeneinander auf lg+. Beide sind
+              admin-tasks der gleichen kategorie und passen visuell gut
+              als 2-spalten-layout. Auf schmalen viewports (<lg) stacken
+              sie wie früher untereinander. Die MemberTable bleibt full-
+              width darüber weil die viele spalten hat und davon profitiert. */}
+          <div className="grid gap-6 lg:grid-cols-2">
+            <InviteSection
+              invites={invites}
+              roles={inviteRoles}
+              appUrl={appUrl}
+            />
+            <AirlineSettingsForm initial={settings} />
+          </div>
         </div>
       </div>
     </main>

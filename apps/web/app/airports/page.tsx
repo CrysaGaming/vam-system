@@ -178,7 +178,7 @@ export default async function AirportsBrowsePage({
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-white">
-      <div className="max-w-7xl mx-auto px-4 py-8">
+      <div className="max-w-[100rem] mx-auto p-4 sm:p-6 lg:p-8">
         <div className="flex items-start justify-between mb-6">
           <div>
             <h1 className="text-3xl font-bold mb-2">Airport-Katalog</h1>

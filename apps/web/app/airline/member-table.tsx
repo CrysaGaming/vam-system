@@ -586,14 +586,23 @@ export function MemberTable({
                         // der user den fehler erlebt.
                         const isPrivilegedRole = r.name === 'admin';
                         const isLocked = isPrivilegedRole && !currentUserIsAdmin;
+                        // Description bewusst NICHT in den option-text — sie
+                        // bläht die spalte auf ~280px auf weil die select-
+                        // breite vom längsten option bestimmt wird (z.B.
+                        // 'airline-admin — Verwaltet die zugewiesene Airline'
+                        // ~280px). Das war bis 2026-05-02 der haupttreiber
+                        // für horizontal-scroll der Mitglieder-tabelle. Jetzt
+                        // landet die description als title-attribut → tooltip
+                        // beim hover, und die spalte ist ~150px statt 280px.
                         return (
-                          <option key={r.id} value={r.id} disabled={isLocked}>
+                          <option
+                            key={r.id}
+                            value={r.id}
+                            disabled={isLocked}
+                            title={r.description ?? undefined}
+                          >
                             {r.name}
-                            {isLocked
-                              ? ' (nur System-Admins)'
-                              : r.description
-                                ? ` — ${r.description}`
-                                : ''}
+                            {isLocked ? ' (nur System-Admins)' : ''}
                           </option>
                         );
                       })}

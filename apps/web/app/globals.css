@@ -18,6 +18,36 @@
    neue classes nach HMR-cycles). Workaround: explizit safelisten. */
 @source inline("max-h-16 max-w-[12rem] max-w-[8rem] sm:max-w-[10rem] h-14 w-14 py-4 sm:py-6 lg:py-8 sm:px-10 lg:px-12 overflow-hidden");
 
+/* Page-level responsive layout safelist. Same Tailwind v4 + Turbopack
+   detection-bug pattern as oben — arbitrary max-w values + responsive
+   padding/grid utilities werden manchmal nicht aus content-files gepickt,
+   obwohl sie definitiv da sind. Diese line garantiert dass alle pages
+   ihren max-w-[100rem]-container kriegen, dass `p-4 sm:p-6 lg:p-8` für
+   schmalere viewports mehr platz freigibt, und dass airline/page.tsx
+   sein lg:grid-cols-2 für invites+settings nebeneinander hinkriegt.
+
+   2026-05-02: hinzugefügt im responsive-layout-fix damit Mitglieder-
+   tabelle auf 1303er viewports nicht mehr horizontal scrollen muss
+   und große displays (1920+) den verfügbaren platz auch wirklich
+   nutzen statt 600px+ leer zu lassen. */
+@source inline("max-w-[100rem] p-4 sm:p-6 lg:p-8 lg:grid-cols-2 gap-6 lg:gap-6");
+
+/* 2026-05-02 (later): Die @source inline directive HAT die `lg:grid-cols-2`
+   class trotz korrektem deklarieren NICHT in's CSS bundle reingenommen
+   (verifiziert per `grep -c "lg.grid-cols" cf.css` → 0 occurrences, sowohl
+   bei localhost als auch via cloudflare). Tailwind hat die utility ohne
+   ersichtlichen grund weggelassen — gleiche detection-bug-pattern wie
+   beim AppShell-issue oben.
+
+   Hard fallback: explizite raw CSS rule. Tailwind v4 lg-breakpoint = 64rem
+   (= 1024px). Wenn der safelist-mechanismus später behoben ist + via grep
+   im output-bundle bestätigt ist, kann das hier weg. */
+@media (min-width: 64rem) {
+  .lg\:grid-cols-2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 @theme {
   --animate-hide: hide 150ms cubic-bezier(0.16, 1, 0.3, 1);
   --animate-slide-down-and-fade: slideDownAndFade 150ms cubic-bezier(0.16, 1, 0.3, 1);
