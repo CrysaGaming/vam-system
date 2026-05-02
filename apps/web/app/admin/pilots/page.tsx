@@ -2,6 +2,7 @@ import { auth } from '@/auth';
 import { redirect } from 'next/navigation';
 import { prisma } from '@vam/db';
 import Link from 'next/link';
+import { AdminPilotsTable, type AdminUser } from './admin-pilots-table';
 
 /**
  * Admin-only globale Piloten-übersicht. Zeigt ALLE user des VAM-Systems
@@ -18,11 +19,19 @@ import Link from 'next/link';
  * /airline (members ihrer eigenen airline). Cross-airline-sicht ist
  * eine system-admin-funktion.
  *
- * Performance-anmerkung: prisma.user.findMany ohne pagination scannt
- * die ganze user-tabelle. Bei aktuell ~handvoll usern unkritisch; bei
- * wachsender userbase muss eine offset/cursor-pagination + suchfeld
- * dazu (analog /admin/requests pattern). Für jetzt absichtlich simpel
- * gehalten — skill-fragmentierung passiert wenn 100+ user da sind.
+ * Architektur (Phase 1, 2026-05-02):
+ *   - Diese page bleibt RSC für data-fetch + auth-gate
+ *   - admin-pilots-table.tsx ('use client') macht filter/sort/pagination
+ *   - Kein server-action — read-only feature-set; cross-airline-writes
+ *     (delete user, force-airline-change, impersonate) sind absichtlich
+ *     ausgeschlossen weil sie ein eigenes design-doc + safety-review
+ *     verdienen
+ *
+ * Performance: prisma.user.findMany ohne pagination scannt die ganze
+ * user-tabelle. Der client kriegt initial alle daten und filtert
+ * clientside — bei aktuellem userbase (handvoll) unproblematisch. Bei
+ * 500+ users muss zu serverside-pagination via URL-search-params (siehe
+ * comment in admin-pilots-table.tsx).
  */
 export default async function AdminPilotsList() {
   const session = await auth();
@@ -44,33 +53,65 @@ export default async function AdminPilotsList() {
     redirect('/dashboard');
   }
 
-  // Alle user fetchen, mit rank/role/airline für die anzeige. Sortierung:
-  // erstmal nach airline-name (alphabetisch, user ohne airline ans ende),
-  // dann innerhalb der airline nach flugstunden — so sieht man pro airline
-  // wer der aktivste pilot ist. user.airline ist optional FK; null-cases
-  // landen via Prisma's nulls-last default am ende.
+  // Alle user fetchen, mit rank/role/airline für die anzeige. Sortierung
+  // hier ist nur die initial-default — die client-component erlaubt dem
+  // user den sort-key zu wechseln. Trotzdem sinnvoll als fallback wenn
+  // Js disabled ist + als deterministische rendering-reihenfolge für SSR.
   const users = await prisma.user.findMany({
     include: {
-      rank: true,
-      role: true,
+      rank: { select: { name: true } },
+      role: { select: { name: true } },
       airline: { select: { id: true, name: true, icao: true } },
     },
     orderBy: [
-      { airline: { name: 'asc' } },
       { totalFlightHours: 'desc' },
       { totalFlights: 'desc' },
       { createdAt: 'asc' },
     ],
   });
 
-  // Aggregate: anzahl distinct airlines + user ohne airline. Hilft dem
-  // admin sofort zu sehen "hier sind 23 piloten verteilt auf 4 airlines,
-  // 2 ohne airline" ohne die ganze tabelle zu scrollen.
+  // Stats für die page-header (vor-filter-counts). Distinct airlines +
+  // user ohne airline. Hilft dem admin die scope sofort einzuordnen.
   const distinctAirlineIds = new Set(
     users.map((u) => u.airlineId).filter((id): id is string => id !== null),
   );
   const airlineCount = distinctAirlineIds.size;
   const noAirlineCount = users.filter((u) => !u.airlineId).length;
+
+  // Filter-options für die client-component dropdowns. Wir liefern nur
+  // airlines/rollen die mind. 1x in der user-liste vorkommen — sonst
+  // wäre der dropdown unnötig lang und der user könnte nach dingen
+  // filtern die garantiert keine treffer haben.
+  const availableAirlines = Array.from(
+    users.reduce((map, u) => {
+      if (u.airline) map.set(u.airline.id, u.airline);
+      return map;
+    }, new Map<string, { id: string; name: string; icao: string }>()).values(),
+  ).sort((a, b) => a.name.localeCompare(b.name));
+
+  const availableRoles = Array.from(
+    new Set(
+      users.map((u) => u.role?.name).filter((n): n is string => n !== undefined),
+    ),
+  )
+    .sort()
+    .map((name) => ({ name }));
+
+  // Map zu AdminUser-shape — explicit typing damit der client-component
+  // die richtige struktur kriegt, nicht das raw prisma-result mit allen
+  // Date-objects, FK-felder etc.
+  const adminUsers: AdminUser[] = users.map((u) => ({
+    id: u.id,
+    name: u.name,
+    email: u.email,
+    image: u.image,
+    totalFlightHours: u.totalFlightHours,
+    totalFlights: u.totalFlights,
+    createdAt: u.createdAt,
+    rank: u.rank,
+    role: u.role,
+    airline: u.airline,
+  }));
 
   return (
     <main className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-white p-4 sm:p-6 lg:p-8">
@@ -102,112 +143,12 @@ export default async function AdminPilotsList() {
           </Link>
         </header>
 
-        {users.length === 0 ? (
-          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-12 text-center">
-            <p className="text-gray-500 dark:text-gray-400">Noch keine User registriert.</p>
-          </div>
-        ) : (
-          <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-800 overflow-hidden">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-100 dark:bg-gray-800/50">
-                <tr className="text-left text-xs uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                  <th className="px-4 py-3">Pilot</th>
-                  <th className="px-4 py-3">Airline</th>
-                  <th className="px-4 py-3">Rang</th>
-                  <th className="px-4 py-3">Rolle</th>
-                  <th className="px-4 py-3 text-right">Stunden</th>
-                  <th className="px-4 py-3 text-right">Flüge</th>
-                  <th className="px-4 py-3 text-right">Registriert</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
-                {users.map((user) => {
-                  const isMe = user.id === currentUser.id;
-
-                  return (
-                    <tr
-                      key={user.id}
-                      className={`group transition cursor-pointer ${
-                        isMe
-                          ? 'bg-indigo-500/5 hover:bg-indigo-500/10'
-                          : 'hover:bg-gray-50 dark:hover:bg-gray-800/30'
-                      }`}
-                    >
-                      <td className="px-4 py-3">
-                        {/* Detail-link zeigt aktuell auf /pilots/[id] — die
-                            existing pilot-detail-page ist nicht airline-
-                            gegated im sinne von "muss in derselben airline
-                            sein", daher funktioniert der link auch wenn der
-                            target-user in einer anderen airline ist. Falls
-                            das je hard-gegated wird, müsste hier eine
-                            admin-only /admin/pilots/[id] route entstehen. */}
-                        <Link
-                          href={`/pilots/${user.id}`}
-                          className="flex items-center gap-3"
-                        >
-                          {user.image ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img
-                              src={user.image}
-                              alt={user.name ?? 'Avatar'}
-                              className="w-8 h-8 rounded-full border border-gray-300 dark:border-gray-700"
-                            />
-                          ) : (
-                            <div className="w-8 h-8 rounded-full bg-gray-200 dark:bg-gray-800 border border-gray-300 dark:border-gray-700" />
-                          )}
-                          <div>
-                            <p className="font-semibold flex items-center gap-2">
-                              {user.name ?? 'Unbenannt'}
-                              {isMe && (
-                                <span className="text-xs text-indigo-600 dark:text-indigo-400">(Du)</span>
-                              )}
-                            </p>
-                            <p className="text-xs text-gray-500 dark:text-gray-500 truncate max-w-[14rem]">
-                              {user.email}
-                            </p>
-                          </div>
-                        </Link>
-                      </td>
-                      <td className="px-4 py-3">
-                        {user.airline ? (
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono text-xs text-gray-500 dark:text-gray-400">
-                              {user.airline.icao}
-                            </span>
-                            <span className="text-gray-700 dark:text-gray-300 truncate max-w-[10rem]">
-                              {user.airline.name}
-                            </span>
-                          </div>
-                        ) : (
-                          <span className="text-xs italic text-gray-400 dark:text-gray-600">
-                            keine
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-gray-600 dark:text-gray-300">
-                        {user.rank?.name ?? '—'}
-                      </td>
-                      <td className="px-4 py-3 text-gray-600 dark:text-gray-300">
-                        {user.role?.name ?? '—'}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        {user.totalFlightHours.toFixed(1)} h
-                      </td>
-                      <td className="px-4 py-3 text-right">{user.totalFlights}</td>
-                      <td className="px-4 py-3 text-right text-gray-500 dark:text-gray-400 text-xs">
-                        {new Date(user.createdAt).toLocaleDateString('de-DE', {
-                          year: 'numeric',
-                          month: '2-digit',
-                          day: '2-digit',
-                        })}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
+        <AdminPilotsTable
+          users={adminUsers}
+          availableAirlines={availableAirlines}
+          availableRoles={availableRoles}
+          currentUserId={currentUser.id}
+        />
       </div>
     </main>
   );
