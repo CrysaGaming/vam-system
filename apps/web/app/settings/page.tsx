@@ -108,12 +108,19 @@ export default async function SettingsPage({
         Profil
       </h2>
       <div className="flex items-center gap-4">
+        {/* user.image wird in <picture> gewrapped — siehe
+            components/AppShell.tsx:BrandLink für den vollen kontext zur
+            preload-warning + warum comments außerhalb des ternary
+            stehen müssen (Turbopack-comment-stripping bug). */}
         {user.image ? (
-          <img
-            src={user.image}
-            alt={user.name ?? 'Avatar'}
-            className="w-16 h-16 rounded-full border border-gray-300 dark:border-gray-700"
-          />
+          <picture>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={user.image}
+              alt={user.name ?? 'Avatar'}
+              className="w-16 h-16 rounded-full border border-gray-300 dark:border-gray-700"
+            />
+          </picture>
         ) : (
           <div className="w-16 h-16 rounded-full bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700" />
         )}

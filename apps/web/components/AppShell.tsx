@@ -185,18 +185,38 @@ function BrandLink({ user }: { user: ShellUser }) {
   const monogram = user.airlineIcao ?? 'VAM';
   const displayName = user.airlineName ?? 'VAM System';
 
+  // Logo wird in <picture> gewrapped um Next.js' / React 19's auto-preload-
+  // generation zu unterdrücken. Plain <img> tags ohne loading="lazy" bekommen
+  // automatisch ein <link rel="preload" as="image"> in den head gesetzt, was
+  // bei externen URLs (CDN) zu der console-warning "preloaded but not used
+  // within a few seconds" führt — der browser kann den preload nicht
+  // zuverlässig mit dem <img> matchen. <picture>-wrapper ist der vom Next.js
+  // team selbst empfohlene workaround
+  // (https://github.com/vercel/next.js/discussions/54799).
+  //
+  // Comments stehen BEWUSST außerhalb des JSX-ternary — comments innerhalb
+  // von `{hasLogo ? ( /* */ <picture>...` führen bei Turbopack/SWC zu einem
+  // hydration-mismatch: server rendered <picture>, client-bundle stripped
+  // das <picture> raus und behält nur das <img>. Outside-the-ternary stellt
+  // sicher dass beide compiler-passes identisch transformieren.
+  //
+  // Logo soll trotzdem eager laden weil es above-the-fold im header sitzt —
+  // daher kein loading="lazy".
+
   return (
     <Link
       href="/dashboard"
       className="flex items-center gap-3 sm:gap-4 min-w-0 hover:opacity-80 transition shrink-0"
     >
       {hasLogo ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={user.airlineLogoUrl ?? ''}
-          alt={`${displayName} logo`}
-          className="max-h-16 max-w-[12rem] object-contain shrink-0"
-        />
+        <picture>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={user.airlineLogoUrl ?? ''}
+            alt={`${displayName} logo`}
+            className="max-h-16 max-w-[12rem] object-contain shrink-0"
+          />
+        </picture>
       ) : (
         <div
           className="w-14 h-14 rounded-lg bg-indigo-600 text-white text-sm font-bold flex items-center justify-center shrink-0"
@@ -286,13 +306,19 @@ function UserDropdown({ user }: { user: ShellUser }) {
         aria-expanded={open}
         aria-label="User menu"
       >
+        {/* user.image wird in <picture> gewrapped — siehe BrandLink für
+            den vollen kontext zur preload-warning + workaround. Comments
+            stehen wieder außerhalb des ternary um den hydration-mismatch
+            durch Turbopack-comment-stripping zu vermeiden. */}
         {user.image ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={user.image}
-            alt={user.name ?? 'Avatar'}
-            className="w-10 h-10 rounded-full border border-gray-300 dark:border-gray-700 shrink-0"
-          />
+          <picture>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={user.image}
+              alt={user.name ?? 'Avatar'}
+              className="w-10 h-10 rounded-full border border-gray-300 dark:border-gray-700 shrink-0"
+            />
+          </picture>
         ) : (
           <div
             className="w-10 h-10 rounded-full bg-gray-200 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 shrink-0"

@@ -122,12 +122,19 @@ export default async function Dashboard() {
             <h2 className="text-sm uppercase tracking-wider text-gray-500 mb-4">
               Profil
             </h2>
+            {/* user.image wird in <picture> gewrapped — siehe
+                components/AppShell.tsx:BrandLink für den vollen kontext zur
+                preload-warning + warum comments außerhalb des ternary
+                stehen müssen (Turbopack-comment-stripping bug). */}
             {user.image && (
-              <img
-                src={user.image}
-                alt={user.name ?? "Avatar"}
-                className="w-24 h-24 rounded-full mb-4 border-2 border-gray-300 dark:border-gray-700"
-              />
+              <picture>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={user.image}
+                  alt={user.name ?? "Avatar"}
+                  className="w-24 h-24 rounded-full mb-4 border-2 border-gray-300 dark:border-gray-700"
+                />
+              </picture>
             )}
             <p className="text-xl font-semibold">{user.name ?? "Unbenannt"}</p>
             <p className="text-sm text-gray-600 dark:text-gray-400">{user.email}</p>
