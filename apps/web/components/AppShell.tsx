@@ -86,9 +86,12 @@ export function AppShell({ user, children }: Props) {
 
 /**
  * Top header bar. Sticky to the top of the viewport via `sticky top-0` so
- * it stays visible while the page scrolls. Height is fixed at h-14 (3.5rem
- * = 56px); the sidebar's `top-14` value below depends on this — if you
- * change one, change the other.
+ * it stays visible while the page scrolls. Height is fixed at h-28 (7rem
+ * = 112px) — chosen larger than typical SaaS headers to give airline
+ * logos room to breathe (most airline logos are wider than tall, ~2-4:1
+ * ratio, and look stamp-sized at the standard h-14). The sidebar's
+ * `top-28` value below depends on this — if you change one, change the
+ * other.
  *
  * Layout: flex-row with airline-brand on the left, growing flex-spacer in
  * the middle, theme-toggle + user-dropdown on the right.
@@ -96,7 +99,7 @@ export function AppShell({ user, children }: Props) {
 function Header({ user }: { user: ShellUser }) {
   return (
     <header
-      className="sticky top-0 z-30 flex items-center justify-between gap-4 h-14 px-4 lg:px-6 bg-white dark:bg-gray-950 border-b border-gray-200 dark:border-gray-800"
+      className="sticky top-0 z-30 flex items-center justify-between gap-4 h-28 px-4 lg:px-6 bg-white dark:bg-gray-950 border-b border-gray-200 dark:border-gray-800"
       aria-label="Header"
     >
       <BrandLink user={user} />
@@ -112,9 +115,17 @@ function Header({ user }: { user: ShellUser }) {
  * Left side of the header: airline-logo + name. Click → /dashboard.
  *
  * Logo display priority:
- *   1. airlineLogoUrl (if set on the Airline record)
- *   2. ICAO monogram in a colored block (fallback for airlines without logo)
- *   3. Generic "VAM" monogram (when user has no airline at all)
+ *   1. airlineLogoUrl (if set on the Airline record). Rendered with
+ *      object-contain inside a max-h-16 (64px) box without forced width —
+ *      most airline logos are landscape rectangles (~2-4:1 aspect ratio),
+ *      so we let the image set its own width up to a sensible max. Fixed
+ *      heights with squared-off containers crush wordmark-style logos
+ *      into illegibility.
+ *   2. ICAO monogram in a colored block (fallback for airlines without
+ *      logo). Stays square (h-14 w-14) because monogram-text reads best
+ *      in a square plate — looks like a logo placeholder rather than a
+ *      stretched stand-in.
+ *   3. Generic "VAM" monogram (when user has no airline at all).
  *
  * On mobile (sm-) we hide the secondary text line (name) to fit in the
  * tight header — only the logo + ICAO badge remain. On lg+ both name +
@@ -128,29 +139,29 @@ function BrandLink({ user }: { user: ShellUser }) {
   return (
     <Link
       href="/dashboard"
-      className="flex items-center gap-3 min-w-0 hover:opacity-80 transition shrink-0"
+      className="flex items-center gap-3 sm:gap-4 min-w-0 hover:opacity-80 transition shrink-0"
     >
       {hasLogo ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={user.airlineLogoUrl ?? ''}
           alt={`${displayName} logo`}
-          className="w-9 h-9 rounded-lg object-contain shrink-0 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800"
+          className="max-h-16 max-w-[12rem] object-contain shrink-0"
         />
       ) : (
         <div
-          className="w-9 h-9 rounded-lg bg-indigo-600 text-white text-xs font-bold flex items-center justify-center shrink-0"
+          className="w-14 h-14 rounded-lg bg-indigo-600 text-white text-sm font-bold flex items-center justify-center shrink-0"
           aria-hidden="true"
         >
           {monogram}
         </div>
       )}
       <div className="min-w-0 hidden sm:block">
-        <p className="text-sm font-semibold text-gray-900 dark:text-white truncate leading-tight">
+        <p className="text-base font-semibold text-gray-900 dark:text-white truncate leading-tight">
           {displayName}
         </p>
         {user.airlineIcao && (
-          <p className="text-xs text-gray-500 dark:text-gray-500 leading-tight truncate">
+          <p className="text-sm text-gray-500 dark:text-gray-500 leading-tight truncate mt-0.5">
             {user.airlineIcao}
           </p>
         )}
@@ -335,8 +346,8 @@ interface SidebarProps {
 
 /**
  * Sidebar nav. Sticky to the top of the viewport-below-header so it stays
- * visible while page-content scrolls underneath. The `top-14` matches the
- * header's `h-14` — keep them in sync.
+ * visible while page-content scrolls underneath. The `top-28` matches the
+ * header's `h-28` — keep them in sync.
  *
  * Brand-block + user-block USED to live here (pre-2026-05-02). Both have
  * moved to the header — sidebar is now nav-only.
@@ -344,7 +355,7 @@ interface SidebarProps {
 function Sidebar({ user, pathname }: SidebarProps) {
   return (
     <aside
-      className="hidden lg:flex lg:flex-col w-60 shrink-0 sticky top-14 self-start h-[calc(100vh-3.5rem)] bg-white dark:bg-gray-950 border-r border-gray-200 dark:border-gray-800"
+      className="hidden lg:flex lg:flex-col w-60 shrink-0 sticky top-28 self-start h-[calc(100vh-7rem)] bg-white dark:bg-gray-950 border-r border-gray-200 dark:border-gray-800"
       aria-label="Hauptnavigation"
     >
       <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-6">
