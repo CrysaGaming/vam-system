@@ -10,15 +10,29 @@ export default async function Routes() {
     redirect('/');
   }
 
-  const routes = await prisma.route.findMany({
-    where: { active: true },
-    include: {
-      departure: true,
-      arrival: true,
-      airline: true,
-    },
-    orderBy: { flightNumber: 'asc' },
+  // User-airline ermitteln um routes airline-scoped zu filtern. Vor dem
+  // 2026-05-03 fix wurden ALLE routes über alle airlines gezeigt — ein
+  // pilot von Leav Aviation sah auch Lufthansa-routes. Cross-airline-leak
+  // war ein bug, kein feature: jede airline pflegt ihre routes selbst, und
+  // pilots fliegen nur ihre eigene airline. Wenn user keiner airline an-
+  // gehört, ist die liste leer (kein redirect — die page zeigt einfach
+  // empty-state mit hint).
+  const user = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { airlineId: true },
   });
+
+  const routes = user?.airlineId
+    ? await prisma.route.findMany({
+        where: { active: true, airlineId: user.airlineId },
+        include: {
+          departure: true,
+          arrival: true,
+          airline: true,
+        },
+        orderBy: { flightNumber: 'asc' },
+      })
+    : [];
 
   return (
     <main className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-white p-4 sm:p-6 lg:p-8">

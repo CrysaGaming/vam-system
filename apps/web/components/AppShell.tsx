@@ -521,7 +521,8 @@ function Sidebar({ user, pathname }: SidebarProps) {
             nichts zu tun (selbe logik wie alter Admin-sektor). */}
         {user.canManageAirline && user.hasAirline && (
           <NavSection title="Airline-Admin">
-            <NavLink href="/airline" pathname={pathname} icon="🏢" label="Airline-Verwaltung" />
+            <NavLink href="/airline" pathname={pathname} icon="🏢" label="Airline-Verwaltung" exact />
+            <NavLink href="/airline/routes" pathname={pathname} icon="🛣️" label="Routen-Verwaltung" />
           </NavSection>
         )}
 

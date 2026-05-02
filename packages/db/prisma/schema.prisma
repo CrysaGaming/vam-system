@@ -383,6 +383,15 @@ model Route {
   arrival          Airport   @relation("RouteArrival", fields: [arrivalId], references: [id])
   aircraftId       String?
   aircraft         Aircraft? @relation(fields: [aircraftId], references: [id])
+  // Required aircraft type für die route, ICAO-designator (B738, A20N, A359).
+  // Bewusst String statt FK zu AircraftType-catalog: airline-admins sollen
+  // im CSV-import nicht durch den AircraftTypeRequest-flow gezwungen werden
+  // wenn ein type fehlt. UI kann optional gegen catalog matchen für badge/
+  // verlinkung, aber persistence akzeptiert auch unkatalogisierte typen.
+  // Pilot-flexibilität: route definiert _kompatiblen_ type, nicht specific
+  // airframe — pilot kann jede livery fliegen die zum type passt (siehe
+  // ADR Routes-Phase-1).
+  aircraftTypeIcao String?
   estimatedMinutes Int
   distanceNm       Int
   active           Boolean   @default(true)
