@@ -127,6 +127,14 @@ model User {
 
   airlineId String?
   airline   Airline? @relation(fields: [airlineId], references: [id])
+  // Wann der user der airline beigetreten ist. Wird vom auth.ts
+  // createUser-event auf NOW() gesetzt sobald airlineId zugewiesen
+  // wird. Bei späterem invite-accept-flow analog. NULL für user die
+  // (noch) keiner airline angehören oder vor 2026-05-02 erstellt
+  // wurden — die migration backfilled NICHT, weil createdAt für
+  // bestehende users der echte beitritts-zeitpunkt war (auto-join
+  // bei registrierung).
+  joinedAirlineAt DateTime?
   rankId    String?
   rank      Rank?    @relation(fields: [rankId], references: [id])
   roleId    String?

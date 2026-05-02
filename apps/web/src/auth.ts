@@ -47,6 +47,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         where: { id: user.id },
         data: {
           airlineId: defaultAirline.id,
+          // joinedAirlineAt explicit setzen — schema-default greift hier
+          // nicht weil airlineId vorher null war und das User-row schon
+          // existiert (NextAuth's adapter erstellt den row vor diesem
+          // event). Bei späterem invite-accept-flow muss diese zeile
+          // analog dort dazu, sonst fehlt der join-zeitpunkt.
+          joinedAirlineAt: new Date(),
           rankId: lowestRank?.id,
           roleId: pilotRole?.id,
         },

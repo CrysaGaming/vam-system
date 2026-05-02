@@ -5,6 +5,7 @@ import Link from 'next/link';
 import {
   listAirlineMembers,
   listAvailableRoles,
+  listAvailableRanks,
   getAirlineSettings,
 } from './actions';
 import { listInvites, listRolesForInvite } from './invites-actions';
@@ -44,13 +45,15 @@ export default async function AirlineAdminPage() {
     redirect('/dashboard');
   }
 
-  const [members, roles, settings, invites, inviteRoles] = await Promise.all([
-    listAirlineMembers(),
-    listAvailableRoles(),
-    getAirlineSettings(),
-    listInvites(),
-    listRolesForInvite(),
-  ]);
+  const [members, roles, ranks, settings, invites, inviteRoles] =
+    await Promise.all([
+      listAirlineMembers(),
+      listAvailableRoles(),
+      listAvailableRanks(),
+      getAirlineSettings(),
+      listInvites(),
+      listRolesForInvite(),
+    ]);
 
   // App-URL für invite-link construction. Falls process.env.NEXTAUTH_URL
   // nicht gesetzt → fall back auf relative path-only links (browser
@@ -82,6 +85,7 @@ export default async function AirlineAdminPage() {
           <MemberTable
             members={members}
             roles={roles}
+            ranks={ranks}
             currentUserId={user.id}
             currentUserIsAdmin={user.role.name === 'admin'}
           />

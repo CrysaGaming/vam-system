@@ -56,10 +56,23 @@ export type AirlineMember = {
   email: string;
   image: string | null;
   roleName: string | null;
+  rankId: string | null;
   rankName: string | null;
   totalFlightHours: number;
   totalFlights: number;
-  joinedAt: Date | null; // we don't track this; use createdAt as proxy
+  /**
+   * Wann der user der airline beigetreten ist. Kommt aus
+   * User.joinedAirlineAt (seit migration 20260502161030). Für legacy-
+   * users die vor der migration registriert wurden ist das null —
+   * die UI zeigt dann createdAt als fallback (mit subtle marker).
+   */
+  joinedAirlineAt: Date | null;
+  /**
+   * Fallback-feld für joinedAirlineAt — wird immer gesetzt (User row
+   * hat default(now())). Damit kann die UI immer ein "Beigetreten"-
+   * datum anzeigen, auch für legacy-users.
+   */
+  createdAt: Date;
 };
 
 export type AirlineSettings = {
@@ -91,13 +104,12 @@ export async function listAirlineMembers(): Promise<AirlineMember[]> {
     email: u.email,
     image: u.image,
     roleName: u.role?.name ?? null,
+    rankId: u.rankId,
     rankName: u.rank?.name ?? null,
     totalFlightHours: u.totalFlightHours,
     totalFlights: u.totalFlights,
-    // The User model doesn't have a joinedAt field separately — using
-    // createdAt as the proxy. Future: add airline-membership table with
-    // explicit joined-at tracking when invite-flow (#22) lands.
-    joinedAt: null,
+    joinedAirlineAt: u.joinedAirlineAt,
+    createdAt: u.createdAt,
   }));
 }
 
@@ -107,6 +119,26 @@ export async function listAvailableRoles() {
   return prisma.role.findMany({
     select: { id: true, name: true, description: true },
     orderBy: { createdAt: 'asc' },
+  });
+}
+
+/**
+ * All ranks der eigenen airline für den Rang-dropdown. Ranks sind
+ * airline-spezifisch (jede airline hat ihre eigene rank-hierarchie),
+ * also scoped wir hart auf die airlineId des actors. Sortiert nach
+ * order — Trainee (order=0) steht oben, Captain (order=high) unten.
+ *
+ * Note: rang-zuweisung ist normalerweise auto-promotion via flugstunden
+ * (siehe rank.minFlightHours). Diese manuelle assignment-action ist
+ * für edge-cases: ehemaliger pilot der schon 500h in einer anderen
+ * airline hat, oder admin der einen rank zurücksetzen will.
+ */
+export async function listAvailableRanks() {
+  const { airlineId } = await requireAirlineAdmin();
+  return prisma.rank.findMany({
+    where: { airlineId },
+    select: { id: true, name: true, minFlightHours: true, order: true },
+    orderBy: { order: 'asc' },
   });
 }
 
@@ -194,6 +226,264 @@ export async function assignRoleToMember(
   );
 
   revalidatePath('/airline');
+}
+
+const AssignRankSchema = z.object({
+  userId: z.string().min(1),
+  rankId: z.string().nullable(),
+});
+
+/**
+ * Assign (or unassign with null) a rank to a member. Two safety guards:
+ *   1) Target user muss member der actor-airline sein.
+ *   2) Target rank (wenn nicht null) muss eine rank derselben airline
+ *      sein — sonst könnte ein actor versehentlich (oder absichtlich)
+ *      einen rank einer ANDEREN airline zuweisen, was die rank-anzeige
+ *      völlig zerschießt (z.B. "First Officer" der DLH bei einem
+ *      Leav-pilot).
+ *
+ * Anders als role-zuweisung gibt es hier KEINE last-admin-protection
+ * (rank ist nicht security-relevant) und KEINE privilege-escalation
+ * (alle ranks sind gleich-mächtig — sie unterscheiden sich nur in
+ * minFlightHours-threshold).
+ *
+ * Side-effect: das überschreibt die auto-promotion-logik. Wenn der
+ * admin manuell einen niedrigeren rank zuweist, wird der user beim
+ * nächsten flight wieder hochgepromotet wenn er die flight-hours-
+ * threshold übersteigt. Das ist intentional — manuelle zuweisung
+ * ist eine korrektur, kein hard-cap.
+ */
+export async function assignRankToMember(
+  input: z.infer<typeof AssignRankSchema>,
+) {
+  const { airlineId, user: actingAdmin } = await requireAirlineAdmin();
+  const parsed = AssignRankSchema.parse(input);
+
+  // Target-user muss in derselben airline sein
+  const target = await prisma.user.findUnique({
+    where: { id: parsed.userId },
+    select: { id: true, name: true, airlineId: true },
+  });
+  if (!target || target.airlineId !== airlineId) {
+    throw new Error('forbidden');
+  }
+
+  // Target-rank muss in derselben airline sein (wenn gesetzt)
+  if (parsed.rankId) {
+    const rank = await prisma.rank.findUnique({
+      where: { id: parsed.rankId },
+      select: { airlineId: true },
+    });
+    if (!rank || rank.airlineId !== airlineId) {
+      throw new Error('Rang gehört nicht zu dieser Airline');
+    }
+  }
+
+  await prisma.user.update({
+    where: { id: parsed.userId },
+    data: { rankId: parsed.rankId },
+  });
+
+  console.log(
+    `[airline-admin] ${actingAdmin.name} assigned rank ${parsed.rankId} ` +
+      `to ${target.name} in airline ${airlineId}`,
+  );
+
+  revalidatePath('/airline');
+  revalidatePath('/pilots');
+  revalidatePath('/dashboard'); // Rang-progress-bar
+}
+
+const RemoveMemberSchema = z.object({
+  userId: z.string().min(1),
+});
+
+/**
+ * Member aus airline entfernen. Setzt airlineId/rankId/roleId/
+ * joinedAirlineAt alle auf null. Der user-account selbst bleibt
+ * bestehen — nur die airline-membership wird aufgelöst.
+ *
+ * Safety guards:
+ *   1) Target user muss member der actor-airline sein.
+ *   2) Letzten admin der airline kann man nicht entfernen — sonst
+ *      ist die airline ohne admin und keiner kann mehr role-changes
+ *      machen. Analog zu assignRoleToMember last-admin-protection,
+ *      nur dass hier "entfernen" auch demote-zu-non-admin bedeutet.
+ *   3) Self-removal (actor entfernt sich selbst) ist erlaubt SOFERN
+ *      es noch andere admins gibt. Sinnvoll: airline-admin der seine
+ *      rolle aufgibt.
+ *
+ * Side-effects auf zugehörige daten:
+ *   - PIREPs des users bleiben (history-erhaltung). PIREP.userId bleibt
+ *     gesetzt aber der user hat keine airlineId mehr — die PIREPs
+ *     zeigen weiter im /admin/stats der airline weil dort by airlineId
+ *     gefiltert wird, nicht by user.airlineId.
+ *   - Bookings: bleiben auch bestehen mit ihrer airlineId. Wenn der
+ *     user später in eine andere airline kommt, sieht er seine alten
+ *     bookings nicht mehr in /bookings (das filtert auf user.airlineId).
+ *   - Aircraft: airframes haben keine direkte user-FK, nichts zu tun.
+ */
+export async function removeMemberFromAirline(
+  input: z.infer<typeof RemoveMemberSchema>,
+) {
+  const { airlineId, user: actingAdmin } = await requireAirlineAdmin();
+  const parsed = RemoveMemberSchema.parse(input);
+
+  const target = await prisma.user.findUnique({
+    where: { id: parsed.userId },
+    include: { role: true },
+  });
+  if (!target || target.airlineId !== airlineId) {
+    throw new Error('forbidden');
+  }
+
+  // Last-admin-protection. Wenn target ein admin ist, prüfe ob es
+  // noch andere admins gibt.
+  if (target.role?.name === 'admin') {
+    const otherAdmins = await prisma.user.count({
+      where: {
+        airlineId,
+        NOT: { id: target.id },
+        role: { name: 'admin' },
+      },
+    });
+    if (otherAdmins === 0) {
+      throw new Error(
+        'Letzten Admin der Airline kann man nicht entfernen. ' +
+          'Erst einen anderen User zum Admin machen.',
+      );
+    }
+  }
+
+  await prisma.user.update({
+    where: { id: parsed.userId },
+    data: {
+      airlineId: null,
+      rankId: null,
+      roleId: null,
+      joinedAirlineAt: null,
+    },
+  });
+
+  console.log(
+    `[airline-admin] ${actingAdmin.name} removed ${target.name} ` +
+      `from airline ${airlineId}`,
+  );
+
+  revalidatePath('/airline');
+  revalidatePath('/pilots');
+  revalidatePath('/admin/pilots');
+}
+
+const BulkAssignRoleSchema = z.object({
+  userIds: z.array(z.string().min(1)).min(1).max(50),
+  roleId: z.string().nullable(),
+});
+
+/**
+ * Bulk-rolle-zuweisung an mehrere members. Wird die existing-action
+ * `assignRoleToMember` PRO USER aufgerufen — damit erbt jeder einzelne
+ * user-update alle safety-guards (privilege-escalation, last-admin,
+ * scope) ohne dass wir die logik duplizieren müssen.
+ *
+ * Errors-strategy: collect, nicht fail-fast. Wenn 5 von 10 users
+ * einen guard auslösen (z.B. der eine letzte admin), werden die anderen
+ * 5 trotzdem updated. Result enthält pro user den status. UI zeigt
+ * dann eine summary "8 erfolgreich, 2 fehlgeschlagen mit gründen".
+ *
+ * Performance: das ist N+1 queries (pro user mehrere DB-roundtrips).
+ * Bei den 1-50 users die hier realistisch durchlaufen, irrelevant.
+ * Wenn die airlines mal 1000+ members haben, kann man auf einen
+ * batched-transaction-pattern umstellen — aber dann brauchen wir
+ * auch eine andere safety-guard-strategie (transaktionsweite checks
+ * statt per-user-checks).
+ */
+export async function bulkAssignRoleToMembers(
+  input: z.infer<typeof BulkAssignRoleSchema>,
+) {
+  const parsed = BulkAssignRoleSchema.parse(input);
+
+  // Per-user durchlaufen. assignRoleToMember enthält alle guards,
+  // also kein code-duplication hier nötig. Wir fangen errors per-user
+  // ab damit ein user-fehler nicht den ganzen batch killt.
+  const results = await Promise.allSettled(
+    parsed.userIds.map((userId) =>
+      assignRoleToMember({ userId, roleId: parsed.roleId }),
+    ),
+  );
+
+  const succeeded = results.filter((r) => r.status === 'fulfilled').length;
+  const failed = results
+    .map((r, i) => ({ userId: parsed.userIds[i], result: r }))
+    .filter(
+      (
+        x,
+      ): x is { userId: string; result: PromiseRejectedResult } =>
+        x.result.status === 'rejected',
+    )
+    .map((x) => ({
+      userId: x.userId,
+      error:
+        x.result.reason instanceof Error
+          ? x.result.reason.message
+          : String(x.result.reason),
+    }));
+
+  // assignRoleToMember already calls revalidatePath internally per
+  // call, but call once more to be sure the bulk-state is fresh.
+  revalidatePath('/airline');
+
+  return { succeeded, failed };
+}
+
+const BulkRemoveSchema = z.object({
+  userIds: z.array(z.string().min(1)).min(1).max(50),
+});
+
+/**
+ * Bulk-entfernen. Analog zu bulkAssignRoleToMembers — wir delegieren
+ * an `removeMemberFromAirline` pro user, fangen errors ab, returnen
+ * eine summary. Dasselbe N+1-pattern und dieselben performance-tradeoffs.
+ *
+ * Ein wichtiger semantik-unterschied: wenn ALLE admins der airline im
+ * batch sind, scheitert irgendein user (der "letzte" der zufällig
+ * zuletzt durchläuft) — die ordering ist deterministisch durch das
+ * input-array, aber die ergebnis-reihenfolge ist promise-completion-
+ * order. Praktisch: erste N-1 admins werden entfernt, der letzte fällt
+ * raus mit error. Das ist der intended behavior — die airline behält
+ * mindestens einen admin.
+ */
+export async function bulkRemoveMembersFromAirline(
+  input: z.infer<typeof BulkRemoveSchema>,
+) {
+  const parsed = BulkRemoveSchema.parse(input);
+
+  const results = await Promise.allSettled(
+    parsed.userIds.map((userId) => removeMemberFromAirline({ userId })),
+  );
+
+  const succeeded = results.filter((r) => r.status === 'fulfilled').length;
+  const failed = results
+    .map((r, i) => ({ userId: parsed.userIds[i], result: r }))
+    .filter(
+      (
+        x,
+      ): x is { userId: string; result: PromiseRejectedResult } =>
+        x.result.status === 'rejected',
+    )
+    .map((x) => ({
+      userId: x.userId,
+      error:
+        x.result.reason instanceof Error
+          ? x.result.reason.message
+          : String(x.result.reason),
+    }));
+
+  revalidatePath('/airline');
+  revalidatePath('/pilots');
+  revalidatePath('/admin/pilots');
+
+  return { succeeded, failed };
 }
 
 const AirlineSettingsSchema = z.object({
