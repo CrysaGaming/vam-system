@@ -71,11 +71,33 @@ export function AppShell({ user, children }: Props) {
 
   return (
     <div className="flex flex-col h-screen">
-      {/* h-screen statt min-h-screen + main mit overflow-y-auto: das
+      {/* HTML5-semantik: shell rendert <header> + <nav> direkt; das
+          <main> liegt INNERHALB der page (jede page-component hat
+          ihr eigenes <main>) — das ist semantisch sauberer als ein
+          shell-main mit nested page-main, weil HTML5 nur ein <main>
+          pro view erlaubt.
+
+          Das <div> hier ist nur ein scroll-wrapper (overflow-y-auto)
+          um das page-eigene <main>; es ist kein semantisches element
+          und braucht keinen role-attribut weil das innere <main> die
+          aria-rolle bereits trägt.
+
+          Layout:
+            ┌──────────────────────────────────────┐
+            │ <header> (h-28, fix oben)            │
+            ├──────┬───────────────────────────────┤
+            │ <nav>│ <div overflow-y-auto>         │
+            │ (fix)│   <main> ← von page geliefert │
+            │      │     ...content...             │
+            │      │   </main>                     │
+            │      │ </div>                        │
+            └──────┴───────────────────────────────┘
+
+          h-screen statt min-h-screen + main mit overflow-y-auto: das
           viewport scrollt NICHT — nur der main-bereich. Damit bleibt
-          die sidebar visuell fixed (ohne sticky-positioning, das in
+          die nav visuell fixed (ohne sticky-positioning, das in
           flex-containern manchmal nicht greift) und der header wird
-          NIE durch sidebar-content überlagert. */}
+          NIE durch nav-content überlagert. */}
       <Header user={user} />
       <div className="flex flex-1 min-h-0">
         {/* min-h-0 ist hier kritisch: ohne das default min-height: auto
@@ -84,11 +106,11 @@ export function AppShell({ user, children }: Props) {
             erlaubt dem flex-child unter content-höhe zu schrumpfen, was
             scrolling im main aktiviert. */}
         <Sidebar user={user} pathname={pathname} />
-        {/* Main scrollt intern. min-w-0 prevents flex-children from
-            forcing horizontal overflow when content (long URLs, code
-            blocks) is wider than the viewport. overflow-y-auto sorgt
-            dafür dass nur DIESE column scrollt — sidebar + header
-            bleiben fix. */}
+        {/* Scroll-wrapper um das page-eigene <main>. min-w-0 prevents
+            flex-children from forcing horizontal overflow when content
+            (long URLs, code blocks) is wider than the viewport.
+            overflow-y-auto sorgt dafür dass nur DIESE column scrollt —
+            nav + header bleiben fix. */}
         <div className="flex-1 min-w-0 overflow-y-auto">{children}</div>
       </div>
     </div>
@@ -109,9 +131,11 @@ export function AppShell({ user, children }: Props) {
  * to give airline logos room to breathe (most airline logos are wider
  * than tall, ~2-4:1 ratio, and look stamp-sized at the standard h-14).
  *
- * Horizontal padding ramps from 10px (mobile) → 12px (sm+) → 15px (lg+).
- * Tighter than the typical px-4/px-6 SaaS-default to give the brand-block
- * + user-info more horizontal room without the header feeling stuffed.
+ * Horizontal padding: px-4 sm:px-6 lg:px-8 (16/24/32px). Vorher waren
+ * 10-15px versucht — das wirkte randlos weil airline-logos selten ihren
+ * eigenen rand mitbringen, also klebte das logo direkt am header-rand.
+ * 16-32px ramping schafft sichtbare lücke zwischen logo + header-rand
+ * auf allen viewports.
  *
  * Layout: flex-row with airline-brand on the left, growing flex-spacer in
  * the middle, theme-toggle + user-dropdown on the right.
@@ -119,7 +143,7 @@ export function AppShell({ user, children }: Props) {
 function Header({ user }: { user: ShellUser }) {
   return (
     <header
-      className="sticky top-0 z-30 flex items-center justify-between gap-4 h-28 px-[10px] sm:px-[12px] lg:px-[15px] bg-white dark:bg-gray-950 border-b border-gray-200 dark:border-gray-800"
+      className="sticky top-0 z-30 flex items-center justify-between gap-4 h-28 px-4 sm:px-6 lg:px-8 bg-white dark:bg-gray-950 border-b border-gray-200 dark:border-gray-800"
       aria-label="Header"
     >
       <BrandLink user={user} />
@@ -375,7 +399,7 @@ function UserDropdown({ user }: { user: ShellUser }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Sidebar
+// Sidebar Navigation
 // ─────────────────────────────────────────────────────────────────────────
 
 interface SidebarProps {
@@ -384,10 +408,11 @@ interface SidebarProps {
 }
 
 /**
- * Sidebar nav. Sitzt links neben dem main-content im inneren flex-row
- * container und bleibt visuell fixed beim scrollen — nicht durch
- * sticky-positioning sondern durch das outer-wrapper-pattern: das
- * AppShell-outer ist h-screen (fix 100vh) mit dem main-bereich als
+ * Sidebar navigation. Rendert als `<nav>` element (HTML5-semantik) mit
+ * aria-label="Hauptnavigation". Sitzt links neben dem main-content im
+ * inneren flex-row container und bleibt visuell fixed beim scrollen —
+ * nicht durch sticky-positioning sondern durch das outer-wrapper-pattern:
+ * das AppShell-outer ist h-screen (fix 100vh) mit dem main-bereich als
  * einzigem scrolling element (overflow-y-auto). Sidebar ist innerhalb
  * vom flex-row aber außerhalb des scrollers, also bewegt sich nicht.
  *
@@ -397,20 +422,25 @@ interface SidebarProps {
  * dem header (z-stacking-issue beim sticky). Das h-screen + overflow
  * pattern ist robuster.
  *
- * h-full statt h-[calc(100vh-7rem)] weil die parent flex-row schon
- * exakt diese höhe hat (1 - h-28 = h-screen - 7rem). Sidebar nimmt
- * 100% der parent-höhe und braucht keine eigene berechnung mehr.
+ * Vorher war's `<aside>` — semantisch ungenau weil aside für "side
+ * content related to but separate from the main flow" gedacht ist
+ * (z.B. werbung, related links). Hier ist's PRIMÄRE navigation, also
+ * `<nav>`.
  *
  * Brand-block + user-block USED to live here (pre-2026-05-02). Both have
  * moved to the header — sidebar is now nav-only.
  */
 function Sidebar({ user, pathname }: SidebarProps) {
   return (
-    <aside
+    <nav
       className="hidden lg:flex lg:flex-col w-60 shrink-0 h-full bg-white dark:bg-gray-950 border-r border-gray-200 dark:border-gray-800"
       aria-label="Hauptnavigation"
     >
-      <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-6">
+      {/* Innerer scroll-container für nav-listen die länger als sidebar
+          sind (admin-bereich + flying + airline + account zusammen).
+          flex-1 lässt es die volle nav-höhe füllen, overflow-y-auto
+          aktiviert vertikales scrollen wenn nötig. */}
+      <div className="flex-1 overflow-y-auto px-3 py-4 space-y-6">
         <NavSection title="Flying">
           <NavLink href="/dashboard" pathname={pathname} icon="🏠" label="Dashboard" exact />
           <NavLink href="/bookings" pathname={pathname} icon="✈️" label="Bookings" />
@@ -438,8 +468,8 @@ function Sidebar({ user, pathname }: SidebarProps) {
         <NavSection title="Account">
           <NavLink href="/settings" pathname={pathname} icon="⚙️" label="Einstellungen" />
         </NavSection>
-      </nav>
-    </aside>
+      </div>
+    </nav>
   );
 }
 
