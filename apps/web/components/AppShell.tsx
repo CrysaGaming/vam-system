@@ -250,25 +250,29 @@ function UserDropdown({ user }: { user: ShellUser }) {
           <img
             src={user.image}
             alt={user.name ?? 'Avatar'}
-            className="w-12 h-12 rounded-full border border-gray-300 dark:border-gray-700 shrink-0"
+            className="w-10 h-10 rounded-full border border-gray-300 dark:border-gray-700 shrink-0"
           />
         ) : (
           <div
-            className="w-12 h-12 rounded-full bg-gray-200 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 shrink-0"
+            className="w-10 h-10 rounded-full bg-gray-200 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 shrink-0"
             aria-hidden="true"
           />
         )}
         {/* Two-line text-zone (vAMSYS-style): pilot-name oben, rank-name
-            darunter als sub-line. `hidden sm:block` schützt vor mobile-
-            screens (<640px) wo header-platz knapp wird neben dem 48px-
-            avatar + brand-logo. text-left explizit weil das parent-button
-            sonst auf default-button-text-align fallback. max-w-[10rem]
-            mit truncate verhindert dass lange namen den header sprengen.
+            darunter als sub-line. ALWAYS visible (kein responsive-hide
+            mehr) — vorher war's `hidden sm:block` was username auf
+            mobile verschwinden lässt; Kevin's feedback hat klargestellt
+            dass username durchgehend sichtbar sein muss.
+
+            max-w-[8rem] mit truncate verhindert overflow auf mobile-
+            screens wo neben dem brand-logo + theme-toggle wenig platz
+            bleibt. text-left explizit weil das parent-button sonst auf
+            default-text-align fällt.
 
             Rank-fallback: 'Pilot' als generic placeholder wenn user noch
             keinen rank zugewiesen hat — vAMSYS macht das selbe um die
             UI-zone konsistent zu halten. */}
-        <div className="hidden sm:block min-w-0 max-w-[10rem] text-left">
+        <div className="min-w-0 max-w-[8rem] sm:max-w-[10rem] text-left">
           <p className="text-sm font-medium text-gray-900 dark:text-white truncate leading-tight">
             {user.name ?? 'Pilot'}
           </p>
@@ -277,7 +281,7 @@ function UserDropdown({ user }: { user: ShellUser }) {
           </p>
         </div>
         <svg
-          className={`hidden sm:block w-4 h-4 text-gray-500 dark:text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`}
+          className={`w-4 h-4 text-gray-500 dark:text-gray-400 transition-transform shrink-0 ${open ? 'rotate-180' : ''}`}
           viewBox="0 0 24 24"
           fill="none"
           stroke="currentColor"
