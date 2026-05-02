@@ -70,15 +70,26 @@ export function AppShell({ user, children }: Props) {
   }
 
   return (
-    <div className="flex flex-col min-h-screen">
+    <div className="flex flex-col h-screen">
+      {/* h-screen statt min-h-screen + main mit overflow-y-auto: das
+          viewport scrollt NICHT — nur der main-bereich. Damit bleibt
+          die sidebar visuell fixed (ohne sticky-positioning, das in
+          flex-containern manchmal nicht greift) und der header wird
+          NIE durch sidebar-content überlagert. */}
       <Header user={user} />
-      <div className="flex flex-1">
+      <div className="flex flex-1 min-h-0">
+        {/* min-h-0 ist hier kritisch: ohne das default min-height: auto
+            in flex-children, kann main's overflow-y-auto nicht greifen
+            weil das parent-flex sich an content-höhe orientiert. min-h-0
+            erlaubt dem flex-child unter content-höhe zu schrumpfen, was
+            scrolling im main aktiviert. */}
         <Sidebar user={user} pathname={pathname} />
-        {/* Pages render their own <main> tag; this is just a flex-child
-            wrapper so we can size + scroll independently. min-w-0 prevents
-            flex-children from forcing horizontal overflow when content
-            (long URLs, code blocks) is wider than the viewport. */}
-        <div className="flex-1 min-w-0">{children}</div>
+        {/* Main scrollt intern. min-w-0 prevents flex-children from
+            forcing horizontal overflow when content (long URLs, code
+            blocks) is wider than the viewport. overflow-y-auto sorgt
+            dafür dass nur DIESE column scrollt — sidebar + header
+            bleiben fix. */}
+        <div className="flex-1 min-w-0 overflow-y-auto">{children}</div>
       </div>
     </div>
   );
@@ -89,13 +100,14 @@ export function AppShell({ user, children }: Props) {
 // ─────────────────────────────────────────────────────────────────────────
 
 /**
- * Top header bar. Sticky to the top of the viewport via `sticky top-0` so
- * it stays visible while the page scrolls. Height is fixed at h-28 (7rem
- * = 112px) — chosen larger than typical SaaS headers to give airline
- * logos room to breathe (most airline logos are wider than tall, ~2-4:1
- * ratio, and look stamp-sized at the standard h-14). The sidebar's
- * `top-28` value below depends on this — if you change one, change the
- * other.
+ * Top header bar. Sticky-attribut + z-30 als defensive guard — bei
+ * dem aktuellen layout (h-screen outer, main scrollt intern) ist das
+ * tatsächlich ein no-op weil das viewport gar nicht scrollt. Bleibt
+ * trotzdem als safety-net falls jemand das outer-pattern später ändert.
+ *
+ * Höhe ist h-28 (7rem = 112px) — chosen larger than typical SaaS headers
+ * to give airline logos room to breathe (most airline logos are wider
+ * than tall, ~2-4:1 ratio, and look stamp-sized at the standard h-14).
  *
  * Horizontal padding ramps from 10px (mobile) → 12px (sm+) → 15px (lg+).
  * Tighter than the typical px-4/px-6 SaaS-default to give the brand-block
@@ -372,9 +384,22 @@ interface SidebarProps {
 }
 
 /**
- * Sidebar nav. Sticky to the top of the viewport-below-header so it stays
- * visible while page-content scrolls underneath. The `top-28` matches the
- * header's `h-28` — keep them in sync.
+ * Sidebar nav. Sitzt links neben dem main-content im inneren flex-row
+ * container und bleibt visuell fixed beim scrollen — nicht durch
+ * sticky-positioning sondern durch das outer-wrapper-pattern: das
+ * AppShell-outer ist h-screen (fix 100vh) mit dem main-bereich als
+ * einzigem scrolling element (overflow-y-auto). Sidebar ist innerhalb
+ * vom flex-row aber außerhalb des scrollers, also bewegt sich nicht.
+ *
+ * Vorher (commit 49cae36..897dfda) wurde sticky top-28 versucht, aber
+ * das hatte zwei probleme: (1) in flex-children manchmal nicht zuverlässig,
+ * (2) wenn sticky aktiviert wurde überlappte die sidebar visuell mit
+ * dem header (z-stacking-issue beim sticky). Das h-screen + overflow
+ * pattern ist robuster.
+ *
+ * h-full statt h-[calc(100vh-7rem)] weil die parent flex-row schon
+ * exakt diese höhe hat (1 - h-28 = h-screen - 7rem). Sidebar nimmt
+ * 100% der parent-höhe und braucht keine eigene berechnung mehr.
  *
  * Brand-block + user-block USED to live here (pre-2026-05-02). Both have
  * moved to the header — sidebar is now nav-only.
@@ -382,7 +407,7 @@ interface SidebarProps {
 function Sidebar({ user, pathname }: SidebarProps) {
   return (
     <aside
-      className="hidden lg:flex lg:flex-col w-60 shrink-0 sticky top-28 self-start h-[calc(100vh-7rem)] bg-white dark:bg-gray-950 border-r border-gray-200 dark:border-gray-800"
+      className="hidden lg:flex lg:flex-col w-60 shrink-0 h-full bg-white dark:bg-gray-950 border-r border-gray-200 dark:border-gray-800"
       aria-label="Hauptnavigation"
     >
       <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-6">
