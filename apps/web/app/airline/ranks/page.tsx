@@ -5,13 +5,16 @@ import Link from 'next/link';
 import { listRanksWithStats } from './actions';
 import { RankForm } from './rank-form';
 import { DeleteRankButton } from './delete-rank-button';
+import { ReEvaluateRanksButton } from './re-evaluate-button';
 
 /**
- * /airline/ranks — Rank-Verwaltung für airline-admins (Welle 6 commit 6B-1).
+ * /airline/ranks — Rank-Verwaltung für airline-admins (Welle 6 commit 6B-1,
+ * erweitert in 6B-3 mit re-evaluate-action).
  *
  * Zeigt alle ranks der eigenen airline sortiert nach order asc, mit add-form
  * inline oben (analog /airline/aircraft pattern). Pro rank: name, minHours-
- * threshold, user-count, edit-link, delete-button.
+ * threshold, user-count, edit-link, delete-button. Plus re-evaluate-button
+ * in einer eigenen section (6B-3) für manual bulk-promotion-runs.
  *
  * Auth-gate: AIRLINE_MANAGER_ROLES (admin | airline-admin | instructor) —
  * spiegelt actions.ts requireAirlineAdmin.
@@ -28,7 +31,7 @@ import { DeleteRankButton } from './delete-rank-button';
  * - Drag-drop reorder → wenn user-feedback kommt
  * - Per-rank discord-role-mapping → existiert in DiscordRoleMapping table,
  *   aber UI-flow gehört in einen separaten "Discord-Integration"-bereich
- * - Promotion-history (audit-log) → Welle 6B-3 oder später
+ * - Promotion-history (audit-log) → später
  */
 export default async function AirlineRanksPage() {
   const session = await auth();
@@ -195,6 +198,23 @@ export default async function AirlineRanksPage() {
           </div>
         )}
 
+        {/* Re-evaluate section (Welle 6B-3). Nur sinnvoll wenn ranks UND
+            piloten existieren — sonst hat auto-promotion eh nichts zu tun. */}
+        {ranks.length > 0 && (
+          <section className="mt-8 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6">
+            <h2 className="text-lg font-semibold mb-1">Auto-Promotion neu auswerten</h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+              Lässt die promotion-logik manuell über alle piloten der airline
+              laufen. Sinnvoll nach änderung an{' '}
+              <code>minFlightHours</code>-Thresholds oder nach einfügen
+              eines neuen Zwischenrangs — sonst würden piloten erst beim
+              nächsten PIREP-submit hochgestuft. Demote läuft NICHT — wer
+              jetzt unter dem threshold ist, behält seinen rang.
+            </p>
+            <ReEvaluateRanksButton />
+          </section>
+        )}
+
         {/* Info-footer */}
         <aside className="mt-10 bg-gray-100 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-800 rounded-lg p-5 text-sm text-gray-600 dark:text-gray-400 space-y-2">
           <p>
@@ -203,8 +223,10 @@ export default async function AirlineRanksPage() {
             </strong>{' '}
             Piloten werden automatisch in den höchsten Rang promotet, dessen{' '}
             <code>minFlightHours</code>-Threshold sie erreicht haben. Die
-            Auto-Promotion läuft nach jedem PIREP-Approval (Welle 6B-3) und
-            kann auch manuell auf der Personnel-Page neu ausgewertet werden.
+            Auto-Promotion läuft nach jedem PIREP-Submit (sofort beim
+            einreichen, nicht erst beim approval) und kann oben über
+            &ldquo;Ränge neu auswerten&rdquo; auch manuell für alle piloten
+            getriggert werden.
           </p>
           <p>
             <strong className="text-gray-700 dark:text-gray-300">

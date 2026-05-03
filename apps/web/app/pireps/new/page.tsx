@@ -3,7 +3,8 @@ import { redirect } from 'next/navigation';
 import { prisma } from '@vam/db';
 import Link from 'next/link';
 import { revalidatePath } from 'next/cache';
-import { emitPirepSubmitted, emitRankUpgraded } from '@/lib/bot-events';
+import { emitPirepSubmitted } from '@/lib/bot-events';
+import { evaluatePromotion } from '@/lib/ranks';
 
 export default async function NewPirep() {
   const session = await auth();
@@ -167,52 +168,15 @@ export default async function NewPirep() {
       remarks,
     });
 
-    // Rang-Upgrade-Check
-    const updatedUser = await prisma.user.findUnique({
-      where: { id: user.id },
-      include: { rank: true },
-    });
-
-    if (updatedUser && updatedUser.airlineId) {
-      const qualifyingRank = await prisma.rank.findFirst({
-        where: {
-          airlineId: updatedUser.airlineId,
-          minFlightHours: { lte: updatedUser.totalFlightHours },
-        },
-        orderBy: { order: 'desc' },
-      });
-
-      // Nur hochstufen, niemals runterstufen
-      const currentOrder = updatedUser.rank?.order ?? -1;
-      if (
-        qualifyingRank &&
-        qualifyingRank.id !== updatedUser.rankId &&
-        qualifyingRank.order > currentOrder
-      ) {
-        await prisma.user.update({
-          where: { id: user.id },
-          data: { rankId: qualifyingRank.id },
-        });
-        console.log(
-          `[rank-upgrade] ${user.email}: ${updatedUser.rank?.name ?? 'None'} -> ${qualifyingRank.name} (${updatedUser.totalFlightHours.toFixed(1)}h)`
-        );
-
-        // Discord-ID des Users für Rolle-Update suchen
-        const discordAccount = await prisma.account.findFirst({
-          where: { userId: user.id, provider: 'discord' },
-          select: { providerAccountId: true },
-        });
-
-        // Event: Rank upgraded → Bot aktualisiert Discord-Rolle + postet Announcement
-        await emitRankUpgraded({
-          userId: user.id,
-          discordId: discordAccount?.providerAccountId ?? null,
-          oldRankName: updatedUser.rank?.name ?? 'None',
-          newRankName: qualifyingRank.name,
-          totalFlightHours: updatedUser.totalFlightHours,
-        });
-      }
-    }
+    // Rang-Upgrade-Check (Welle 6 commit 6B-3): delegated to evaluatePromotion
+    // helper in @/lib/ranks. Helper kümmert sich um lookup, promotion-check
+    // (höchster qualifying rank, no-demote-policy), DB-update und discord-
+    // event emission. Returns ein PromotionResult-objekt — der return-value
+    // wird hier nicht weiter verwendet, das bot-event ist der user-facing
+    // teil. Falls promotion fehlschlägt (z.B. transient DB-issue), läuft
+    // der PIREP-submit trotzdem durch — promotion ist best-effort, nicht
+    // critical-path. Beim nächsten PIREP-submit wird's wieder versucht.
+    await evaluatePromotion(user.id);
 
     revalidatePath('/dashboard');
     revalidatePath('/pireps');

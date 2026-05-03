@@ -4,14 +4,17 @@ import { auth } from '@/auth';
 import { prisma } from '@vam/db';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
+import {
+  evaluateAllPromotions,
+  type BulkPromotionResult,
+} from '@/lib/ranks';
 
 /**
- * Rank-Management server-actions (Welle 6 commit 6B-1).
+ * Rank-Management server-actions (Welle 6 commit 6B-1, erweitert in 6B-3).
  *
  * Ranks sind airline-spezifisch (jede airline definiert ihre eigene
  * hierarchie) und haben einen `minFlightHours`-threshold der den
- * auto-promotion-trigger steuert (welle 6B-3 hooks das in
- * pireps/actions.ts approvePirep). Der `order`-int legt die hierarchie
+ * auto-promotion-trigger steuert. Der `order`-int legt die hierarchie
  * fest — höhere order = höherer rank (Cadet=0, Captain=99).
  *
  * Mirror der policy aus airline/actions.ts:
@@ -19,8 +22,12 @@ import { z } from 'zod';
  * - requireAirlineAdmin() guard
  * - Multi-tenant gates: airline-id-check vor jeder mutation
  *
- * Out-of-scope für 6B-1:
- * - Auto-promotion-logic → 6B-3
+ * Auto-promotion-logic (6B-3):
+ * - Helper in @/lib/ranks: evaluatePromotion(userId) + evaluateAllPromotions(airlineId)
+ * - Auto-trigger in /pireps/new/page.tsx submitPirep nach hours-update
+ * - Manual-trigger via reEvaluateAllRanks() action unten (admin-button)
+ *
+ * Out-of-scope:
  * - Bulk-reorder via drag-drop → wenn user-feedback kommt
  * - Rank-history-tracking (welcher pilot wurde wann promoted) → später
  */
@@ -305,4 +312,82 @@ export async function deleteRank(
   revalidatePath('/pilots');
 
   return { ok: true, message: `Rang "${rank.name}" gelöscht.` };
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Re-evaluate ranks (manual trigger, Welle 6B-3)
+// ─────────────────────────────────────────────────────────────────────────
+
+export type ReEvaluateRanksFormState = {
+  ok: boolean;
+  message?: string;
+  result?: BulkPromotionResult;
+};
+
+/**
+ * Manuelle re-evaluation aller ranks für die airline. Use-cases:
+ * - Admin hat minFlightHours eines ranks gesenkt → einige piloten qualifizieren
+ *   jetzt für eine höhere stufe, sollen aber nicht warten müssen bis sie den
+ *   nächsten PIREP submitten.
+ * - Admin hat einen neuen rank zwischen zwei existing ranks eingefügt (z.B.
+ *   "Senior FO" zwischen FO und Captain) und will dass die piloten mit
+ *   passenden hours dorthin gestuft werden.
+ * - Sanity-check nach manueller rank-zuweisung in member-table.
+ *
+ * Delegiert an evaluateAllPromotions im @/lib/ranks helper. Returns ein
+ * useActionState-kompatibles state-objekt mit `result.promoted[]` für die
+ * UI um per-pilot zu zeigen wer wohin promoted wurde.
+ *
+ * No-demote-policy: piloten die jetzt unter dem threshold ihres aktuellen
+ * ranks fallen würden (weil minFlightHours erhöht wurde), werden NICHT
+ * gedemoted. Demote ist immer manuell durch admin in der member-table.
+ *
+ * Performance: für eine typische 50-200-piloten-airline läuft das in unter
+ * 5 sekunden. Bei größeren airlines würde der UI-thread blocken — wenn das
+ * passiert, müsste das in einen background-job ausgelagert werden. YAGNI bis
+ * dahin.
+ */
+export async function reEvaluateAllRanks(
+  _prev: ReEvaluateRanksFormState | null,
+): Promise<ReEvaluateRanksFormState> {
+  const { airlineId } = await requireAirlineAdmin();
+
+  let result: BulkPromotionResult;
+  try {
+    result = await evaluateAllPromotions(airlineId);
+  } catch (err) {
+    return {
+      ok: false,
+      message:
+        err instanceof Error
+          ? `Fehler bei der Auswertung: ${err.message}`
+          : 'Unbekannter Fehler bei der Auswertung',
+    };
+  }
+
+  // Cache-invalidations: Rank-changes betreffen multiple pages.
+  revalidatePath('/airline/ranks');
+  revalidatePath('/airline');
+  revalidatePath('/pilots');
+  revalidatePath('/dashboard');
+
+  const promotedCount = result.promoted.length;
+  const failedCount = result.failed.length;
+
+  let message: string;
+  if (promotedCount === 0 && failedCount === 0) {
+    message = `${result.totalEvaluated} ${result.totalEvaluated === 1 ? 'Pilot' : 'Piloten'} ausgewertet — alle aktuell auf dem höchsten qualifying rank.`;
+  } else if (promotedCount > 0 && failedCount === 0) {
+    message = `${promotedCount} ${promotedCount === 1 ? 'Pilot' : 'Piloten'} promoted (von ${result.totalEvaluated} ausgewertet).`;
+  } else if (promotedCount > 0 && failedCount > 0) {
+    message = `${promotedCount} promoted, ${failedCount} fehlgeschlagen (von ${result.totalEvaluated} ausgewertet).`;
+  } else {
+    message = `${failedCount} fehlgeschlagen (von ${result.totalEvaluated} ausgewertet).`;
+  }
+
+  return {
+    ok: failedCount === 0,
+    message,
+    result,
+  };
 }
