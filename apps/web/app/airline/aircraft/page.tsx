@@ -3,37 +3,32 @@ import { redirect } from 'next/navigation';
 import { prisma } from '@vam/db';
 import Link from 'next/link';
 import type { AircraftStatus } from '@vam/db';
+import { AddAircraftForm } from './add-aircraft-form';
+import { AircraftActionsButtons } from './aircraft-actions-buttons';
 
 /**
  * /airline/aircraft — Aircraft-Fleet-Verwaltung für airline-admins.
  *
- * Welle 5 commit 5b — read-only liste. Mit dem nächsten commit (5c) kommen
- * add/edit/remove-actions + dazugehöriges form.
+ * Welle 5 commit 5c — full CRUD aktiv. Add-form oben, status/edit/delete-
+ * actions per row.
  *
- * Auth-gate: spiegelt AIRLINE_MANAGER_ROLES in airline/hubs/actions.ts
+ * Auth-gate: spiegelt AIRLINE_MANAGER_ROLES in airline/aircraft/actions.ts
  * (admin | airline-admin | instructor). Multi-tenant: nur eigene airline.
  *
- * Features in dieser version:
- * - Liste aller aircraft der airline (alle status) als cards
- * - Status-badge (ACTIVE | MAINTENANCE | STORED | RETIRED)
- * - Home-ICAO + current-location anzeige (wenn !== home, "verlegt nach"-hint)
- * - Filter über query-params (?status=ACTIVE | ?home=EDDF)
- * - Hours-flown count via pireps-aggregation (groupBy)
- * - PIREPs-count + last-flight-date pro aircraft
+ * Features:
+ * - Add-form (registration, type, home-icao, status)
+ * - Liste aller aircraft als cards mit:
+ *   - Status-badge (ACTIVE | MAINTENANCE | STORED | RETIRED)
+ *   - Home-ICAO + current-location ("verlegt nach"-hint wenn ≠ home)
+ *   - Hours-flown + last-flight + pirep-count via groupBy
+ *   - Status-dropdown (auto-submit), Edit-link, Delete-button (nur wenn safe)
+ * - Filter über query-params (?status=ACTIVE | ?home=EDDF) mit per-status counts
  *
- * Layout-decisions:
- * - Cards statt table — mehr informationen pro entry (badges, status, hours,
- *   last-flight). Eine typische airline hat 5-50 airframes. Bei 100+
- *   airframes wäre table dichter, aber das ist nicht der typische case.
- * - Empty-state mit CTA "Erstes Aircraft anlegen" → wird mit 5c funktional
- * - Filter-bar oben mit aktiv-counts (z.B. "ACTIVE 12 | MAINTENANCE 2")
- *
- * Out-of-scope (kommt in 5c/5d):
- * - Add/Edit/Remove actions
- * - Status-change UI (set MAINTENANCE / set STORED / RETIRE)
- * - Auto-position-update bei PIREP-approval
- * - Bulk-import via CSV (analog routes-import — Welle 6+)
- * - Per-aircraft SimBrief-overlay UI (Welle 6+)
+ * Out-of-scope (5d/Welle 6+):
+ * - Auto-position-update bei PIREP-approval → 5d
+ * - Bulk-import via CSV → Welle 6+
+ * - Per-aircraft SimBrief-overlay UI → Welle 6+
+ * - Catalog-typeId-picker im add-form → Welle 6 (UX-flow first klären)
  */
 
 const STATUS_LABELS: Record<AircraftStatus, string> = {
@@ -108,6 +103,11 @@ export default async function AirlineAircraftPage({
             name: true,
             manufacturer: true,
           },
+        },
+        // _count für canDelete-check im action-buttons-component:
+        // wenn pireps oder routes referenzieren, hard-delete blocked.
+        _count: {
+          select: { pireps: true, routes: true },
         },
       },
       // Sort: ACTIVE zuerst, dann MAINTENANCE, STORED, RETIRED. Innerhalb
@@ -199,6 +199,16 @@ export default async function AirlineAircraftPage({
           </Link>
         </header>
 
+        {/* Add-form section */}
+        <section className="mb-8 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6">
+          <h2 className="text-lg font-semibold mb-1">Neues Aircraft anlegen</h2>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+            Trage Registration und Aircraft-Type ein. Optional kannst du
+            einen Home-Hub (ICAO) setzen und den Anfangsstatus wählen.
+          </p>
+          <AddAircraftForm />
+        </section>
+
         {/* Filter-bar — status-tabs + home-icao dropdown */}
         {totalAircraft > 0 && (
           <div className="mb-6 flex flex-wrap items-center gap-3">
@@ -282,12 +292,9 @@ export default async function AirlineAircraftPage({
                 <p className="text-lg text-gray-700 dark:text-gray-300 mb-2">
                   Noch keine Aircraft registriert
                 </p>
-                <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-                  Lege dein erstes Aircraft an um Routes mit Airframes zu
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  Lege oben dein erstes Aircraft an um Routes mit Airframes zu
                   verbinden und Flight-Hours zu tracken.
-                </p>
-                <p className="text-sm text-gray-400 dark:text-gray-500 italic">
-                  Add-Form folgt im nächsten release-step.
                 </p>
               </>
             ) : (
@@ -382,10 +389,17 @@ export default async function AirlineAircraftPage({
                       </div>
                     </div>
 
-                    {/* Actions-platzhalter — kommt in commit 5c */}
-                    <div className="text-xs text-gray-400 dark:text-gray-600 italic">
-                      Edit / Status folgen
-                    </div>
+                    {/* Actions: status-dropdown + edit-link + delete (oder
+                        "kann nicht gelöscht werden" hint wenn pireps/routes
+                        existieren). Component ist client-component für
+                        useTransition + auto-submit. */}
+                    <AircraftActionsButtons
+                      aircraftId={ac.id}
+                      registration={ac.registration}
+                      currentStatus={ac.status}
+                      pirepCount={ac._count.pireps}
+                      routeCount={ac._count.routes}
+                    />
                   </div>
                 </div>
               );
