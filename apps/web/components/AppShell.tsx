@@ -522,6 +522,7 @@ function Sidebar({ user, pathname }: SidebarProps) {
         {user.canManageAirline && user.hasAirline && (
           <NavSection title="Airline-Admin">
             <NavLink href="/airline" pathname={pathname} icon="🏢" label="Airline-Verwaltung" exact />
+            <NavLink href="/airline/hubs" pathname={pathname} icon="📍" label="Hubs" />
             <NavLink href="/airline/routes" pathname={pathname} icon="🛣️" label="Routen-Verwaltung" />
           </NavSection>
         )}
