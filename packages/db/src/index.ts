@@ -18,3 +18,6 @@ if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
 // generierten Type/Enum braucht, einfach hier ergänzen.
 export { PrismaClient, Prisma } from "@prisma/client";
 export { BookingState, NetworkType } from "@prisma/client";
+// Welle 5: AircraftStatus enum für /airline/aircraft UI (status-badges,
+// filter-tabs). Type-export erlaubt narrow type-checks ohne string-magic.
+export { AircraftStatus } from "@prisma/client";
