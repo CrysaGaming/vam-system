@@ -88,14 +88,14 @@ export function CancelBookingDialog({ bookingId, flightNumber }: Props) {
       onClick={() => !isPending && setOpen(false)}
     >
       <div
-        className="bg-gray-900 border border-gray-800 rounded-lg p-6 max-w-md w-full"
+        className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6 max-w-md w-full"
         onClick={(e) => e.stopPropagation()}
       >
         <h3 className="text-lg font-semibold mb-2">Buchung stornieren?</h3>
-        <p className="text-sm text-gray-400 mb-4">
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
           Buchung{' '}
-          <span className="font-mono text-gray-200">{flightNumber}</span> wird
-          auf den Status <span className="text-red-400">Storniert</span>{' '}
+          <span className="font-mono text-gray-900 dark:text-gray-200">{flightNumber}</span> wird
+          auf den Status <span className="text-red-600 dark:text-red-400">Storniert</span>{' '}
           gesetzt. Die Buchung bleibt in der Liste sichtbar, du kannst aber
           keinen Flight Plan mehr generieren oder einen PIREP filen.
         </p>
@@ -110,14 +110,14 @@ export function CancelBookingDialog({ bookingId, flightNumber }: Props) {
           disabled={isPending}
           maxLength={500}
           rows={3}
-          className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-gray-100 placeholder:text-gray-500 focus:outline-none focus:border-indigo-500 disabled:opacity-50 mb-1"
+          className="w-full bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded px-3 py-2 text-sm text-gray-900 dark:text-gray-100 placeholder:text-gray-500 focus:outline-none focus:border-indigo-500 disabled:opacity-50 mb-1"
         />
         <p className="text-xs text-gray-500 text-right mb-4">
           {remaining} Zeichen übrig
         </p>
 
         {error && (
-          <p className="text-sm text-red-400 mb-4 bg-red-500/10 border border-red-500/30 rounded px-3 py-2">
+          <p className="text-sm text-red-700 dark:text-red-400 mb-4 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 rounded px-3 py-2">
             {error}
           </p>
         )}
@@ -127,7 +127,7 @@ export function CancelBookingDialog({ bookingId, flightNumber }: Props) {
             type="button"
             onClick={() => setOpen(false)}
             disabled={isPending}
-            className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded text-sm transition disabled:opacity-50"
+            className="px-4 py-2 bg-gray-200 hover:bg-gray-300 dark:bg-gray-800 dark:hover:bg-gray-700 rounded text-sm transition disabled:opacity-50"
           >
             Abbrechen
           </button>
@@ -135,7 +135,7 @@ export function CancelBookingDialog({ bookingId, flightNumber }: Props) {
             type="button"
             onClick={handleSubmit}
             disabled={isPending}
-            className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-700 disabled:cursor-not-allowed rounded text-sm font-medium transition"
+            className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-300 dark:disabled:bg-gray-700 disabled:cursor-not-allowed text-white rounded text-sm font-medium transition"
           >
             {isPending ? 'Stornieren...' : 'Stornieren'}
           </button>

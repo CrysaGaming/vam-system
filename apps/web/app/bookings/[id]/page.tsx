@@ -33,7 +33,7 @@ function stateStyle(state: BookingState): { className: string; label: string } {
       };
     case 'Completed':
       return {
-        className: 'bg-gray-500/10 border-gray-500/30 text-gray-400',
+        className: 'bg-gray-500/10 border-gray-500/30 text-gray-500 dark:text-gray-400',
         label: 'Abgeschlossen',
       };
     case 'Expired':
@@ -225,9 +225,9 @@ export default async function BookingDetail({
   }
 
   return (
-    <main className="min-h-screen bg-gray-950 text-white p-8">
+    <main className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-white p-8">
       <div className="max-w-4xl mx-auto">
-        <header className="flex justify-between items-center mb-8 pb-6 border-b border-gray-800">
+        <header className="flex justify-between items-center mb-8 pb-6 border-b border-gray-200 dark:border-gray-800">
           <div>
             <div className="flex items-center gap-3 mb-2">
               <h1 className="text-3xl font-bold font-mono">
@@ -239,7 +239,7 @@ export default async function BookingDetail({
                 {style.label}
               </span>
             </div>
-            <p className="text-gray-400 text-sm">
+            <p className="text-gray-500 dark:text-gray-400 text-sm">
               Erstellt am{' '}
               {new Date(booking.createdAt).toLocaleString('de-DE', {
                 dateStyle: 'long',
@@ -249,7 +249,7 @@ export default async function BookingDetail({
           </div>
           <Link
             href="/"
-            className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded text-sm transition"
+            className="px-4 py-2 bg-gray-200 hover:bg-gray-300 dark:bg-gray-800 dark:hover:bg-gray-700 rounded text-sm transition"
           >
             ← Zurück
           </Link>
@@ -267,7 +267,7 @@ export default async function BookingDetail({
               <p className="text-sm font-semibold text-red-400 mb-1">
                 SimBrief-Callback fehlgeschlagen
               </p>
-              <p className="text-sm text-gray-300 break-words">
+              <p className="text-sm text-gray-700 dark:text-gray-300 break-words">
                 {ofpErrorParam}
               </p>
               <p className="text-xs text-gray-500 mt-2">
@@ -277,14 +277,14 @@ export default async function BookingDetail({
             </div>
             <Link
               href={`/bookings/${booking.id}`}
-              className="text-gray-400 hover:text-gray-200 text-sm flex-shrink-0"
+              className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 text-sm flex-shrink-0"
             >
               Schließen
             </Link>
           </section>
         )}
 
-        <section className="bg-gray-900 border border-gray-800 rounded-lg p-6 mb-8">
+        <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6 mb-8">
           <div className="flex items-center justify-between gap-8">
             <div className="text-center flex-1">
               <p className="text-xs uppercase tracking-wider text-gray-500 mb-3">
@@ -293,7 +293,7 @@ export default async function BookingDetail({
               <p className="text-3xl font-bold font-mono">
                 {booking.route.departure.icao}
               </p>
-              <p className="text-sm text-gray-400 mt-3">
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-3">
                 {booking.route.departure.name}
               </p>
               {booking.route.departure.city && (
@@ -304,12 +304,12 @@ export default async function BookingDetail({
             </div>
 
             <div className="flex-1 max-w-xs">
-              <div className="border-t-2 border-dashed border-gray-700 relative">
-                <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-gray-900 px-3">
+              <div className="border-t-2 border-dashed border-gray-300 dark:border-gray-700 relative">
+                <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-white dark:bg-gray-900 px-3">
                   <span className="text-2xl">✈️</span>
                 </div>
               </div>
-              <p className="text-center text-sm text-gray-400 mt-5">
+              <p className="text-center text-sm text-gray-500 dark:text-gray-400 mt-5">
                 {booking.route.distanceNm
                   ? `${booking.route.distanceNm} nm`
                   : '—'}
@@ -323,7 +323,7 @@ export default async function BookingDetail({
               <p className="text-3xl font-bold font-mono">
                 {booking.route.arrival.icao}
               </p>
-              <p className="text-sm text-gray-400 mt-3">
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-3">
                 {booking.route.arrival.name}
               </p>
               {booking.route.arrival.city && (
@@ -336,7 +336,7 @@ export default async function BookingDetail({
         </section>
 
         <div className="grid md:grid-cols-3 gap-6 mb-8">
-          <section className="bg-gray-900 border border-gray-800 rounded-lg p-6">
+          <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6">
             <h2 className="text-sm uppercase tracking-wider text-gray-500 mb-4">
               Aircraft
             </h2>
@@ -345,7 +345,7 @@ export default async function BookingDetail({
                 <p className="text-2xl font-mono font-bold">
                   {booking.route.aircraft.registration}
                 </p>
-                <p className="text-gray-400 mt-1">
+                <p className="text-gray-500 dark:text-gray-400 mt-1">
                   {booking.route.aircraft.type}
                 </p>
               </>
@@ -354,7 +354,7 @@ export default async function BookingDetail({
             )}
           </section>
 
-          <section className="bg-gray-900 border border-gray-800 rounded-lg p-6">
+          <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6">
             <h2 className="text-sm uppercase tracking-wider text-gray-500 mb-4">
               Pilot
             </h2>
@@ -364,7 +364,7 @@ export default async function BookingDetail({
             <p className="text-xs text-gray-500 mt-2">{booking.airline.name}</p>
           </section>
 
-          <section className="bg-gray-900 border border-gray-800 rounded-lg p-6">
+          <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6">
             <h2 className="text-sm uppercase tracking-wider text-gray-500 mb-4">
               Network
             </h2>
@@ -391,11 +391,11 @@ export default async function BookingDetail({
                 Network, aber genullt scheduledDeparture (User wählt neue
                 Zeit). Active-booking-guard in cloneBooking() blockiert
                 falls der User noch ein offenes Booking hat. */}
-            <section className="mt-8 bg-gray-900 border border-gray-800 rounded-lg p-6">
+            <section className="mt-8 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6">
               <h2 className="text-sm uppercase tracking-wider text-gray-500 mb-3">
                 Diesen Flug nochmal fliegen
               </h2>
-              <p className="text-gray-400 text-sm mb-4">
+              <p className="text-gray-500 dark:text-gray-400 text-sm mb-4">
                 Erstellt eine Kopie mit gleicher Route und Aircraft.
                 Geplante Abflugzeit wird zurückgesetzt — du wählst eine
                 neue Zeit (oder lässt sie leer).
@@ -415,7 +415,7 @@ export default async function BookingDetail({
             <h2 className="text-sm uppercase tracking-wider text-yellow-400 mb-3">
               SimBrief noch nicht eingerichtet
             </h2>
-            <p className="text-gray-300 mb-4">
+            <p className="text-gray-700 dark:text-gray-300 mb-4">
               Trage deinen SimBrief-Benutzernamen in den Settings ein um Pattern α
               nutzen zu können.
             </p>
@@ -435,7 +435,7 @@ export default async function BookingDetail({
                   <form action={refreshAction}>
                     <button
                       type="submit"
-                      className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded text-sm transition"
+                      className="px-4 py-2 bg-gray-200 hover:bg-gray-300 dark:bg-gray-800 dark:hover:bg-gray-700 rounded text-sm transition"
                     >
                       ↻ Refresh OFP
                     </button>
@@ -445,7 +445,7 @@ export default async function BookingDetail({
                       fields={patternZFields}
                       referralPage={`/bookings/${booking.id}`}
                       buttonLabel="Plan again →"
-                      buttonClassName="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded text-sm transition"
+                      buttonClassName="px-4 py-2 bg-gray-200 hover:bg-gray-300 dark:bg-gray-800 dark:hover:bg-gray-700 rounded text-sm transition"
                     />
                   ) : (
                     dispatchUrl && (
@@ -453,7 +453,7 @@ export default async function BookingDetail({
                         href={dispatchUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded text-sm transition"
+                        className="px-4 py-2 bg-gray-200 hover:bg-gray-300 dark:bg-gray-800 dark:hover:bg-gray-700 rounded text-sm transition"
                       >
                         Plan again →
                       </a>
@@ -475,7 +475,7 @@ export default async function BookingDetail({
                       href={dispatchUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="underline hover:text-gray-300"
+                      className="underline hover:text-gray-700 dark:hover:text-gray-300"
                     >
                       Im neuen Tab öffnen (Pattern α)
                     </a>{' '}
@@ -486,13 +486,13 @@ export default async function BookingDetail({
             }
           />
         ) : (
-          <section className="bg-gray-900 border border-gray-800 rounded-lg p-6 mb-8">
+          <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6 mb-8">
             <h2 className="text-sm uppercase tracking-wider text-gray-500 mb-4">
               Flight Plan
             </h2>
             {patternZFields ? (
               <>
-                <p className="text-gray-400 mb-4">
+                <p className="text-gray-500 dark:text-gray-400 mb-4">
                   Klicke auf &quot;Generate Flight Plan&quot;. Ein kleines
                   Popup-Fenster öffnet sich für SimBrief — sobald der Plan
                   fertig ist schließt es sich automatisch und du landest
@@ -509,7 +509,7 @@ export default async function BookingDetail({
                       href={dispatchUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="underline hover:text-gray-300"
+                      className="underline hover:text-gray-700 dark:hover:text-gray-300"
                     >
                       Im neuen Tab öffnen (Pattern α)
                     </a>{' '}
@@ -519,7 +519,7 @@ export default async function BookingDetail({
               </>
             ) : (
               <>
-                <p className="text-gray-400 mb-4">
+                <p className="text-gray-500 dark:text-gray-400 mb-4">
                   Klicke auf &quot;Plan via SimBrief&quot; um deinen Flight
                   Plan auf simbrief.com zu erstellen.
                 </p>
@@ -541,11 +541,11 @@ export default async function BookingDetail({
             )}
             <form
               action={refreshAction}
-              className="mt-6 pt-6 border-t border-gray-800"
+              className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-800"
             >
               <button
                 type="submit"
-                className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded text-sm transition"
+                className="px-4 py-2 bg-gray-200 hover:bg-gray-300 dark:bg-gray-800 dark:hover:bg-gray-700 rounded text-sm transition"
               >
                 ↻ Refresh OFP
               </button>
@@ -553,7 +553,7 @@ export default async function BookingDetail({
           </section>
         )}
 
-        <section className="bg-gray-900 border border-gray-800 rounded-lg p-6">
+        <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6">
           <h2 className="text-sm uppercase tracking-wider text-gray-500 mb-4">
             Metadaten
           </h2>
@@ -562,7 +562,7 @@ export default async function BookingDetail({
               <p className="text-xs uppercase tracking-wider text-gray-500 mb-1">
                 Erstellt
               </p>
-              <p className="text-gray-300">
+              <p className="text-gray-700 dark:text-gray-300">
                 {new Date(booking.createdAt).toLocaleString('de-DE')}
               </p>
             </div>
@@ -570,7 +570,7 @@ export default async function BookingDetail({
               <p className="text-xs uppercase tracking-wider text-gray-500 mb-1">
                 Läuft ab
               </p>
-              <p className="text-gray-300">
+              <p className="text-gray-700 dark:text-gray-300">
                 {new Date(booking.expiresAt).toLocaleString('de-DE')}
               </p>
             </div>
@@ -579,7 +579,7 @@ export default async function BookingDetail({
                 <p className="text-xs uppercase tracking-wider text-gray-500 mb-1">
                   Geplante Abflugzeit
                 </p>
-                <p className="text-gray-300">
+                <p className="text-gray-700 dark:text-gray-300">
                   {new Date(booking.scheduledDeparture).toLocaleString('de-DE', {
                     dateStyle: 'long',
                     timeStyle: 'short',
@@ -601,7 +601,7 @@ export default async function BookingDetail({
                 <p className="text-xs uppercase tracking-wider text-gray-500 mb-1">
                   Dispatched
                 </p>
-                <p className="text-gray-300">
+                <p className="text-gray-700 dark:text-gray-300">
                   {new Date(booking.dispatchedAt).toLocaleString('de-DE')}
                 </p>
               </div>
@@ -611,7 +611,7 @@ export default async function BookingDetail({
                 <p className="text-xs uppercase tracking-wider text-gray-500 mb-1">
                   Storniert
                 </p>
-                <p className="text-gray-300">
+                <p className="text-gray-700 dark:text-gray-300">
                   {new Date(booking.cancelledAt).toLocaleString('de-DE')}
                 </p>
               </div>
@@ -621,7 +621,7 @@ export default async function BookingDetail({
                 <p className="text-xs uppercase tracking-wider text-gray-500 mb-1">
                   Stornierungsgrund
                 </p>
-                <p className="text-gray-300 whitespace-pre-wrap">
+                <p className="text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
                   {booking.cancellationReason}
                 </p>
               </div>

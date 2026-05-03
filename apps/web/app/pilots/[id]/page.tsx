@@ -98,19 +98,19 @@ export default async function PilotProfile({
   );
 
   return (
-    <main className="min-h-screen bg-gray-950 text-white p-8">
+    <main className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-white p-8">
       <div className="max-w-4xl mx-auto">
-        <header className="flex justify-between items-center mb-8 pb-6 border-b border-gray-800">
+        <header className="flex justify-between items-center mb-8 pb-6 border-b border-gray-200 dark:border-gray-800">
           <Link
             href="/pilots"
-            className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded text-sm transition"
+            className="px-4 py-2 bg-gray-200 hover:bg-gray-300 dark:bg-gray-800 dark:hover:bg-gray-700 rounded text-sm transition"
           >
             ← Alle Piloten
           </Link>
           {isMe && (
             <Link
               href="/dashboard"
-              className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded text-sm transition"
+              className="px-4 py-2 bg-gray-200 hover:bg-gray-300 dark:bg-gray-800 dark:hover:bg-gray-700 rounded text-sm transition"
             >
               Mein Dashboard →
             </Link>
@@ -118,16 +118,16 @@ export default async function PilotProfile({
         </header>
 
         {/* Profile-Header */}
-        <section className="bg-gray-900 border border-gray-800 rounded-lg p-8 mb-8">
+        <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-8 mb-8">
           <div className="flex items-center gap-6">
             {pilot.image ? (
               <img
                 src={pilot.image}
                 alt={pilot.name ?? 'Avatar'}
-                className="w-24 h-24 rounded-full border-2 border-gray-700"
+                className="w-24 h-24 rounded-full border-2 border-gray-300 dark:border-gray-700"
               />
             ) : (
-              <div className="w-24 h-24 rounded-full bg-gray-800 border-2 border-gray-700" />
+              <div className="w-24 h-24 rounded-full bg-gray-200 dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-700" />
             )}
             <div>
               <h1 className="text-3xl font-bold flex items-center gap-3">
@@ -141,7 +141,7 @@ export default async function PilotProfile({
                   </span>
                 )}
               </h1>
-              <p className="text-gray-400 mt-1">
+              <p className="text-gray-500 dark:text-gray-400 mt-1">
                 {pilot.rank?.name ?? 'Kein Rang'} · {pilot.role?.name ?? 'pilot'}
               </p>
               <p className="text-xs text-gray-500 mt-2">
@@ -159,7 +159,7 @@ export default async function PilotProfile({
 
         {/* Stats */}
         <div className="grid md:grid-cols-3 gap-6 mb-8">
-          <section className="bg-gray-900 border border-gray-800 rounded-lg p-6 text-center">
+          <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6 text-center">
             <p className="text-xs uppercase tracking-wider text-gray-500 mb-2">
               Flugstunden
             </p>
@@ -167,7 +167,7 @@ export default async function PilotProfile({
             <p className="text-xs text-gray-500 mt-1">Stunden geflogen</p>
           </section>
 
-          <section className="bg-gray-900 border border-gray-800 rounded-lg p-6 text-center">
+          <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6 text-center">
             <p className="text-xs uppercase tracking-wider text-gray-500 mb-2">
               Flüge
             </p>
@@ -175,7 +175,7 @@ export default async function PilotProfile({
             <p className="text-xs text-gray-500 mt-1">PIREPs eingereicht</p>
           </section>
 
-          <section className="bg-gray-900 border border-gray-800 rounded-lg p-6 text-center">
+          <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6 text-center">
             <p className="text-xs uppercase tracking-wider text-gray-500 mb-2">
               Aktueller Rang
             </p>
@@ -190,7 +190,7 @@ export default async function PilotProfile({
 
         {/* Top-Routen */}
         {topRoutesValid.length > 0 && (
-          <section className="bg-gray-900 border border-gray-800 rounded-lg p-6 mb-8">
+          <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6 mb-8">
             <h2 className="text-sm uppercase tracking-wider text-gray-500 mb-4">
               Meist geflogen
             </h2>
@@ -198,13 +198,13 @@ export default async function PilotProfile({
               {topRoutesValid.map((entry, idx) => (
                 <div
                   key={entry.route.id}
-                  className="flex justify-between items-center px-4 py-3 bg-gray-800/50 rounded border border-gray-800"
+                  className="flex justify-between items-center px-4 py-3 bg-gray-100 dark:bg-gray-800/50 rounded border border-gray-200 dark:border-gray-800"
                 >
                   <div className="flex items-center gap-4">
                     <span className="text-gray-500 font-mono text-xs">
                       #{idx + 1}
                     </span>
-                    <span className="font-mono text-sm text-indigo-400">
+                    <span className="font-mono text-sm text-indigo-600 dark:text-indigo-400">
                       {entry.route.flightNumber}
                     </span>
                     <span className="text-sm">
@@ -213,7 +213,7 @@ export default async function PilotProfile({
                       <span className="font-mono">{entry.route.arrival.icao}</span>
                     </span>
                   </div>
-                  <span className="text-sm text-gray-400">
+                  <span className="text-sm text-gray-500 dark:text-gray-400">
                     {entry.count}× geflogen
                   </span>
                 </div>
@@ -223,7 +223,7 @@ export default async function PilotProfile({
         )}
 
         {/* Letzte Flüge */}
-        <section className="bg-gray-900 border border-gray-800 rounded-lg p-6">
+        <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-sm uppercase tracking-wider text-gray-500">
               Letzte Flüge
@@ -235,7 +235,7 @@ export default async function PilotProfile({
             )}
           </div>
           {recentPireps.length === 0 ? (
-            <p className="text-gray-400 text-sm">
+            <p className="text-gray-500 dark:text-gray-400 text-sm">
               Noch keine genehmigten Flüge.
             </p>
           ) : (
@@ -256,12 +256,12 @@ export default async function PilotProfile({
                   <Wrapper
                     key={pirep.id}
                     {...(wrapperProps as any)}
-                    className={`flex justify-between items-center px-4 py-3 bg-gray-800/50 rounded border border-gray-800 transition ${
-                      isClickable ? 'hover:bg-gray-800 hover:border-indigo-600/50' : ''
+                    className={`flex justify-between items-center px-4 py-3 bg-gray-100 dark:bg-gray-800/50 rounded border border-gray-200 dark:border-gray-800 transition ${
+                      isClickable ? 'hover:bg-gray-200 dark:hover:bg-gray-800 hover:border-indigo-600/50' : ''
                     }`}
                   >
                     <div className="flex items-center gap-4">
-                      <span className="font-mono text-sm text-indigo-400">
+                      <span className="font-mono text-sm text-indigo-600 dark:text-indigo-400">
                         {pirep.route?.flightNumber ?? '—'}
                       </span>
                       <span className="text-sm">
@@ -271,7 +271,7 @@ export default async function PilotProfile({
                       </span>
                     </div>
                     <div className="flex items-center gap-4 text-sm">
-                      <span className="text-gray-400">{flightTime}</span>
+                      <span className="text-gray-500 dark:text-gray-400">{flightTime}</span>
                       {pirep.aircraft && (
                         <span className="text-gray-500 font-mono text-xs">
                           {pirep.aircraft.registration}

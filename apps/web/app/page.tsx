@@ -9,16 +9,16 @@ export default async function Home() {
   }
 
   return (
-    <main className="min-h-screen bg-gray-950 text-white flex items-center justify-center p-8">
+    <main className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-white flex items-center justify-center p-8">
       <div className="max-w-md text-center space-y-6">
         <h1 className="text-5xl font-bold tracking-tight">VAM System</h1>
-        <p className="text-gray-400 text-lg">
+        <p className="text-gray-500 dark:text-gray-400 text-lg">
           Virtual Airline Management — modular, modern, open-source.
         </p>
         <form action={async () => { 'use server'; await signIn('discord', { redirectTo: '/dashboard' }); }}>
           <button
             type="submit"
-            className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 rounded-lg font-medium text-lg transition shadow-lg hover:shadow-indigo-500/30"
+            className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium text-lg transition shadow-lg hover:shadow-indigo-500/30"
           >
             Mit Discord anmelden
           </button>
