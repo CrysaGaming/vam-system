@@ -88,6 +88,34 @@ enum JumpseatReason {
   ADMIN_TRANSFER
 }
 
+// Welle 5: Aircraft-Lifecycle-States. Replaces (und ergänzt) das einfache
+// Aircraft.active boolean. Mit dem booking-flow + maintenance-management
+// brauchen wir mehr granularität als nur on/off:
+//
+// - ACTIVE: voll verfügbar, buchbar, fliegt
+// - MAINTENANCE: aktuell in der werkstatt — nicht buchbar, aber inventory-
+//   sichtbar. Roleplay-flag, ist nicht (yet) mit cost/time-system verknüpft.
+//   Manueller status, airline-admin setzt + un-setzt.
+// - STORED: long-term parking (z.B. winter-storage, fleet-rotation pause).
+//   Nicht buchbar, aber leichter zu reaktivieren als RETIRED. Andere
+//   semantik für UI-filter ("show stored aircraft" vs "show retired").
+// - RETIRED: dauerhaft außer dienst. Nicht buchbar, aber historische
+//   PIREPs/routes referenzieren das aircraft weiter (FK-integrity). Zeigt
+//   in der liste mit "retired"-badge + opacity. Reaktivierung via admin-
+//   action möglich, aber typisch ein "soft-delete-with-history" replacement
+//   für hard-delete.
+//
+// Migration-strategie: das alte Aircraft.active boolean bleibt ZUNÄCHST
+// erhalten (additive), wird beim app-layer mit `status==ACTIVE` synchron
+// gehalten. Welle 5 phase 2 deprecated `active`, dann ist status der
+// single-source-of-truth.
+enum AircraftStatus {
+  ACTIVE
+  MAINTENANCE
+  STORED
+  RETIRED
+}
+
 // State-machine für AirportRequest und AircraftTypeRequest. Mirrors PIREP-
 // pattern (Submitted → Approved/Rejected) mit Erweiterung UnderReview.
 // Approval ist binär hier, aber via `approvedAsVerified` Boolean auf den
@@ -358,15 +386,46 @@ model Aircraft {
   aircraftTypeId  String?
   aircraftType    AircraftType? @relation(fields: [aircraftTypeId], references: [id])
   homeIcao        String?
+  // Welle 5: Aircraft-Lifecycle-Status. Default ACTIVE für additive
+  // migration — alle existing airframes mit active=true bekommen
+  // status=ACTIVE, alle mit active=false bekommen status=RETIRED (im
+  // backfill-step der migration). Siehe AircraftStatus-enum-docstring
+  // für die semantik der einzelnen states.
+  status          AircraftStatus @default(ACTIVE)
+  // Legacy boolean — bleibt für app-compatibility erhalten, wird im
+  // app-layer synchron mit status gehalten (status==ACTIVE → active=true).
+  // Phase 2 (Welle 6+) deprecated dieses field nach UI-rollout.
   active          Boolean       @default(true)
+
+  // Welle 5: Aircraft-Position-Tracking. Mirrors User.currentLocation*-
+  // pattern (Welle 4). Wird beim PIREP-approval auf arrival.icao gesetzt
+  // wenn der PIREP an dieses aircraft gebunden ist (Pirep.aircraftId).
+  // Wenn null = aircraft ist an seinem homeIcao (default-fallback in der
+  // UI). currentLocationAt für staleness-checks.
+  //
+  // Bewusst KEIN currentLocationSource hier (anders als User) — aircraft-
+  // movements kommen aktuell NUR aus PIREPs. Bei späterer ferry-flight-
+  // logik (Welle 7+) würde das wieder relevant.
+  currentLocationIcao String?
+  currentLocationAt   DateTime?
+
   // SimBrief Override-Hierarchie Ebene 3 (per individual airframe).
   // z.B. "this specific D-AIBL has reduced MTOW because of MEL". Über-
   // steuert Airline + Fleet defaults.
   simBriefOverlay Json?
   createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @default(now()) @updatedAt
 
   routes Route[]
   pireps Pirep[]
+
+  // Welle 5: Indexes für die /airline/aircraft filter-UI.
+  // - (airlineId, status): "alle aktiven aircraft meiner airline" (häufigster query)
+  // - (airlineId, homeIcao): "aircraft basiert in EDDF" (hub-specific list)
+  // - (currentLocationIcao): "welche aircraft sind grade in EDDF?" (booking-availability)
+  @@index([airlineId, status])
+  @@index([airlineId, homeIcao])
+  @@index([currentLocationIcao])
 }
 
 // SimBrief Override-Hierarchie Ebene 2 — Fleet-defaults per (airline, type).
