@@ -21,3 +21,7 @@ export { BookingState, NetworkType } from "@prisma/client";
 // Welle 5: AircraftStatus enum für /airline/aircraft UI (status-badges,
 // filter-tabs). Type-export erlaubt narrow type-checks ohne string-magic.
 export { AircraftStatus } from "@prisma/client";
+// Welle 6B: EmploymentStatus enum für personnel-management UI (status-
+// dropdown, filter-tabs in /airline/pilots, status-badges in /pilots).
+// Default ACTIVE für alle existing user (additive migration).
+export { EmploymentStatus } from "@prisma/client";

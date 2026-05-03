@@ -116,6 +116,35 @@ enum AircraftStatus {
   RETIRED
 }
 
+// Welle 6B (commit 6B-2): Employment-Status für piloten. Ergänzt rankId/roleId
+// um eine orthogonale dimension: ist dieser pilot operativ aktiv? Kann airline
+// ihn für scheduled-flights einplanen?
+//
+// - ACTIVE: normal, fliegt regulär. Default für alle existing user (additive
+//   migration), für alle neuen user via @default(ACTIVE).
+// - LEAVE: vorübergehend nicht verfügbar. Urlaub, sabbatical, prüfungs-
+//   vorbereitung, krankschreibung. Pilot bleibt member der airline, behält
+//   rank, aber wird in personnel-reports/leaderboards nicht als "aktiver
+//   roster" mitgezählt. Roleplay-flag, kein hard-gate auf bookings (pilot
+//   kann immer noch fliegen wenn er will — die status-info ist nur für
+//   roster-planung).
+// - INACTIVE: long-term nicht aktiv. Discord-acc verloren, hat lange nicht
+//   geflogen, will pause aber nicht ganz raus. Auch kein hard-gate aber
+//   stärkerer signal an admins für cleanup-decisions ("entferne nach 90d
+//   inactive?").
+//
+// Bewusst nur 3 states (nicht TERMINATED/SUSPENDED/etc.) — termination
+// wird durch removeMemberFromAirline gehandhabt (User.airlineId=null), nicht
+// als status. Suspended/disciplinary ist out-of-scope für VA-context.
+//
+// Migration-strategie: additive, alle existing users bekommen ACTIVE als
+// default. Kein backfill-script nötig (default greift auf existing rows).
+enum EmploymentStatus {
+  ACTIVE
+  LEAVE
+  INACTIVE
+}
+
 // State-machine für AirportRequest und AircraftTypeRequest. Mirrors PIREP-
 // pattern (Submitted → Approved/Rejected) mit Erweiterung UnderReview.
 // Approval ist binär hier, aber via `approvedAsVerified` Boolean auf den
@@ -268,6 +297,15 @@ model User {
   // "purist mode" bleiben (no money UI). Beide flags müssen true sein
   // damit ein pilot economy-features sieht.
   economyEnabled Boolean @default(false)
+
+  // Welle 6B (commit 6B-2): Employment-Status — ist dieser pilot operativ
+  // aktiv? Default ACTIVE für alle (additive migration). Siehe enum-
+  // docstring oben für die semantik der drei states. Status-changes
+  // erfolgen via /airline/pilots personnel-management UI (Welle 6B-4).
+  // Bewusst kein separater `employmentStatusUpdatedAt` field — wenn audit-
+  // tracking gebraucht wird, kommt das mit einem dediziertem PersonnelEvent
+  // log-table (out-of-scope für 6B). updatedAt am User-record reicht erstmal.
+  employmentStatus EmploymentStatus @default(ACTIVE)
 
   // Welle 4: Audit-trail für jumpseat-transfers (no-flight position-changes).
   jumpseatTransfers JumpseatTransfer[]
