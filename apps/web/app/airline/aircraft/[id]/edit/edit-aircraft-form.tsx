@@ -3,6 +3,7 @@
 import { useActionState } from 'react';
 import { useFormStatus } from 'react-dom';
 import { updateAircraft } from '../../actions';
+import { AircraftTypeAutocomplete } from '@/components/aircraft-type-autocomplete';
 
 /**
  * Edit-form für ein bestehendes Aircraft. Separat von AddAircraftForm
@@ -12,9 +13,13 @@ import { updateAircraft } from '../../actions';
  *   action-buttons-dropdown auf der listing-page — single source of
  *   truth)
  * - Registration-changes mit warning ("printet auf historische PIREPs")
+ * - Type via AircraftTypeAutocomplete im hybrid-mode (Welle 6A-1) —
+ *   pre-filled mit existing catalog-link wenn vorhanden, sonst nur
+ *   free-text initialType.
  *
  * Hidden field aircraftId wird im server-action für multi-tenant-check
- * + lookup genutzt.
+ * + lookup genutzt. aircraftTypeId + type werden vom Autocomplete
+ * selbst gerendert (zwei hidden inputs).
  */
 type State = { ok: true } | { ok: false; error: string } | null;
 
@@ -23,6 +28,12 @@ interface Props {
   initialRegistration: string;
   initialType: string;
   initialAircraftTypeId: string | null;
+  /**
+   * Pre-formatted display-string für den autocomplete ("B738 — Boeing
+   * 737-800"). Vom parent gebaut aus aircraft.aircraftType. Null wenn
+   * das aircraft nicht mit einem catalog-eintrag verknüpft ist.
+   */
+  initialAircraftTypeDisplay: string | null;
   initialHomeIcao: string | null;
 }
 
@@ -38,6 +49,7 @@ export function EditAircraftForm({
   initialRegistration,
   initialType,
   initialAircraftTypeId,
+  initialAircraftTypeDisplay,
   initialHomeIcao,
 }: Props) {
   const [state, formAction] = useActionState<State, FormData>(
@@ -48,13 +60,6 @@ export function EditAircraftForm({
   return (
     <form action={formAction} className="space-y-4">
       <input type="hidden" name="aircraftId" value={aircraftId} />
-      {initialAircraftTypeId && (
-        <input
-          type="hidden"
-          name="aircraftTypeId"
-          value={initialAircraftTypeId}
-        />
-      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
@@ -80,27 +85,12 @@ export function EditAircraftForm({
         </div>
 
         <div>
-          <label
-            htmlFor="type"
-            className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-          >
-            Aircraft Type (ICAO)
-            <span className="text-red-500 ml-0.5">*</span>
-          </label>
-          <input
-            type="text"
-            id="type"
-            name="type"
+          <AircraftTypeAutocomplete
             required
-            maxLength={20}
-            defaultValue={initialType}
-            className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded text-gray-900 dark:text-white uppercase placeholder:normal-case placeholder:text-gray-400 focus:outline-none focus:border-indigo-500 font-mono"
+            initialAircraftTypeId={initialAircraftTypeId}
+            initialType={initialType}
+            initialDisplay={initialAircraftTypeDisplay ?? initialType}
           />
-          {initialAircraftTypeId && (
-            <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">
-              Aktuell verlinkt mit Catalog-Eintrag.
-            </p>
-          )}
         </div>
 
         <div className="sm:col-span-2">

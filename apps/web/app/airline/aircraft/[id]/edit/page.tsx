@@ -92,6 +92,11 @@ export default async function EditAircraftPage({ params }: Props) {
             initialRegistration={aircraft.registration}
             initialType={aircraft.type}
             initialAircraftTypeId={aircraft.aircraftTypeId}
+            initialAircraftTypeDisplay={
+              aircraft.aircraftType
+                ? `${aircraft.aircraftType.icaoType} — ${aircraft.aircraftType.manufacturer} ${aircraft.aircraftType.name}`
+                : null
+            }
             initialHomeIcao={aircraft.homeIcao}
           />
         </section>

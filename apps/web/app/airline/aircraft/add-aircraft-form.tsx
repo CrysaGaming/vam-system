@@ -3,13 +3,15 @@
 import { useActionState } from 'react';
 import { useFormStatus } from 'react-dom';
 import { addAircraft } from './actions';
+import { AircraftTypeAutocomplete } from '@/components/aircraft-type-autocomplete';
 
 /**
  * Inline-form zum hinzufügen eines neuen Aircraft. Bewusst minimal gehalten:
  * - Registration (uppercase + regex auf A-Z, 0-9, -)
- * - Type ICAO (free-text, z.B. "B738", "A20N") — NICHT typeId-picker.
- *   Der catalog-FK-binding kommt in Welle 6+ wenn die UX-flow klar ist;
- *   für jetzt akzeptieren wir alles was die airline-admin tippt.
+ * - Type via AircraftTypeAutocomplete (HYBRID: catalog-pick ODER free-text).
+ *   Catalog-pick setzt zusätzlich aircraftTypeId für FK-binding. Free-text
+ *   bleibt erlaubt für nicht-katalogisierte Types (legacy + edge-cases).
+ *   → Welle 6A-1
  * - Home-Hub ICAO (optional, validated gegen catalog server-side)
  * - Status (radio, default ACTIVE — meiste airframes werden direkt aktiv
  *   eingelegt; STORED/MAINTENANCE als import-zustand selten genug für
@@ -58,22 +60,7 @@ export function AddAircraftForm() {
         </div>
 
         <div>
-          <label
-            htmlFor="type"
-            className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-          >
-            Aircraft Type (ICAO)
-            <span className="text-red-500 ml-0.5">*</span>
-          </label>
-          <input
-            type="text"
-            id="type"
-            name="type"
-            required
-            maxLength={20}
-            placeholder="B738, A20N, A359…"
-            className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded text-gray-900 dark:text-white uppercase placeholder:normal-case placeholder:text-gray-400 focus:outline-none focus:border-indigo-500 font-mono"
-          />
+          <AircraftTypeAutocomplete required />
         </div>
 
         <div>

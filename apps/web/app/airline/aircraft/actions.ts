@@ -463,3 +463,93 @@ export async function deleteAircraft(formData: FormData) {
   revalidatePath('/airline/aircraft');
   return { ok: true as const };
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// Search AircraftTypes (autocomplete)
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Server-action für AircraftTypeAutocomplete component (Welle 6A).
+ *
+ * Hybrid-mode autocomplete: liefert catalog-suggestions, aber das form
+ * akzeptiert AUCH free-text wenn keine selection gemacht wird (siehe
+ * AircraftTypeAutocomplete + addAircraft/updateAircraft logic).
+ *
+ * Search-strategie:
+ * - icaoType (z.B. "B738") prefix-match — primary use-case: admin tippt
+ *   die ICAO-bezeichnung
+ * - manufacturer + name contains — fallback wenn admin "Boeing" oder
+ *   "A320" tippt statt "B738"
+ * - Limit 12 results pro query, dedup nach id
+ * - Nur active=true entries (inactive types sollen nicht in neuen
+ *   aircraft landen)
+ *
+ * Auth: gleiche AIRLINE_MANAGER_ROLES wie alle anderen actions hier.
+ * Kein multi-tenant filter — AircraftType-catalog ist global shared,
+ * nicht airline-spezifisch.
+ *
+ * Performance: 2 parallel queries, return shape ist bewusst minimal
+ * (nur id, icaoType, name, manufacturer, category, verified) damit
+ * die response klein bleibt und nicht über jede tastendruck megabytes
+ * fließen.
+ */
+export async function searchAircraftTypes(query: string) {
+  await requireAirlineAdmin();
+
+  const trimmed = query.trim();
+  if (trimmed.length < 1) return [];
+
+  const upper = trimmed.toUpperCase();
+
+  // 2 parallel queries: prefix-match auf icaoType (primary) + contains-
+  // match auf manufacturer/name (fallback). Mergen + dedup client-side.
+  const [byIcao, byNameOrManu] = await Promise.all([
+    prisma.aircraftType.findMany({
+      where: {
+        active: true,
+        icaoType: { startsWith: upper },
+      },
+      orderBy: [{ verified: 'desc' }, { icaoType: 'asc' }],
+      take: 12,
+      select: {
+        id: true,
+        icaoType: true,
+        name: true,
+        manufacturer: true,
+        category: true,
+        verified: true,
+      },
+    }),
+    prisma.aircraftType.findMany({
+      where: {
+        active: true,
+        OR: [
+          { manufacturer: { contains: trimmed, mode: 'insensitive' } },
+          { name: { contains: trimmed, mode: 'insensitive' } },
+        ],
+      },
+      orderBy: [{ verified: 'desc' }, { icaoType: 'asc' }],
+      take: 12,
+      select: {
+        id: true,
+        icaoType: true,
+        name: true,
+        manufacturer: true,
+        category: true,
+        verified: true,
+      },
+    }),
+  ]);
+
+  // Dedup nach id, primary-results (byIcao) zuerst.
+  const seen = new Set<string>();
+  const merged: typeof byIcao = [];
+  for (const t of [...byIcao, ...byNameOrManu]) {
+    if (seen.has(t.id)) continue;
+    seen.add(t.id);
+    merged.push(t);
+    if (merged.length >= 12) break;
+  }
+
+  return merged;
+}
