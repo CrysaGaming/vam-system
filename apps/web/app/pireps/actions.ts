@@ -1,7 +1,7 @@
 'use server';
 
 import { auth } from '@/auth';
-import { prisma } from '@vam/db';
+import { prisma, Prisma } from '@vam/db';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { emitPirepApproved, emitPirepRejected } from '@/lib/bot-events';
@@ -91,7 +91,17 @@ export async function approvePirep(pirepId: string) {
   //   (siehe dortigen kommentar), also bleibt die alte position bis ein
   //   neuer PIREP approved wird. Bewusst — un-reject ist ein admin-fix-flow,
   //   nicht ein flight-event.
-  await prisma.$transaction([
+  //
+  // Welle 5: Aircraft-position-tracking. Wenn der PIREP an ein aircraft
+  // gebunden ist (aircraftId not null), setzen wir auch Aircraft.current
+  // Location*. Mirrors die User-position-logik. Wenn aircraftId null ist
+  // (z.B. legacy-PIREPs ohne aircraft, oder free-flight-PIREPs), kein
+  // aircraft-update. Conditional ins transaction-array gepushed damit die
+  // atomicity erhalten bleibt — entweder beide updates greifen oder keiner.
+  // RETIRED-aircraft kriegen trotzdem position-updates wenn ein PIREP an
+  // sie gebunden ist (kann durch alte bookings passieren); audit-trail
+  // ist wertvoller als status-purity.
+  const transactionOps: Prisma.PrismaPromise<unknown>[] = [
     prisma.pirep.update({
       where: { id: pirepId },
       data: {
@@ -111,7 +121,21 @@ export async function approvePirep(pirepId: string) {
         currentLocationAt: new Date(),
       },
     }),
-  ]);
+  ];
+
+  if (pirep.aircraftId) {
+    transactionOps.push(
+      prisma.aircraft.update({
+        where: { id: pirep.aircraftId },
+        data: {
+          currentLocationIcao: pirep.arrival.icao,
+          currentLocationAt: new Date(),
+        },
+      }),
+    );
+  }
+
+  await prisma.$transaction(transactionOps);
 
   // Bot benachrichtigen — silent failure wenn Bot offline
   try {
