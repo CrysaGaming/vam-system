@@ -3723,3 +3723,84 @@ Beides ist mitigierbar, aber muss respektiert werden.
 *Konsolidiert: Tag-1-Plan (VAM_System_Plan.md), 5 GitHub-committed Architektur-Docs (acars, weather, simconnect, pirep-analysis, obs-overlay), 3 Tag-5-Vision-Docs (admin-dashboards, twitch-to-sim, platform-layout) und Recherche zu Tech-Stack 2026.*
 
 *Diese Doc ist Living-Document. Quartalsweise zu reviewen.*
+
+---
+
+# APPENDIX A — Status-Update Tag 6 (03. Mai 2026)
+
+> **Diese sektion ist appendix zur original-roadmap (Tag 5). Sie dokumentiert was sich in den 6 tagen seit roadmap-erstellung verändert hat. Für die operative arbeit-reihenfolge siehe `Wellen-Roadmap.md` — die ist die täglich-relevante referenz. Diese master-roadmap bleibt das strategische dokument.**
+
+## A.1 Massive Progression seit Tag 5
+
+**Numbers:**
+- 62 commits zu Tag 5 → **187 commits zu Tag 6** (125 commits in 6 tagen)
+- 18 Prisma-models zu Tag 5 → **34 Prisma-models zu Tag 6** (+16 models)
+- 7-9 app-routes zu Tag 5 → **30 app-routes zu Tag 6**
+- 5 vision-docs zu Tag 5 → **6 vision-docs + 6 decision-docs + 3 learnings-docs**
+
+## A.2 Track-Status-Update
+
+| Track | Tag 5 (original) | Tag 6 (heute) |
+|---|---|---|
+| **Track 1: Pilot-Experience (Foundation)** | "In Arbeit" | ✅ Substantial weiter — Booking-Loop komplett (Welle 1), Catalogs-System mit 85k airports + request-flow komplett (Welle 3), Routes-CRUD heute geshipped |
+| **Track 2: Content-Creator-First** | OBS-Phase-3 done, Twitch noch nicht | 🟡 Unverändert. OBS-Phase-4+ und Twitch-OAuth weiter offen |
+| **Track 3: Platform-Foundation (Refactor)** | "Vorbereitet, nicht gestartet" | 🟡 Teilweise — Layout-redesign massiv (sidebar persistent, theme-system, admin-sektoren). shadcn/ui weiter offen |
+| **Track 4: Sim-Integration-Depth** | ACARS-Phase-1 done | 🟡 Unverändert |
+| **Track 5: Business-Layer (Strategic Bet)** | Vision-Doc-Ideen | ✅ Vision deepened — `Economy-Karriere.md` (~93KB, 61 sections) als deep-dive heute geschrieben. Schema noch nicht angefasst, aber Welle-4 (Foundation-Flags) als nächstes geplant |
+
+## A.3 Was die Original-Roadmap nicht antizipiert hat
+
+Diese themen sind seit Tag 5 dazugekommen und waren in dieser master-roadmap nicht explicit:
+
+1. **System-curated Catalog-System** für airports + aircraft-types mit PIREP-style request-flow
+   - 85.266 Airports + Runways + Frequencies + Navaids importiert (OurAirports.com bulk)
+   - AirportDB.io fallback für non-OurAirports approvals
+   - Request-flow als wiederverwendbares pattern
+
+2. **Airline-admin-role** als neue RBAC-stufe + airline-admin-sidebar-sektor
+
+3. **Theme-system (light/dark)** progressive-rollout — 3 commit-phasen für vollständige abdeckung
+
+4. **Multi-tenancy-tiefe**: deutlich tiefer als geplant, aber gut investiert
+
+5. **Override-Hierarchie** für SimBrief-defaults (Aircraft / Fleet / Airline / Route)
+
+6. **Plan-vs-Actual-Comparison** auf PIREP-detail (closes the "did the pilot do what they planned" loop)
+
+## A.4 Zwei neue strategische Roadmaps entstanden
+
+**`docs/decisions/2026-05-01-airline-ops-roadmap.md` (v3)**
+- 11 Phasen für komplette airline-ops (52-78 tage coding)
+- Resource-CRUD-first statt feature-first
+- Phase 1 (Catalogs) und Phase 4 (Routes) bereits abgeschlossen
+- Dieser doc ist die quelle für Wellen 5-8 in der Wellen-Roadmap
+
+**`docs/vision/Economy-Karriere.md` (heute, 03.05)**
+- Maximal-vision für economy + career + börse + twitch-monetization
+- ~93KB, 61 sections, 12 teile
+- 19 implementation-phasen (2-3 jahre vision)
+- Cross-references zu twitch-to-sim-integration.md (komplementär: sim-write vs. economy-revenue)
+- Dieser doc ist die quelle für Wellen 12-19 in der Wellen-Roadmap
+
+## A.5 Operative Arbeit ab heute
+
+Die operative reihenfolge welche features als nächstes gebaut werden ist **NICHT mehr in dieser master-roadmap dokumentiert**. Stattdessen:
+
+→ **`docs/vision/Wellen-Roadmap.md`** ist die operative roadmap mit 20 wellen (0-19), status-tracking, dependencies, definition-of-done.
+
+Die master-roadmap (dieses dokument) bleibt die **strategische ebene** mit Track-Modell, Stack-Decisions, Risiko-analyse. Die Wellen-Roadmap ist die **operative ebene** mit "was machen wir als nächstes".
+
+**Empfehlung für nächste session:** Welle 4 starten (Hub-System + Free-Flight + Economy-Foundation-Flags). Siehe Wellen-Roadmap section "Welle 4" für details.
+
+## A.6 Faktor-Validation hält
+
+Die ursprüngliche schätzung "Faktor 0.3 für standard-patterns" ist weiter konservativ. Calibration-data aus Day-4-marathon zeigt:
+- Pure additive features: factor ~0.27
+- Additive + refactor: factor ~0.49
+- Pure refactor (no new functionality): wahrscheinlich faktor ~0.6-0.8
+
+Pioneer-topics (MSFS-mod, Twitch-Sim-write, ACARS-eigener-client) bleiben bei monaten-aufwand wie ursprünglich anerkannt.
+
+---
+
+*Appendix A geschrieben am 03. Mai 2026 (Tag 6) basierend auf vollständiger .md-recherche + git-log-analyse von 187 commits + 90 commits-letzte-4-tage.*
