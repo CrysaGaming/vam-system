@@ -34,6 +34,14 @@ export type ShellUser = {
   // Admin (mit aktuell nur Airline-Verwaltung als link).
   canManageAirline: boolean;
   hasAirline: boolean;
+  // Welle 4: Position-tracking. baseIcao = pilot's hub innerhalb der airline,
+  // currentLocationIcao = wo er grade ist. Beide nullable (neuer pilot ohne
+  // hub-zuweisung, oder vor erstem flug). Sidebar zeigt einen kompakten
+  // status-block "📍 EDDF" (current location) mit subtitle "Base: EDDM"
+  // wenn current ≠ base. Wenn current = base, zeigt nur "📍 EDDF (Base)".
+  // Wenn beide null, zeigt der block "📍 Position unbekannt".
+  baseIcao: string | null;
+  currentLocationIcao: string | null;
 };
 
 interface Props {
@@ -559,6 +567,63 @@ function Sidebar({ user, pathname }: SidebarProps) {
           <NavLink href="/settings" pathname={pathname} icon="⚙️" label="Einstellungen" />
         </NavSection>
       </div>
+
+      {/* Position-block am unteren rand der sidebar (Welle 4). Bewusst
+          AUSSERHALB des nav-sections-containers weil's keine nav-aktion
+          ist sondern ein read-only status-display. mt-auto schiebt's
+          nach unten — funktioniert weil parent (nav.flex-col) die volle
+          höhe füllt und der nav-sections-container darüber kein flex-grow
+          hat. Border-top trennt visuell von der nav-liste.
+
+          Display-logik (siehe ShellUser-kommentar):
+            beide null               → "📍 Position unbekannt"
+            current = base           → "📍 EDDF (Base)"
+            current ≠ base, base set → "📍 EDDF" + "Base: EDDM"
+            current set, base null   → "📍 EDDF"
+            current null, base set   → "Base: EDDF" (faded, kein 📍-emoji
+                                       weil keine aktive position)
+
+          Nur sichtbar wenn der user eine airline hat — pilots ohne airline
+          (z.B. neuer signup vor invite) haben weder hub noch sinnvolle
+          position. */}
+      {user.hasAirline && (
+        <div className="px-4 py-3 border-t border-gray-200 dark:border-gray-800 text-xs">
+          {user.currentLocationIcao && user.baseIcao && user.currentLocationIcao === user.baseIcao && (
+            <p className="text-gray-700 dark:text-gray-300">
+              <span aria-hidden="true">📍</span>{' '}
+              <span className="font-mono font-semibold text-sm">{user.currentLocationIcao}</span>
+              <span className="text-gray-500 dark:text-gray-500"> (Base)</span>
+            </p>
+          )}
+          {user.currentLocationIcao && user.baseIcao && user.currentLocationIcao !== user.baseIcao && (
+            <>
+              <p className="text-gray-700 dark:text-gray-300">
+                <span aria-hidden="true">📍</span>{' '}
+                <span className="font-mono font-semibold text-sm">{user.currentLocationIcao}</span>
+              </p>
+              <p className="text-gray-500 dark:text-gray-500 mt-0.5 ml-5">
+                Base: <span className="font-mono">{user.baseIcao}</span>
+              </p>
+            </>
+          )}
+          {user.currentLocationIcao && !user.baseIcao && (
+            <p className="text-gray-700 dark:text-gray-300">
+              <span aria-hidden="true">📍</span>{' '}
+              <span className="font-mono font-semibold text-sm">{user.currentLocationIcao}</span>
+            </p>
+          )}
+          {!user.currentLocationIcao && user.baseIcao && (
+            <p className="text-gray-500 dark:text-gray-500">
+              Base: <span className="font-mono">{user.baseIcao}</span>
+            </p>
+          )}
+          {!user.currentLocationIcao && !user.baseIcao && (
+            <p className="text-gray-500 dark:text-gray-500 italic">
+              <span aria-hidden="true">📍</span> Position unbekannt
+            </p>
+          )}
+        </div>
+      )}
     </nav>
   );
 }

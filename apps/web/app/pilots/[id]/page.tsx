@@ -52,6 +52,32 @@ export default async function PilotProfile({
 
   const isMe = pilot.id === currentUser.id;
 
+  // Welle 4: Position-tracking-context für den profile-header. Zwei
+  // unabhängige optional airport-lookups — wir wollen für die UI nicht
+  // nur ICAO sondern auch name + city. baseIcao und currentLocationIcao
+  // sind beide nullable strings auf User; wenn null, kein lookup nötig.
+  // findUnique returnt null wenn airport gelöscht/nicht im catalog —
+  // dann zeigen wir nur den ICAO-string als fallback.
+  const [baseAirport, currentLocationAirport] = await Promise.all([
+    pilot.baseIcao
+      ? prisma.airport.findUnique({
+          where: { icao: pilot.baseIcao },
+          select: { icao: true, name: true, city: true, country: true },
+        })
+      : Promise.resolve(null),
+    pilot.currentLocationIcao
+      ? prisma.airport.findUnique({
+          where: { icao: pilot.currentLocationIcao },
+          select: { icao: true, name: true, city: true, country: true },
+        })
+      : Promise.resolve(null),
+  ]);
+
+  const positionMatchesBase =
+    pilot.currentLocationIcao !== null &&
+    pilot.baseIcao !== null &&
+    pilot.currentLocationIcao === pilot.baseIcao;
+
   // Letzte 5 PIREPs
   const recentPireps = await prisma.pirep.findMany({
     where: { userId: pilot.id, status: 'Approved' },
@@ -156,6 +182,93 @@ export default async function PilotProfile({
             </div>
           </div>
         </section>
+
+        {/* Position-section (Welle 4). Zeigt base + current-location für
+            den pilot. Nur sichtbar wenn pilot eine airline hat. Wenn beide
+            felder null (neuer pilot vor erstem flug), rendert "Position
+            unbekannt"-card statt nichts — bewusst, damit der section-spot
+            in der profile-hierarchie konsistent erscheint und der user
+            sieht "ah, hier kommt mein status mal hin". Für sich selbst
+            (isMe) zeigen wir zusätzlich einen jumpseat-CTA wenn
+            current ≠ base und beide gesetzt sind. */}
+        {pilot.airline && (
+          <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6 mb-8">
+            <div className="flex flex-wrap justify-between items-start gap-4">
+              <div>
+                <h2 className="text-sm uppercase tracking-wider text-gray-500 mb-3">
+                  Position
+                </h2>
+                {pilot.currentLocationIcao ? (
+                  <div className="flex items-baseline gap-3 flex-wrap">
+                    <span className="text-3xl" aria-hidden="true">📍</span>
+                    <div>
+                      <p className="text-2xl font-bold font-mono leading-tight">
+                        {pilot.currentLocationIcao}
+                        {positionMatchesBase && (
+                          <span className="text-sm font-normal font-sans text-indigo-600 dark:text-indigo-400 ml-2">
+                            (Base)
+                          </span>
+                        )}
+                      </p>
+                      {currentLocationAirport && (
+                        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                          {currentLocationAirport.name}
+                          {currentLocationAirport.city &&
+                            ` · ${currentLocationAirport.city}, ${currentLocationAirport.country}`}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-gray-500 dark:text-gray-500 italic">
+                    Position unbekannt — noch kein Flug eingereicht
+                  </p>
+                )}
+
+                {/* Base-zeile NUR rendern wenn:
+                    - base gesetzt UND
+                    - (current ≠ base ODER current null)
+                    Wenn current = base, ist die info schon im "(Base)"-suffix
+                    drüber enthalten — dann wäre eine zweite zeile redundant. */}
+                {pilot.baseIcao && !positionMatchesBase && (
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-3">
+                    Base:{' '}
+                    <span className="font-mono font-medium text-gray-700 dark:text-gray-300">
+                      {pilot.baseIcao}
+                    </span>
+                    {baseAirport && (
+                      <span className="ml-2">
+                        ({baseAirport.name}
+                        {baseAirport.city && `, ${baseAirport.city}`})
+                      </span>
+                    )}
+                  </p>
+                )}
+                {!pilot.baseIcao && (
+                  <p className="text-xs text-gray-500 dark:text-gray-500 mt-3 italic">
+                    Kein Hub als Base zugewiesen
+                  </p>
+                )}
+              </div>
+
+              {/* Jumpseat-CTA — nur für eigenes profil + wenn current ≠ base.
+                  Visuell rechts neben dem position-display, fällt auf neuer
+                  zeile bei narrow viewports (flex-wrap am parent). Punktiert
+                  zur künftigen /jumpseat-page (kommt in commit 3c). */}
+              {isMe &&
+                pilot.currentLocationIcao &&
+                pilot.baseIcao &&
+                !positionMatchesBase && (
+                  <Link
+                    href="/jumpseat"
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-sm font-medium transition shrink-0"
+                  >
+                    Jumpseat zurück zur Base
+                  </Link>
+                )}
+            </div>
+          </section>
+        )}
 
         {/* Stats */}
         <div className="grid md:grid-cols-3 gap-6 mb-8">

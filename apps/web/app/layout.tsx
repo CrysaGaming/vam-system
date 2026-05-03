@@ -60,6 +60,14 @@ export default async function RootLayout({
         // user kann ohne rank existieren (z.B. neuer pilot vor zuweisung).
         rank: { select: { name: true } },
         role: { select: { name: true } },
+        // Welle 4: Position-tracking. baseIcao = pilot's hub innerhalb
+        // der airline (z.B. "EDDF"), currentLocationIcao = wo er grade
+        // ist (gesetzt nach approved PIREPs, jumpseats, etc.). Beide
+        // optional — neuer pilot ohne hub-zuweisung oder erstem flug
+        // hat nulls. Sidebar-position-block rendert dann "Position
+        // unbekannt".
+        baseIcao: true,
+        currentLocationIcao: true,
       },
     });
 
@@ -90,6 +98,11 @@ export default async function RootLayout({
         // (gating zu locker hier vs. backend).
         canManageAirline: roleName !== null && ['admin', 'airline-admin', 'instructor'].includes(roleName),
         hasAirline: !!user.airline,
+        // Welle 4: Position-felder direkt aus der user-row durchgereicht.
+        // Nullable strings — sidebar-position-block hat alle 5 fallback-cases
+        // dokumentiert (siehe Sidebar-component-comment).
+        baseIcao: user.baseIcao,
+        currentLocationIcao: user.currentLocationIcao,
       };
     }
   }
