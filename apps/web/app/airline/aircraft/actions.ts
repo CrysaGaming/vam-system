@@ -553,3 +553,345 @@ export async function searchAircraftTypes(query: string) {
 
   return merged;
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// CSV Bulk-Import (Welle 6 commit 6A-3)
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * CSV-row-schema. Alle felder sind strings (raw vom parser), validation +
+ * type-coercion passieren pro row in bulkImportAircraft. Bewusst NICHT
+ * mit AddAircraftSchema verkettet weil:
+ *   1. CSV input ist permissiver (boolean/enum strings können in mehreren
+ *      schreibweisen kommen — "ACTIVE"/"active"/"aktiv"/"1"/"true").
+ *   2. Per-row error-aggregation statt fail-fast — eine kaputte row darf
+ *      nicht 499 valide rows blocken.
+ *   3. Catalog-resolve passiert in-memory aus pre-loaded list, nicht per
+ *      query pro row (perf).
+ */
+const AircraftCsvRowSchema = z.object({
+  registration: z.string().trim().min(1, 'registration fehlt'),
+  type: z.string().trim().min(1, 'type fehlt'),
+  home_icao: z.string().trim().optional().default(''),
+  status: z.string().trim().optional().default(''),
+});
+
+export type AircraftImportRowResult = {
+  rowIndex: number; // 1-based, header ist row 0
+  status: 'created' | 'skipped' | 'error';
+  registration?: string;
+  message: string;
+};
+
+export type AircraftBulkImportResult = {
+  ok: boolean;
+  message: string;
+  rows: AircraftImportRowResult[];
+  summary: { created: number; skipped: number; errors: number };
+};
+
+/**
+ * Permissive status-parser. Akzeptiert die canonical enum-werte (ACTIVE,
+ * MAINTENANCE, STORED, RETIRED) plus deutsche/englische lowercase-aliasses.
+ * Empty-string → ACTIVE als default (konsistent mit add-form).
+ */
+function parseAircraftStatus(v: string): AircraftStatus | null {
+  const s = v.trim().toLowerCase();
+  if (!s) return 'ACTIVE';
+  const map: Record<string, AircraftStatus> = {
+    active: 'ACTIVE',
+    aktiv: 'ACTIVE',
+    in_service: 'ACTIVE',
+    'in service': 'ACTIVE',
+    maintenance: 'MAINTENANCE',
+    wartung: 'MAINTENANCE',
+    maint: 'MAINTENANCE',
+    stored: 'STORED',
+    eingelagert: 'STORED',
+    storage: 'STORED',
+    retired: 'RETIRED',
+    'außer dienst': 'RETIRED',
+    'ausser dienst': 'RETIRED',
+    inactive: 'RETIRED',
+  };
+  return map[s] ?? null;
+}
+
+const CSV_MAX_AIRCRAFT_ROWS = 500;
+
+/**
+ * Bulk-import von aircraft aus geparstem CSV (vom client als JS-array
+ * geschickt). Server-action verifiziert auth, validiert per-row und
+ * insertet alles was valide ist.
+ *
+ * Format (siehe /templates/aircraft-import-template.csv):
+ *   registration,type,home_icao,status
+ *   D-AIBC,B738,EDDF,ACTIVE
+ *   D-AIBD,B738,EDDF,ACTIVE
+ *   N12345,A20N,KJFK,MAINTENANCE
+ *
+ * Catalog-resolve: type wird als ICAO-exact-match gegen AircraftType-
+ * catalog gemacht. Wenn match → aircraftTypeId wird gesetzt + type
+ * normalized auf catalog-icaoType. Wenn kein match → free-text-fallback
+ * (aircraftTypeId null, type bleibt was im CSV stand). Selbe semantik
+ * wie das hybrid AircraftTypeAutocomplete-form.
+ *
+ * Skip-policy: registration existiert bereits irgendwo (egal ob in
+ * eigener oder fremder airline) → skip mit hinweis. Re-imports eines
+ * bereits importierten CSV sind idempotent (kein duplicate-error,
+ * keine update-on-conflict).
+ *
+ * Bewusst KEINE transaction: wenn 480 von 500 valide sind, wollen wir die
+ * 480 inserten. Admin korrigiert die 20 fehlerhaften und re-importiert.
+ *
+ * Performance:
+ * - Existing registrations werden ALLE in einer query vorgeladen (statt
+ *   pro row 1 lookup-query).
+ * - Airports werden für die unique home_icaos im CSV in einer query
+ *   gebatcht.
+ * - AircraftTypes werden für die unique types im CSV in einer query
+ *   gebatcht (case-insensitive über icaoType-uppercase).
+ */
+export async function bulkImportAircraft(
+  rows: Array<Record<string, string>>,
+): Promise<AircraftBulkImportResult> {
+  const { airlineId } = await requireAirlineAdmin();
+
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return {
+      ok: false,
+      message: 'Keine zeilen im CSV gefunden.',
+      rows: [],
+      summary: { created: 0, skipped: 0, errors: 0 },
+    };
+  }
+
+  if (rows.length > CSV_MAX_AIRCRAFT_ROWS) {
+    return {
+      ok: false,
+      message: `Maximal ${CSV_MAX_AIRCRAFT_ROWS} aircraft pro CSV-import erlaubt (du hast ${rows.length} hochgeladen). Splitte die datei auf.`,
+      rows: [],
+      summary: { created: 0, skipped: 0, errors: 0 },
+    };
+  }
+
+  // ─── Pre-fetch lookup-data (perf) ───
+  // 1. Alle existing registrations (für skip-detection). Cross-airline weil
+  //    Aircraft.registration ist global @unique — wir können fremde regs
+  //    nicht überschreiben.
+  const allRegs = await prisma.aircraft.findMany({
+    select: { registration: true, airlineId: true },
+  });
+  const existingRegs = new Map<string, string>(
+    allRegs.map((a) => [a.registration, a.airlineId]),
+  );
+
+  // 2. Unique home-icaos aus CSV → airport-lookup batchen.
+  const homeIcaosInCsv = new Set<string>();
+  for (const r of rows) {
+    const code = String(r.home_icao ?? '').trim().toUpperCase();
+    if (code) homeIcaosInCsv.add(code);
+  }
+  const airports =
+    homeIcaosInCsv.size > 0
+      ? await prisma.airport.findMany({
+          where: { icao: { in: Array.from(homeIcaosInCsv) } },
+          select: { icao: true, active: true, name: true },
+        })
+      : [];
+  const airportByIcao = new Map(airports.map((a) => [a.icao, a]));
+
+  // 3. Unique aircraft-types aus CSV → catalog-lookup batchen.
+  const typesInCsv = new Set<string>();
+  for (const r of rows) {
+    const t = String(r.type ?? '').trim().toUpperCase();
+    if (t) typesInCsv.add(t);
+  }
+  const catalogTypes =
+    typesInCsv.size > 0
+      ? await prisma.aircraftType.findMany({
+          where: {
+            icaoType: { in: Array.from(typesInCsv) },
+            active: true,
+          },
+          select: { id: true, icaoType: true },
+        })
+      : [];
+  const typeByIcao = new Map(catalogTypes.map((t) => [t.icaoType, t.id]));
+
+  // ─── Per-row processing ───
+  const results: AircraftImportRowResult[] = [];
+  let created = 0;
+  let skipped = 0;
+  let errors = 0;
+
+  for (let i = 0; i < rows.length; i++) {
+    const rowIndex = i + 1; // 1-based für user-display
+    const raw = rows[i];
+
+    // Schritt 1: shape-validation
+    const parsed = AircraftCsvRowSchema.safeParse(raw);
+    if (!parsed.success) {
+      errors++;
+      const firstError = parsed.error.issues[0];
+      results.push({
+        rowIndex,
+        status: 'error',
+        message: `Zeile ${rowIndex}: ${firstError.message}`,
+      });
+      continue;
+    }
+
+    const row = parsed.data;
+    const registration = row.registration.toUpperCase();
+
+    // Schritt 2: registration-format
+    if (!/^[A-Z0-9-]{2,10}$/.test(registration)) {
+      errors++;
+      results.push({
+        rowIndex,
+        status: 'error',
+        registration,
+        message: `Zeile ${rowIndex}: Registration "${registration}" ungültig (2-10 zeichen, A-Z 0-9 und -).`,
+      });
+      continue;
+    }
+
+    // Schritt 3: skip wenn registration bereits existiert (egal welche
+    // airline — global @unique).
+    const existingOwner = existingRegs.get(registration);
+    if (existingOwner) {
+      skipped++;
+      const ownerNote =
+        existingOwner === airlineId
+          ? 'in deiner Flotte'
+          : 'bei anderer Airline';
+      results.push({
+        rowIndex,
+        status: 'skipped',
+        registration,
+        message: `Zeile ${rowIndex}: ${registration} existiert bereits ${ownerNote} — übersprungen.`,
+      });
+      continue;
+    }
+
+    // Schritt 4: type-resolve (catalog-match oder free-text)
+    const typeUpper = row.type.toUpperCase();
+    if (typeUpper.length > 20) {
+      errors++;
+      results.push({
+        rowIndex,
+        status: 'error',
+        registration,
+        message: `Zeile ${rowIndex}: Type "${typeUpper}" zu lang (max 20 zeichen).`,
+      });
+      continue;
+    }
+    const aircraftTypeId = typeByIcao.get(typeUpper) ?? null;
+    // resolvedType: catalog-icaoType wenn match, sonst free-text uppercased
+    const resolvedType = typeUpper;
+
+    // Schritt 5: home_icao validieren wenn angegeben
+    let homeIcao: string | null = null;
+    if (row.home_icao.trim()) {
+      const code = row.home_icao.trim().toUpperCase();
+      if (!/^[A-Z0-9]{3,4}$/.test(code)) {
+        errors++;
+        results.push({
+          rowIndex,
+          status: 'error',
+          registration,
+          message: `Zeile ${rowIndex}: home_icao "${code}" hat ungültiges format (3-4 zeichen).`,
+        });
+        continue;
+      }
+      const ap = airportByIcao.get(code);
+      if (!ap) {
+        errors++;
+        results.push({
+          rowIndex,
+          status: 'error',
+          registration,
+          message: `Zeile ${rowIndex}: Airport "${code}" nicht im Catalog.`,
+        });
+        continue;
+      }
+      if (!ap.active) {
+        errors++;
+        results.push({
+          rowIndex,
+          status: 'error',
+          registration,
+          message: `Zeile ${rowIndex}: Airport ${code} ist inaktiv (${ap.name}).`,
+        });
+        continue;
+      }
+      homeIcao = code;
+    }
+
+    // Schritt 6: status
+    const status = parseAircraftStatus(row.status);
+    if (status === null) {
+      errors++;
+      results.push({
+        rowIndex,
+        status: 'error',
+        registration,
+        message: `Zeile ${rowIndex}: Status "${row.status}" ungültig (ACTIVE | MAINTENANCE | STORED | RETIRED).`,
+      });
+      continue;
+    }
+
+    // Schritt 7: insert
+    try {
+      await prisma.aircraft.create({
+        data: {
+          airlineId,
+          registration,
+          type: resolvedType,
+          aircraftTypeId,
+          homeIcao,
+          status,
+          // active-flag synchron mit status (siehe addAircraft).
+          active: status === 'ACTIVE',
+        },
+      });
+      // Zur dedup-map hinzufügen damit duplicate-rows IM SELBEN CSV gefangen
+      // werden (zwei rows mit derselben registration → 1 created, 1 skipped).
+      existingRegs.set(registration, airlineId);
+      created++;
+      results.push({
+        rowIndex,
+        status: 'created',
+        registration,
+        message: `Zeile ${rowIndex}: ${registration} (${resolvedType}${homeIcao ? `, ${homeIcao}` : ''}, ${status}) angelegt${aircraftTypeId ? ' [Catalog-verlinkt]' : ' [Free-Text]'}.`,
+      });
+    } catch (e) {
+      errors++;
+      const msg = e instanceof Error ? e.message : 'unbekannter fehler';
+      results.push({
+        rowIndex,
+        status: 'error',
+        registration,
+        message: `Zeile ${rowIndex}: DB-fehler — ${msg}`,
+      });
+    }
+  }
+
+  if (created > 0) {
+    revalidatePath('/airline/aircraft');
+    revalidatePath('/airline/fleet');
+  }
+
+  return {
+    ok: created > 0 || (errors === 0 && skipped === 0),
+    message:
+      created > 0
+        ? `${created} aircraft importiert${skipped > 0 ? `, ${skipped} übersprungen` : ''}${errors > 0 ? `, ${errors} fehler` : ''}.`
+        : errors > 0
+          ? `Keine aircraft importiert — ${errors} fehler${skipped > 0 ? `, ${skipped} übersprungen` : ''}.`
+          : `Alle ${skipped} zeilen übersprungen (bereits vorhanden).`,
+    rows: results,
+    summary: { created, skipped, errors },
+  };
+}
