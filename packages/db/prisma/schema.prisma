@@ -43,6 +43,51 @@ enum BookingState {
   Expired
 }
 
+// Welle 4: Flight-Type-Klassifizierung. Default SCHEDULED für alle existing
+// PIREPs/Bookings (additive migration). FREE = pilot fliegt frei ohne
+// route-restriction (free-flight tab). POSITIONING = ferry/repositioning
+// flug zwischen hubs (typisch leer, no revenue). TRAINING = sim-checkride,
+// type-rating-flight, exam (kommt mit Welle 13 career-system). CHARTER =
+// einmal-flug außerhalb scheduled-network (kommt mit Welle 7 schedule-gen).
+enum FlightType {
+  SCHEDULED
+  CHARTER
+  POSITIONING
+  TRAINING
+  FREE
+}
+
+// Welle 4: Quelle des Position-Updates für User.currentLocationIcao.
+// Tracking: woher wissen wir wo der pilot grade ist? MANUAL = airline-admin
+// hat manuell gesetzt (z.B. seed). PIREP = letzter approved-PIREP arrival.
+// ACARS = ACARS-client heartbeat (kommt Welle 9). VATSIM/IVAO = network-
+// session position-snap (live-tracking aus bot). JUMPSEAT = pilot ist via
+// jumpseat-transfer umgezogen (no-flight, audit-trail in JumpseatTransfer).
+// Source-precedence wird in der app-logik definiert (ACARS > VATSIM/IVAO
+// live > PIREP > JUMPSEAT > MANUAL als fallback).
+enum LocationSource {
+  MANUAL
+  PIREP
+  ACARS
+  VATSIM
+  IVAO
+  JUMPSEAT
+}
+
+// Welle 4: Grund für Jumpseat-Transfer. Audit-trail damit airline-admin
+// nachvollziehen kann warum ein pilot umgezogen ist ohne-flug. RETURN_TO_HUB
+// = häufigster fall (pilot ist nach flug irgendwo gestrandet, will zurück
+// zum hub). HUB_TO_HUB = multi-hub-airline, pilot wechselt zwischen FRA/MUC.
+// POSITIONING = admin-driven, flotten-positionierung (z.B. neuer pilot wird
+// an seinen base-airport verschoben). ADMIN_TRANSFER = generic admin-action
+// (z.B. correction nach falscher PIREP-arrival).
+enum JumpseatReason {
+  RETURN_TO_HUB
+  HUB_TO_HUB
+  POSITIONING
+  ADMIN_TRANSFER
+}
+
 // State-machine für AirportRequest und AircraftTypeRequest. Mirrors PIREP-
 // pattern (Submitted → Approved/Rejected) mit Erweiterung UnderReview.
 // Approval ist binär hier, aber via `approvedAsVerified` Boolean auf den
@@ -56,9 +101,9 @@ enum RequestStatus {
 }
 
 model Airline {
-  id              String   @id @default(cuid())
-  icao            String   @unique
-  iata            String?  @unique
+  id              String  @id @default(cuid())
+  icao            String  @unique
+  iata            String? @unique
   name            String
   callsign        String?
   logoUrl         String?
@@ -68,8 +113,16 @@ model Airline {
   // beim Dispatch durch Fleet/Aircraft/Route-overlays übersteuert (höhere
   // Specificity gewinnt).
   simBriefOverlay Json?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+
+  // Welle 4: Economy-Foundation-Flag. False-default — wenn eine Airline
+  // economy/cargo/passenger-revenue features aktiviert (kommt Welle 12+),
+  // wird das hier auf true gesetzt. Steuert UI-Sichtbarkeit von Cargo-/
+  // Passenger-Booking-Tabs, Revenue-Reports, etc. Per-airline opt-in
+  // damit reine roleplay-airlines kein "money game" UI sehen.
+  economyEnabled Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   users            User[]
   ranks            Rank[]
@@ -83,6 +136,13 @@ model Airline {
   bookings         Booking[]
   flightPlanCaches FlightPlanCache[]
   invites          Invite[]
+
+  // Welle 4: Multi-Hub-System. Eine Airline kann 1..N hubs haben (FRA+MUC
+  // style). Genau ein hub hat isPrimary=true (CHECK-constraint via partial
+  // unique-index in app-logik enforced). Pilot.baseIcao kann jeden hub-icao
+  // referenzieren, default = primary-hub. Hubs sind die orte an denen
+  // jumpseat-transfers günstig/free sind und scheduling beginnt.
+  hubs AirlineHub[]
 
   // System-Catalog Request-Flow — eine Airline kann mehrere Requests
   // einreichen. Optional FK auf Request damit auch user-ohne-airline
@@ -125,8 +185,8 @@ model User {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
-  airlineId String?
-  airline   Airline? @relation(fields: [airlineId], references: [id])
+  airlineId       String?
+  airline         Airline?  @relation(fields: [airlineId], references: [id])
   // Wann der user der airline beigetreten ist. Wird vom auth.ts
   // createUser-event auf NOW() gesetzt sobald airlineId zugewiesen
   // wird. Bei späterem invite-accept-flow analog. NULL für user die
@@ -135,10 +195,10 @@ model User {
   // bestehende users der echte beitritts-zeitpunkt war (auto-join
   // bei registrierung).
   joinedAirlineAt DateTime?
-  rankId    String?
-  rank      Rank?    @relation(fields: [rankId], references: [id])
-  roleId    String?
-  role      Role?    @relation(fields: [roleId], references: [id])
+  rankId          String?
+  rank            Rank?     @relation(fields: [rankId], references: [id])
+  roleId          String?
+  role            Role?     @relation(fields: [roleId], references: [id])
 
   liveSessions   LiveSession[]
   pireps         Pirep[]
@@ -152,6 +212,37 @@ model User {
 
   invitesCreated Invite[] @relation("InviteCreator")
   invitesUsed    Invite[] @relation("InviteUser")
+
+  // Welle 4: Pilot-Position-Tracking & Hub-Assignment.
+  //
+  // baseIcao = hub des piloten innerhalb der airline (FRA, MUC). Default
+  // beim airline-join = airline.primaryHub.icao. Pilot kann später wechseln
+  // (admin-action). String-only (kein FK), spiegelt Aircraft.homeIcao-pattern.
+  // Validation in app-layer: muss matching airline.hubs entry haben.
+  //
+  // currentLocationIcao = wo der pilot grade ist. Updated nach PIREP-approval
+  // auf arrival.icao, oder nach jumpseat-transfer auf target. NULL = nie
+  // geflogen (neuer pilot — UI zeigt "ready at base" als fallback).
+  //
+  // currentLocationSource = audit-trail woher der position-update kam
+  // (siehe LocationSource enum-docstring). Default MANUAL für seed-data.
+  //
+  // currentLocationAt = wann letzter update. Mit Source kombinierbar für
+  // staleness-detection (z.B. "VATSIM-position älter als 24h → fall back
+  // to last PIREP arrival").
+  baseIcao              String?
+  currentLocationIcao   String?
+  currentLocationSource LocationSource @default(MANUAL)
+  currentLocationAt     DateTime?
+
+  // Welle 4: Economy-Foundation-Flag. Per-pilot opt-in (default false) —
+  // selbst wenn airline.economyEnabled=true, kann pilot persönlich auf
+  // "purist mode" bleiben (no money UI). Beide flags müssen true sein
+  // damit ein pilot economy-features sieht.
+  economyEnabled Boolean @default(false)
+
+  // Welle 4: Audit-trail für jumpseat-transfers (no-flight position-changes).
+  jumpseatTransfers JumpseatTransfer[]
 
   // System-Catalog Request-Flow — Audit-Trail Beziehungen.
   // Ein User kann gleichzeitig Submitter (airline-admin) und Reviewer
@@ -363,6 +454,15 @@ model Airport {
   frequencies AirportFrequency[]
   navaids     Navaid[]           @relation("NavaidAssociatedAirport")
 
+  // Welle 4: Multi-Hub-System — back-relations für AirlineHub. Eine Airline
+  // kann diesen airport als hub nutzen (e.g. EDDF ist hub für mehrere VAs).
+  airlineHubs AirlineHub[]
+
+  // Welle 4: Jumpseat-Audit-Trail — back-relations für JumpseatTransfer.
+  // Named relations weil zwei FK-felder auf icao verweisen (from/to).
+  jumpseatsFrom JumpseatTransfer[] @relation("JumpseatFrom")
+  jumpseatsTo   JumpseatTransfer[] @relation("JumpseatTo")
+
   // Indexes für die /airports filter-UI: type/continent/country erlauben
   // schnelle multi-faceted queries auf 85k entries; scheduledService trennt
   // commercial- von hobby-airports.
@@ -410,22 +510,38 @@ model Route {
 }
 
 model Pirep {
-  id              String           @id @default(cuid())
-  airlineId       String
-  airline         Airline          @relation(fields: [airlineId], references: [id])
-  userId          String
-  user            User             @relation(fields: [userId], references: [id])
-  routeId         String?
-  route           Route?           @relation(fields: [routeId], references: [id])
-  aircraftId      String?
-  aircraft        Aircraft?        @relation(fields: [aircraftId], references: [id])
-  departureId     String
-  departure       Airport          @relation("PirepDeparture", fields: [departureId], references: [id])
-  arrivalId       String
-  arrival         Airport          @relation("PirepArrival", fields: [arrivalId], references: [id])
-  state           FlightState      @default(Planned)
-  network         NetworkType      @default(Offline)
-  status          PirepStatus      @default(Submitted)
+  id          String      @id @default(cuid())
+  airlineId   String
+  airline     Airline     @relation(fields: [airlineId], references: [id])
+  userId      String
+  user        User        @relation(fields: [userId], references: [id])
+  routeId     String?
+  route       Route?      @relation(fields: [routeId], references: [id])
+  aircraftId  String?
+  aircraft    Aircraft?   @relation(fields: [aircraftId], references: [id])
+  departureId String
+  departure   Airport     @relation("PirepDeparture", fields: [departureId], references: [id])
+  arrivalId   String
+  arrival     Airport     @relation("PirepArrival", fields: [arrivalId], references: [id])
+  state       FlightState @default(Planned)
+  network     NetworkType @default(Offline)
+  status      PirepStatus @default(Submitted)
+
+  // Welle 4: Flight-Type. Default SCHEDULED, mirrors Booking.flightType bei
+  // booking-linked PIREPs. Standalone-PIREPs (ohne booking, z.B. legacy-
+  // import) defaulten ebenfalls auf SCHEDULED. FREE-flight-PIREPs setzen
+  // das auf FREE bei file-time. Wird in stats/leaderboards für filter
+  // "scheduled hours only" vs "all flight time" benutzt.
+  flightType FlightType @default(SCHEDULED)
+
+  // Welle 4: Economy-Foundation. Optional ints für passenger/cargo loads.
+  // NULL = "nicht erfasst" (default für Welle 4-PIREPs ohne economy aktiv).
+  // Werden ab Welle 12 (economy-launch) automatisch beim file-time gesetzt
+  // wenn airline.economyEnabled. Manuelle eingabe schon ab Welle 4 möglich
+  // wenn user.economyEnabled (für early-adopters/private-economy-mode).
+  passengerCount Int?
+  cargoKg        Int?
+
   flightTimeMin   Int?
   fuelUsedKg      Int?
   landingRateFpm  Int?
@@ -558,6 +674,12 @@ model Booking {
   route   Route  @relation(fields: [routeId], references: [id])
 
   state BookingState @default(Created)
+
+  // Welle 4: Flight-Type-Klassifizierung für die booking. Default SCHEDULED
+  // (additive — alle existing bookings sind scheduled-typed). FREE-bookings
+  // werden über separate flow erzeugt (route ist dann ein "synthetic"
+  // free-flight-route per session). Per-PIREP wird bei file-time gespiegelt.
+  flightType FlightType @default(SCHEDULED)
 
   // Hint für UI/Filter, kein Hard-Lock — actual Network kommt vom PIREP/LiveSession
   intendedNetwork NetworkType?
@@ -925,4 +1047,79 @@ model Navaid {
   @@index([associatedAirportIcao])
   @@index([type])
   @@index([ident])
+}
+
+// ============================================================================
+// WELLE 4 — HUB-SYSTEM & POSITION-TRACKING
+//
+// AirlineHub: many-to-one zu Airline mit isPrimary-flag. Eine Airline kann
+// 1..N hubs haben. Genau einer ist primary (default-base für neue piloten,
+// scheduling-anchor). Multi-tenant: hub-FK ist über airportIcao (string)
+// statt cuid, mirrors Runway/AirportFrequency-pattern weil airport.icao
+// system-curated und stable ist.
+//
+// JumpseatTransfer: append-only audit-log für no-flight position-changes.
+// Nicht state-machine — eine reihe = ein transfer. Wird beim app-flow
+// inserted UND User.currentLocationIcao+Source+At werden im selben
+// transaction-block gesetzt. Reason für audit-fragen ("warum ist pilot
+// in Asien gelandet wenn sein hub Berlin ist").
+// ============================================================================
+
+// AirlineHub — multi-hub-system pro airline. EDDF/EDDM für DLH-virtual,
+// EGLL/EGLC für BAW-virtual, etc. Eine Airline hat 1..N hubs, einer ist
+// primary (UI-default, scheduling-default-anchor). isPrimary-uniqueness
+// per airlineId wird via app-logik enforced (nicht @@unique constraint
+// weil postgres partial-unique-indexes nicht direkt in prisma schema
+// ausdrückbar sind ohne raw migration).
+model AirlineHub {
+  id          String   @id @default(cuid())
+  airlineId   String
+  airline     Airline  @relation(fields: [airlineId], references: [id], onDelete: Cascade)
+  // FK über icao (string) statt cuid — mirrors Runway/AirportFrequency
+  // pattern. airport.icao ist system-curated und stable (verifizierte
+  // catalog-entries werden nicht umbenannt).
+  airportIcao String
+  airport     Airport  @relation(fields: [airportIcao], references: [icao])
+  isPrimary   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  // (airlineId, airportIcao) muss eindeutig sein — keine duplikate.
+  @@unique([airlineId, airportIcao])
+  // Index für "wer ist primary-hub von airline X?" (häufigste query)
+  @@index([airlineId, isPrimary])
+}
+
+// JumpseatTransfer — append-only audit-log. Pilot bewegt sich ohne flug
+// von einem icao zu einem anderen (typisch: zurück zum hub nach gestrandet,
+// oder admin-driven correction). Eine reihe pro transfer, kein update —
+// historisch nachvollziehbar.
+//
+// Beziehung zur User-position-tracking: Beim transfer-insert wird in der
+// gleichen transaction User.currentLocationIcao = toIcao gesetzt,
+// currentLocationSource = JUMPSEAT, currentLocationAt = NOW. Der transfer
+// ist die "warum" und User.* das "wo jetzt".
+//
+// Welle 4 hat noch keine cost/restriction-logik (kommt mit economy in
+// Welle 12+). Vorerst sind alle transfers kostenfrei und unrestricted.
+model JumpseatTransfer {
+  id          String         @id @default(cuid())
+  userId      String
+  user        User           @relation(fields: [userId], references: [id])
+  // Source-airport — über icao (string), mirrors Runway pattern.
+  fromIcao    String
+  fromAirport Airport        @relation("JumpseatFrom", fields: [fromIcao], references: [icao])
+  // Target-airport — analog.
+  toIcao      String
+  toAirport   Airport        @relation("JumpseatTo", fields: [toIcao], references: [icao])
+  reason      JumpseatReason
+  // Optional notes — admin-transfer-grund o.ä. Wenn NULL = pilot-self-
+  // service-transfer (RETURN_TO_HUB, HUB_TO_HUB).
+  notes       String?
+  createdAt   DateTime       @default(now())
+
+  // Häufigste query: "alle transfers von user X, neueste zuerst" (für
+  // jumpseat-history-UI auf pilot-profile).
+  @@index([userId, createdAt])
+  // Sekundär: "alle transfers nach airport X" (admin-debug).
+  @@index([toIcao, createdAt])
 }
