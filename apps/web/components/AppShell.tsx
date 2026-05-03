@@ -502,6 +502,7 @@ function Sidebar({ user, pathname }: SidebarProps) {
           <NavLink href="/dashboard" pathname={pathname} icon="🏠" label="Dashboard" exact />
           <NavLink href="/bookings" pathname={pathname} icon="✈️" label="Bookings" />
           <NavLink href="/pireps" pathname={pathname} icon="📋" label="PIREPs" />
+          <NavLink href="/jumpseat" pathname={pathname} icon="🪂" label="Jumpseat" />
           <NavLink href="/live" pathname={pathname} icon="🌐" label="Live" />
         </NavSection>
 
