@@ -72,18 +72,46 @@ export async function approvePirep(pirepId: string) {
     throw new Error(`PIREP hat bereits Status: ${pirep.status}`);
   }
 
-  // Update in Transaktion
-  await prisma.pirep.update({
-    where: { id: pirepId },
-    data: {
-      status: 'Approved',
-      approvedAt: new Date(),
-      approvedById: approver.id,
-      // Falls vorher rejected war (nicht möglich aus diesem Zweig, aber defensiv): clearen
-      rejectedAt: null,
-      rejectionReason: null,
-    },
-  });
+  // Welle 4: Position-tracking. Bei approval setzen wir User.currentLocation*
+  // auf den arrival-airport. Quelle = PIREP (audit-trail über LocationSource
+  // enum). Das passiert ATOMAR mit dem PIREP-status-update via $transaction
+  // — wenn entweder fehlschlägt, rollback. Verhindert inconsistent state
+  // wo PIREP="Approved" aber User.currentLocation noch alt ist.
+  //
+  // Edge-cases:
+  // - User hat schon eine ACARS/VATSIM-position: wir überschreiben trotzdem
+  //   mit PIREP. Source-precedence (ACARS > VATSIM/IVAO > PIREP > JUMPSEAT >
+  //   MANUAL) ist eine read-side concern (welche position bevorzugen wir
+  //   beim ANZEIGEN?), nicht write-side. Beim WRITE setzen wir immer auf
+  //   den aktuellsten event. App kann später z.B. live ACARS-positions
+  //   bevorzugen wenn currentLocationAt jünger als x minuten ist.
+  // - Multi-leg-flights: jeder approved PIREP setzt position auf seinen
+  //   arrival. Sequenzielle approvals → letzte arrival gewinnt (correct).
+  // - PIREP-re-approval nach un-reject: rejectPirep cleart position NICHT
+  //   (siehe dortigen kommentar), also bleibt die alte position bis ein
+  //   neuer PIREP approved wird. Bewusst — un-reject ist ein admin-fix-flow,
+  //   nicht ein flight-event.
+  await prisma.$transaction([
+    prisma.pirep.update({
+      where: { id: pirepId },
+      data: {
+        status: 'Approved',
+        approvedAt: new Date(),
+        approvedById: approver.id,
+        // Falls vorher rejected war (nicht möglich aus diesem Zweig, aber defensiv): clearen
+        rejectedAt: null,
+        rejectionReason: null,
+      },
+    }),
+    prisma.user.update({
+      where: { id: pirep.userId },
+      data: {
+        currentLocationIcao: pirep.arrival.icao,
+        currentLocationSource: 'PIREP',
+        currentLocationAt: new Date(),
+      },
+    }),
+  ]);
 
   // Bot benachrichtigen — silent failure wenn Bot offline
   try {
