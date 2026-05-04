@@ -1,7 +1,7 @@
 'use server';
 
 import { auth } from '@/auth';
-import { prisma, Prisma } from '@vam/db';
+import { prisma, Prisma, processFlightEconomy, InsufficientFundsError } from '@vam/db';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { emitPirepApproved, emitPirepRejected } from '@/lib/bot-events';
@@ -136,6 +136,43 @@ export async function approvePirep(pirepId: string) {
   }
 
   await prisma.$transaction(transactionOps);
+
+  // Welle 13 (Economy MVP): nach erfolgreichem approval die economy
+  // verarbeiten — passenger/cargo revenue auf airline-wallet, fuel/
+  // landing/ground/catering expenses auf airline-wallet, salary-transfer
+  // airline → user. Idempotent via Pirep.revenueProcessed-flag.
+  //
+  // Kein await innerhalb der approval-$transaction weil:
+  //   1. Economy-processing hat seine eigene atomicity (separate
+  //      $transaction für die 4-7 wallet-bewegungen)
+  //   2. Wenn economy fehlschlägt (z.B. airline-wallet ist nicht
+  //      mehr decken-fähig auch mit credit-puffer), soll der approval
+  //      trotzdem stehen — admin kann später re-eval'n.
+  //   3. Nicht-economy-airlines/-pilots sollen ohne overhead approven
+  //      können — processFlightEconomy returnt early mit reason.
+  //
+  // Errors loggen wir, aber werfen NICHT weiter — der approval ist
+  // gültig auch wenn die wallet-buchungen scheitern.
+  try {
+    const result = await processFlightEconomy(pirepId);
+    if (result.processed) {
+      console.info(
+        `[approvePirep] economy processed for ${pirepId}: net=${result.summary.net.toString()} VAM$`,
+      );
+    } else if (result.reason !== 'airline-economy-disabled' && result.reason !== 'user-economy-disabled') {
+      // Nur loggen wenn die airline/user economy aktiv haben — sonst
+      // ist das normal-skip und log-noise.
+      console.info(`[approvePirep] economy skipped: ${result.reason}`);
+    }
+  } catch (err) {
+    if (err instanceof InsufficientFundsError) {
+      console.error(
+        `[approvePirep] economy-processing failed for ${pirepId}: airline-wallet insufficient funds (${err.message}). Approval stands; admin can retry via re-eval.`,
+      );
+    } else {
+      console.error('[approvePirep] economy-processing failed:', err);
+    }
+  }
 
   // Bot benachrichtigen — silent failure wenn Bot offline
   try {

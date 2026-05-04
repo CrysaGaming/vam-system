@@ -95,6 +95,15 @@ export class InsufficientFundsError extends Error {
  *
  * SYSTEM-wallets gehen NICHT durch diesen helper — siehe ./system.ts.
  *
+ * `starterCreditLimit` wird nur beim CREATE applied (wenn das wallet
+ * neu angelegt wird). Existing wallets behalten ihre creditLimit
+ * unverändert — dieser helper updated nicht. Use-case: airlines kriegen
+ * beim allerersten zugriff einen credit-puffer (z.B. 100k VAM$) damit
+ * ihre erste expense-transaktion nicht auf insufficient-funds läuft
+ * bevor revenues gebucht sind. Der credit-puffer wird in der ordering
+ * der per-PIREP transactions praktisch nie ausgeschöpft (revenues
+ * werden vor expenses gebucht), ist aber als safety-net da.
+ *
  * @throws Error wenn weder ownerUserId noch ownerAirlineId gesetzt ist
  *   (dann wäre es ein system-wallet und gehört in den anderen helper)
  */
@@ -106,6 +115,8 @@ export async function getOrCreateWallet(params: {
   ownerUserId?: string | null;
   ownerAirlineId?: string | null;
   walletType?: string;
+  /** Credit-limit auf neu erstellte wallets. Existing wallets unverändert. */
+  starterCreditLimit?: DecimalInput | null;
   db?: DbClient;
 }): Promise<Wallet> {
   const {
@@ -113,6 +124,7 @@ export async function getOrCreateWallet(params: {
     ownerUserId = null,
     ownerAirlineId = null,
     walletType = "primary",
+    starterCreditLimit = null,
     db = prisma,
   } = params;
 
@@ -137,7 +149,15 @@ export async function getOrCreateWallet(params: {
   if (existing) return existing;
 
   return db.wallet.create({
-    data: { ownerType, ownerUserId, ownerAirlineId, walletType },
+    data: {
+      ownerType,
+      ownerUserId,
+      ownerAirlineId,
+      walletType,
+      creditLimit: starterCreditLimit !== null
+        ? toDecimal(starterCreditLimit)
+        : undefined,
+    },
   });
 }
 
