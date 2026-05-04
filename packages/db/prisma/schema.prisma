@@ -186,6 +186,79 @@ enum ScheduledFlightStatus {
   Cancelled
 }
 
+// Welle 13 (Economy MVP): Wer kann VAM$ besitzen und Transactions sehen?
+// Aktiviert nur wenn airline.economyEnabled UND user.economyEnabled — sonst
+// ist das schema dormant (additive migration, kein impact für non-economy-
+// airlines). Dual-flag-gate ist welle-4-foundation, hier consumed.
+//
+// USER = pilot's persönliches wallet (salary in, ticket-purchases out).
+// AIRLINE = operating-account (passenger/cargo-revenue in, fuel/landing/
+//   ground-handling/catering-expenses out).
+// AIRLINE_PAYROLL = separate für salary-runs. Best-practice accounting:
+//   trennung von operating-cash und payroll-reserve. Salary-payments
+//   transfern zuerst von AIRLINE → AIRLINE_PAYROLL (monthly payroll-batch),
+//   dann von AIRLINE_PAYROLL → USER. Macht audit + cashflow-analyse leichter.
+// AIRLINE_MAINTENANCE = reserve für scheduled-checks (kommt Welle 15+ aircraft-
+//   economy). Im MVP existiert der enum-wert für forward-compat, wird aber
+//   nicht aktiv genutzt — kein code-pfad erzeugt MAINTENANCE-wallets.
+// SYSTEM = VAM-system-treasury. Endpunkt für sinks: taxes, broker-fees,
+//   bankruptcy-liquidations. Im MVP existiert genau ein system-wallet
+//   (auto-bootstrap), für catering-fees etc. die nicht an reale airlines
+//   gehen sollen (sonst hätten airlines net-positive cashflow allein durch
+//   eigenes catering-recycling).
+enum WalletOwnerType {
+  USER
+  AIRLINE
+  AIRLINE_PAYROLL
+  AIRLINE_MAINTENANCE
+  SYSTEM
+}
+
+// Welle 13: Transaction-typen für audit-log + filter. Die liste ist
+// finite-but-extensible — neue typen addieren wir später für loans,
+// stocks, bonds etc. (Wellen 15+). Schema-format: VERB_OBJECT bei
+// transfers (TRANSFER_OUT/IN) oder DOMAIN_TYPE bei spezifischen flows
+// (REVENUE_PASSENGER, EXPENSE_FUEL).
+//
+// Sign-convention: amount auf Transaction ist signed. + = inflow zum
+// wallet, - = outflow. Bei TRANSFER_OUT ist amount negativ und
+// counterpartyWalletId zeigt aufs ziel-wallet; gepaart mit einem
+// TRANSFER_IN auf dem ziel-wallet (positives amount). Beide werden
+// atomic in einem prisma.$transaction erzeugt (siehe wallet-helper
+// in 13B).
+//
+// REVENUE_*: airline bekommt geld (passenger-tickets, cargo-fracht,
+// twitch-subscriber-tickets in Welle 14).
+// EXPENSE_*: airline gibt geld aus (fuel an SYSTEM, landing-fees an
+// SYSTEM für non-airline-airports).
+// SALARY_PAID: outflow auf AIRLINE_PAYROLL (per-PIREP, basiert auf
+// flight-time × rank-rate).
+// SALARY_RECEIVED: inflow auf USER, gegenstück zu SALARY_PAID.
+// TRANSFER_*: generic inter-wallet-bewegung (z.B. airline-funding,
+// hub-balance-redistribution).
+// ADJUSTMENT_ADMIN: manueller eingriff durch system-admin (corrections,
+// disputes). Bewusst eigener typ damit man im audit-log ungewöhnliche
+// einträge schnell findet.
+// ECONOMY_RESET: bulk-event wenn ein admin economy für eine airline
+// resetted (z.B. nach beta-test). Audit-trail bleibt sichtbar — wir
+// löschen nichts, sondern markieren.
+enum TransactionType {
+  REVENUE_PASSENGER
+  REVENUE_CARGO
+  REVENUE_TICKET_TWITCH
+  EXPENSE_FUEL
+  EXPENSE_LANDING_FEE
+  EXPENSE_GROUND_HANDLING
+  EXPENSE_CATERING
+  EXPENSE_MAINTENANCE
+  SALARY_PAID
+  SALARY_RECEIVED
+  TRANSFER_OUT
+  TRANSFER_IN
+  ADJUSTMENT_ADMIN
+  ECONOMY_RESET
+}
+
 model Airline {
   id       String  @id @default(cuid())
   icao     String  @unique
@@ -256,6 +329,14 @@ model Airline {
   // (z.B. solo-pilot vor airline-zuweisung) requests stellen können.
   airportRequests      AirportRequest[]      @relation("AirportRequestAirline")
   aircraftTypeRequests AircraftTypeRequest[] @relation("AircraftTypeRequestAirline")
+
+  // Welle 13: Economy-MVP Wallet-back-relation. Eine airline kann mehrere
+  // wallets haben (operating, payroll, maintenance) — siehe WalletOwnerType
+  // enum-docstring. Cascade-delete via Wallet.ownerAirline relation:
+  // airline-löschung räumt zugehörige wallets+transactions mit auf (audit-
+  // trail im SYSTEM-wallet bleibt erhalten via counterpartyWalletId-strings,
+  // die referenziert werden aber nicht FK-enforced sind).
+  wallets Wallet[] @relation("AirlineWallets")
 }
 
 model User {
@@ -294,12 +375,12 @@ model User {
   // sind langlebig. Refresh passiert lazy beim nächsten API-call wenn
   // tokenExpiresAt < now() + 60s buffer. Bot-side EventSub-websocket
   // erkennt token-expire via 401-revocation und triggert refresh.
-  twitchUserId          String?   @unique
-  twitchUsername        String?
-  twitchVerifiedAt      DateTime?
-  twitchAccessToken     String?   @db.Text
-  twitchRefreshToken    String?   @db.Text
-  twitchTokenExpiresAt  DateTime?
+  twitchUserId         String?   @unique
+  twitchUsername       String?
+  twitchVerifiedAt     DateTime?
+  twitchAccessToken    String?   @db.Text
+  twitchRefreshToken   String?   @db.Text
+  twitchTokenExpiresAt DateTime?
 
   // SimBrief-Account-Identifier für API-Dispatch. Wenn null, dispatcht User
   // via Browser-Fallback (prefilled URL).
@@ -324,9 +405,9 @@ model User {
   // image-bandwidth-overhead. CSP des overlay-pages erlaubt img-src *
   // damit beliebige logo-hosts funktionieren (imgur, github, eigene
   // CDNs etc.).
-  overlayLogoUrl       String?
-  overlayPrimaryColor  String?
-  overlayAccentColor   String?
+  overlayLogoUrl      String?
+  overlayPrimaryColor String?
+  overlayAccentColor  String?
 
   image            String?
   totalFlightHours Float    @default(0)
@@ -433,6 +514,13 @@ model User {
   aircraftTypeRequests  AircraftTypeRequest[] @relation("AircraftTypeRequester")
   aircraftTypeReviews   AircraftTypeRequest[] @relation("AircraftTypeReviewer")
   verifiedAircraftTypes AircraftType[]        @relation("AircraftTypeVerifier")
+
+  // Welle 13: Economy-MVP Wallet-back-relation. Ein user kann mehrere
+  // wallets haben — im MVP genau eines (walletType=primary), aber forward-
+  // compat für späteres trading-account/savings-split (Welle 16+ stocks).
+  // Cascade-delete: user-löschung räumt wallets+transactions mit (analog
+  // zur Airline-relation oben).
+  wallets Wallet[] @relation("UserWallets")
 }
 
 model LiveSession {
@@ -845,9 +933,44 @@ model Pirep {
   // the source-event for audit-trail. NULL für manuelle PIREPs (default).
   triggeringEvent AcarsEvent? @relation("PirepTriggeringEvent")
 
+  // Welle 13 (Economy MVP): Idempotency-flag für economy-processing.
+  // Beim PIREP-approval-flow (apps/web/src/lib/pireps/approve.ts) prüfen
+  // wir VOR dem economy-helper-call ob revenueProcessed=false. Wenn true
+  // wurde der PIREP schon verarbeitet (revenue gebucht, expenses gebucht,
+  // salary ausgezahlt) — re-running ist no-op. Wichtig damit:
+  //   - admin re-approving einen rejected-then-fixed PIREP keine doppel-
+  //     buchung verursacht
+  //   - retry-on-error idempotent ist (wenn der wallet-helper crashed
+  //     mid-transaction, transaction-rollback macht state konsistent;
+  //     wenn nur die flag-update fehlt, processFlightEconomy retry'd)
+  //   - manuelle re-evaluation (admin: "economy für PIREP X neu rechnen")
+  //     explizit erst flag→false setzen muss
+  //
+  // revenueProcessedAt = wann wurde verarbeitet, NULL solange unprocessed.
+  // Ist redundant zu approvedAt für approved-PIREPs, aber unabhängig vom
+  // approval-timestamp damit re-processing-runs sichtbar sind.
+  //
+  // Bewusst Pirep-felder statt eigene economy-tabelle: 1:1, immer da, will
+  // ohne join queryable sein ("alle pireps die noch verarbeitet werden
+  // müssen"). Die transactions-back-relation gibt zugriff auf die ein-
+  // zelnen entries die für diesen PIREP gebucht wurden.
+  revenueProcessed   Boolean   @default(false)
+  revenueProcessedAt DateTime?
+
+  // Welle 13: alle transactions die diesem PIREP zugeordnet sind. Typisch
+  // 4-6 entries (revenue passenger + revenue cargo + expense fuel + expense
+  // landing + expense ground-handling + expense catering + salary-paid +
+  // salary-received). SetNull-cascade via Transaction.pirep relation: wenn
+  // PIREP gelöscht wird (sollte praktisch nie passieren), bleiben die
+  // transactions als orphans im audit-log.
+  transactions Transaction[]
+
   @@index([userId, submittedAt])
   @@index([airlineId, status])
   @@index([approvedById])
+  // Welle 13: index für "finde alle approved-pireps die noch nicht
+  // economy-processed sind" (fall recovery-job + admin-re-eval-list).
+  @@index([status, revenueProcessed])
 }
 
 model Award {
@@ -1653,4 +1776,144 @@ model AcarsEvent {
   triggeredPirep   Pirep?  @relation("PirepTriggeringEvent", fields: [triggeredPirepId], references: [id], onDelete: SetNull)
 
   @@index([sessionId, type, timestamp])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Welle 13: Economy MVP — Wallet + Transaction
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Wallet — VAM$-konto. Owner ist entweder ein User (USER), eine Airline
+/// (AIRLINE/AIRLINE_PAYROLL/AIRLINE_MAINTENANCE), oder das system selbst
+/// (SYSTEM für treasury/sinks). Welcher der zwei FK-felder gesetzt ist,
+/// hängt vom ownerType ab — siehe constraint-explanation unten.
+///
+/// Currency-design: VAM$ ist die einzige currency im MVP, aber das field
+/// existiert für forward-compat (multi-currency-system in Welle 16+
+/// stocks/börse, oder regional-currencies). Im MVP wird `currency` immer
+/// auf "VAM$" gesetzt, app-layer enforced.
+///
+/// Balance: Decimal(18, 2) für 16 vorkomma-stellen + 2 nachkomma. Erlaubt
+/// werte bis ~10^16 VAM$ — way mehr als realistisch je nötig (selbst
+/// hyper-inflation-szenarien). 2 nachkomma-stellen für VAM-cent-präzision.
+/// Niemals Float — finanz-arithmetic darf keine binary-floating-point-
+/// präzisionsfehler haben (0.1 + 0.2 != 0.3 in IEEE 754).
+///
+/// CreditLimit: optional. NULL = kein overdraft erlaubt (default für USER
+/// und SYSTEM). Set = airline kann temporär ins minus gehen bis zum limit
+/// (Welle 15+ aircraft-financing). Im MVP nicht aktiv genutzt aber schema-
+/// präsent damit später migration trivial wird.
+///
+/// Composite-uniqueness via @@unique([ownerType, ownerUserId, ownerAirlineId,
+/// walletType]): ein owner kann mehrere wallet-types haben (primary,
+/// payroll, maintenance) aber nicht zwei "primary"-wallets. NULL-fields
+/// im unique-constraint werden in postgres NICHT als gleich behandelt
+/// (NULL != NULL semantik), was hier passt: USER-wallets haben null
+/// ownerAirlineId, AIRLINE-wallets haben null ownerUserId — die uniqueness
+/// greift effektiv pro owner-typ.
+///
+/// Owner-FK-constraint (app-layer):
+///   - ownerType=USER → ownerUserId REQUIRED, ownerAirlineId NULL
+///   - ownerType=AIRLINE/AIRLINE_PAYROLL/AIRLINE_MAINTENANCE → ownerAirlineId REQUIRED, ownerUserId NULL
+///   - ownerType=SYSTEM → beide NULL (system-singleton)
+/// CHECK-constraint wäre theoretisch möglich via raw SQL migration, aber
+/// im MVP enforced der wallet-helper (createWallet) die invariante. Wenn
+/// das je problematisch wird, addieren wir die DB-constraint nachträglich.
+model Wallet {
+  id             String          @id @default(cuid())
+  ownerType      WalletOwnerType
+  ownerUserId    String?
+  ownerUser      User?           @relation("UserWallets", fields: [ownerUserId], references: [id], onDelete: Cascade)
+  ownerAirlineId String?
+  ownerAirline   Airline?        @relation("AirlineWallets", fields: [ownerAirlineId], references: [id], onDelete: Cascade)
+
+  // walletType ist string statt enum damit airlines später custom-wallets
+  // anlegen können (z.B. "marketing", "fuel-hedging") ohne migration.
+  // App-layer kennt die canonical values: "primary" | "payroll" |
+  // "maintenance". MVP nutzt nur "primary" für USER + AIRLINE.
+  walletType String @default("primary")
+
+  currency String  @default("VAM$")
+  balance  Decimal @default(0) @db.Decimal(18, 2)
+
+  // Optional credit-line. NULL = kein overdraft. Wenn set, kann balance
+  // temporär bis -creditLimit gehen. App-layer-check im transfer-helper
+  // verhindert weitere outflows wenn balance-creditLimit erreicht.
+  creditLimit Decimal? @db.Decimal(18, 2)
+
+  transactions Transaction[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Ein owner-tuple darf nicht denselben walletType doppelt haben.
+  @@unique([ownerType, ownerUserId, ownerAirlineId, walletType])
+  // Häufige queries: lookup by owner.
+  @@index([ownerUserId])
+  @@index([ownerAirlineId])
+}
+
+/// Transaction — append-only audit-log einer wallet-bewegung. Niemals
+/// updated, niemals deleted — corrections passieren via gegenläufige
+/// neue transaction (typ=ADJUSTMENT_ADMIN). Begründung: anti-cheat,
+/// dispute-resolution, regulatory-traceable history.
+///
+/// Sign-convention für `amount`:
+///   + (positive) = inflow zum wallet (revenue, salary received, transfer in)
+///   - (negative) = outflow vom wallet (expense, salary paid, transfer out)
+/// `balanceAfter` = snapshot der wallet.balance NACH dieser transaction.
+/// Redundant zu (vorherige balance + amount) aber wichtig für audit:
+/// erlaubt verifikation dass kein zwischen-stand korrupt ist (sum of
+/// balance-deltas vs final wallet.balance).
+///
+/// `category` ist string statt enum damit app-layer flexibel sub-typen
+/// erfinden kann (z.B. "fuel-jet-a", "fuel-avgas") ohne migration. Der
+/// canonical type-enum ist `type` (TransactionType), category ist die
+/// freier-text-erweiterung. UI gruppiert per type, drill-down per category.
+///
+/// Optional FKs (pirep, booking) für direct-link audit-views — "alle
+/// transactions zu PIREP X" ohne metadata-json-parsing. SetNull-cascade
+/// damit transactions als orphan im audit-log überleben wenn quelle
+/// gelöscht wird.
+///
+/// `counterpartyWalletId` ist STRING (nicht FK) für transfers. Begründung:
+/// keep transactions atomic-insertable ohne FK-cascade-surprises wenn
+/// counterparty-wallet später cascade-deleted wird. App-layer kann via
+/// findUnique(id=counterpartyWalletId) das wallet auflösen wenn nötig.
+/// Kein FK schützt audit-trail vor löschungen.
+///
+/// `metadata` Json für flexible context (z.B. "passenger-class-breakdown",
+/// "twitch-viewer-name", "marketing-campaign-id"). UI rendert generic
+/// key-value-table für unbekannte felder, spezial-renderer für canonical
+/// metadata-shapes (siehe wallet-helper docs in 13B).
+model Transaction {
+  id           String          @id @default(cuid())
+  walletId     String
+  wallet       Wallet          @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  amount       Decimal         @db.Decimal(18, 2)
+  balanceAfter Decimal         @db.Decimal(18, 2)
+  type         TransactionType
+  category     String
+  description  String
+
+  // Optional source-context (FKs für convenient queries)
+  pirepId   String?
+  pirep     Pirep?  @relation(fields: [pirepId], references: [id], onDelete: SetNull)
+  bookingId String?
+
+  // Counterparty wallet bei transfers — string (kein FK) bewusst, siehe
+  // model-docstring oben.
+  counterpartyWalletId String?
+
+  metadata Json?
+
+  createdAt DateTime @default(now())
+
+  // Häufigste query: tx-history per wallet, neueste zuerst.
+  @@index([walletId, createdAt])
+  // Audit-views: alle transactions zu einem PIREP/booking.
+  @@index([pirepId])
+  @@index([bookingId])
+  // Filter "alle expenses dieser airline" — type ist hier sinnvoll
+  // weil enum-werte indexed sortier-stabil sind.
+  @@index([walletId, type])
 }
