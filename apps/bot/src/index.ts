@@ -16,6 +16,7 @@ import { startHttpServer } from './http-server.js';
 import { startVatsimTracker } from './services/vatsim-tracker.js';
 import { startIvaoTracker } from './services/ivao-tracker.js';
 import { startMetarTracker } from './services/metar-tracker.js';
+import { startTwitchEventSub } from './services/twitch-eventsub.js';
 
 type Command = {
   data: SlashCommandBuilder;
@@ -48,6 +49,13 @@ client.once('ready', async () => {
 
   // METAR Polling starten (poll interval: 10min)
   startMetarTracker();
+
+  // Welle 11 commit 11D: Twitch EventSub-WebSocket-bridge starten.
+  // Idempotent + bails wenn TWITCH_CLIENT_ID nicht gesetzt ist —
+  // bot startet auch ohne twitch-config (z.B. dev-environments ohne
+  // registrierte twitch-app). Subscribed events für alle pilots mit
+  // verknüpftem twitch-account; events werden ans #bot-logs gepostet.
+  startTwitchEventSub(client);
 
   // Post "Bot online" Embed in #bot-logs
   try {

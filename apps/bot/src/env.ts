@@ -44,4 +44,17 @@ export const env = {
   web: {
     baseUrl: process.env.AUTH_URL ?? 'http://localhost:3000',
   },
+
+  // Welle 11 commit 11D: Twitch-EventSub-WebSocket-bridge config.
+  // All optional — wenn TWITCH_CLIENT_ID nicht gesetzt ist, startet
+  // der EventSub-service nicht (warnung im log). Damit kann der bot
+  // auch ohne twitch-credentials starten (z.B. in dev-environments
+  // ohne Twitch-app).
+  twitch: {
+    clientId: process.env.TWITCH_CLIENT_ID ?? null,
+    clientSecret: process.env.TWITCH_CLIENT_SECRET ?? null,
+    eventsubWsUrl: process.env.TWITCH_EVENTSUB_WS_URL ?? 'wss://eventsub.wss.twitch.tv/ws',
+    apiBaseUrl: process.env.TWITCH_API_BASE_URL ?? 'https://api.twitch.tv',
+    oauthBaseUrl: process.env.TWITCH_OAUTH_BASE_URL ?? 'https://id.twitch.tv',
+  },
 };
