@@ -23,7 +23,13 @@ import 'mapbox-gl/dist/mapbox-gl.css';
 
 type LiveSession = {
   id: string;
-  network: 'VATSIM' | 'IVAO';
+  network: 'VATSIM' | 'IVAO' | 'Offline';
+  // Welle 9 commit 9E: telemetry source. Independent of `network` —
+  // a pilot can be on VATSIM (network) AND have ACARS_CLIENT (dataSource)
+  // feeding 1-2s telemetry. The sidebar renders a quality-tier badge
+  // based on this so streamers/observers can tell at a glance whether
+  // a track is high-fidelity (ACARS) or 30s-polled (VATSIM_API/IVAO_API).
+  dataSource: 'VATSIM_API' | 'IVAO_API' | 'ACARS_CLIENT' | 'MANUAL' | 'REPLAY';
   callsign: string;
   pilot: {
     id: string;
@@ -1360,7 +1366,7 @@ function PlaneIcon({
   onGround,
   isSelected,
 }: {
-  network: 'VATSIM' | 'IVAO';
+  network: 'VATSIM' | 'IVAO' | 'Offline';
   heading: number;
   onGround: boolean;
   isSelected: boolean;
@@ -1455,24 +1461,8 @@ function SessionSidebar({
             >
               {session.callsign}
             </h2>
-            <span
-              style={{
-                fontSize: '0.7rem',
-                padding: '0.15rem 0.5rem',
-                borderRadius: '0.25rem',
-                backgroundColor:
-                  session.network === 'VATSIM'
-                    ? 'rgba(59, 130, 246, 0.2)'
-                    : 'rgba(16, 185, 129, 0.2)',
-                color: session.network === 'VATSIM' ? '#93c5fd' : '#6ee7b7',
-                border:
-                  session.network === 'VATSIM'
-                    ? '1px solid rgba(59, 130, 246, 0.4)'
-                    : '1px solid rgba(16, 185, 129, 0.4)',
-              }}
-            >
-              {session.network}
-            </span>
+            <NetworkBadge network={session.network} />
+            <DataSourceBadge dataSource={session.dataSource} />
           </div>
           <p
             style={{
@@ -2099,5 +2089,126 @@ function Stat({
         {value}
       </div>
     </div>
+  );
+}
+
+/**
+ * Welle 9 commit 9E: 3-way network badge.
+ *
+ * VATSIM = blue, IVAO = emerald, Offline = neutral grey. Offline appears
+ * for ACARS-only pilots flying solo (no network connection) — without
+ * an explicit grey case the previous 2-way ternary would have rendered
+ * Offline-pilots in IVAO-green, which is misleading.
+ */
+function NetworkBadge({
+  network,
+}: {
+  network: 'VATSIM' | 'IVAO' | 'Offline';
+}) {
+  const styles: Record<typeof network, { bg: string; text: string; border: string }> = {
+    VATSIM: {
+      bg: 'rgba(59, 130, 246, 0.2)',
+      text: '#93c5fd',
+      border: '1px solid rgba(59, 130, 246, 0.4)',
+    },
+    IVAO: {
+      bg: 'rgba(16, 185, 129, 0.2)',
+      text: '#6ee7b7',
+      border: '1px solid rgba(16, 185, 129, 0.4)',
+    },
+    Offline: {
+      bg: 'rgba(107, 114, 128, 0.2)',
+      text: '#d1d5db',
+      border: '1px solid rgba(107, 114, 128, 0.4)',
+    },
+  };
+  const s = styles[network];
+  return (
+    <span
+      style={{
+        fontSize: '0.7rem',
+        padding: '0.15rem 0.5rem',
+        borderRadius: '0.25rem',
+        backgroundColor: s.bg,
+        color: s.text,
+        border: s.border,
+      }}
+    >
+      {network}
+    </span>
+  );
+}
+
+/**
+ * Welle 9 commit 9E: data-source quality-tier badge.
+ *
+ * 🟢 ACARS — premium tier, 1-2s simconnect telemetry from the desktop-
+ *            client. Highest fidelity, full instrument data.
+ * 🟡 30s   — VATSIM_API or IVAO_API polled feed. Standard fidelity,
+ *            position-only, ~30s update cadence.
+ * ⚪ Manual / Replay — admin/test sessions, not from a live source.
+ *
+ * The badge is intentionally minimal — most users don't care about the
+ * underlying source, but streamers and observers benefit from knowing
+ * the track quality at a glance. Shows the tier label as text (not just
+ * the dot) so it's accessible without color-discrimination.
+ */
+function DataSourceBadge({
+  dataSource,
+}: {
+  dataSource: 'VATSIM_API' | 'IVAO_API' | 'ACARS_CLIENT' | 'MANUAL' | 'REPLAY';
+}) {
+  let tier: { dot: string; label: string; color: string; bg: string; border: string };
+  if (dataSource === 'ACARS_CLIENT') {
+    tier = {
+      dot: '#22c55e',
+      label: 'ACARS',
+      color: '#86efac',
+      bg: 'rgba(34, 197, 94, 0.15)',
+      border: '1px solid rgba(34, 197, 94, 0.35)',
+    };
+  } else if (dataSource === 'VATSIM_API' || dataSource === 'IVAO_API') {
+    tier = {
+      dot: '#fbbf24',
+      label: '30s feed',
+      color: '#fcd34d',
+      bg: 'rgba(251, 191, 36, 0.15)',
+      border: '1px solid rgba(251, 191, 36, 0.35)',
+    };
+  } else {
+    tier = {
+      dot: '#9ca3af',
+      label: dataSource === 'REPLAY' ? 'Replay' : 'Manual',
+      color: '#d1d5db',
+      bg: 'rgba(156, 163, 175, 0.15)',
+      border: '1px solid rgba(156, 163, 175, 0.35)',
+    };
+  }
+  return (
+    <span
+      title={`Data source: ${dataSource}`}
+      style={{
+        fontSize: '0.65rem',
+        padding: '0.15rem 0.45rem',
+        borderRadius: '0.25rem',
+        backgroundColor: tier.bg,
+        color: tier.color,
+        border: tier.border,
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '0.3rem',
+      }}
+    >
+      <span
+        style={{
+          width: '0.4rem',
+          height: '0.4rem',
+          borderRadius: '50%',
+          backgroundColor: tier.dot,
+          flexShrink: 0,
+        }}
+      />
+      {tier.label}
+    </span>
   );
 }

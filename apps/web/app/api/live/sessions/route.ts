@@ -41,6 +41,12 @@ export async function GET() {
   const payload = sessions.map((s) => ({
     id: s.id,
     network: s.network,
+    // Welle 9 commit 9E: surface dataSource so the live-map can render
+    // a quality-tier badge (ACARS=high-fidelity 1-2s telemetry vs.
+    // VATSIM_API/IVAO_API=30s polled feed). The two are independent —
+    // a pilot can be on VATSIM-network while their telemetry comes
+    // from the ACARS_CLIENT.
+    dataSource: s.dataSource,
     callsign: s.callsign,
     pilot: {
       id: s.user.id,

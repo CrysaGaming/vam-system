@@ -58,6 +58,12 @@ type OverlayActiveResponse = {
   active: true;
   user: OverlayUser;
   network: 'VATSIM' | 'IVAO' | 'Offline';
+  // Welle 9 commit 9E: telemetry source — independent of network. ACARS_CLIENT
+  // means the desktop-app is feeding 1-2s simconnect data (the "premium" tier),
+  // VATSIM_API/IVAO_API mean we're polling the public network feed (~30s),
+  // MANUAL/REPLAY are admin-injected. OBS-overlay can render a quality-tier
+  // badge based on this.
+  dataSource: 'VATSIM_API' | 'IVAO_API' | 'ACARS_CLIENT' | 'MANUAL' | 'REPLAY';
   aircraft: {
     type: string | null;
     registration: string | null;
@@ -316,6 +322,7 @@ export async function GET(
       callsign: session.callsign,
     },
     network: session.network,
+    dataSource: session.dataSource,
     aircraft: {
       type: session.aircraftType,
       registration: session.aircraftRegistration,
