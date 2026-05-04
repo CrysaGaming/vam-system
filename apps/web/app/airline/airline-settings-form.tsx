@@ -38,10 +38,35 @@ export function AirlineSettingsForm({ initial }: Props) {
     const callsign = (formData.get('callsign') as string).trim() || null;
     const iata = (formData.get('iata') as string).trim() || null;
     const logoUrl = (formData.get('logoUrl') as string).trim() || null;
+    // Welle 8 branding fields
+    const tagline = (formData.get('tagline') as string).trim() || null;
+    const description = (formData.get('description') as string).trim() || null;
+    const websiteUrl = (formData.get('websiteUrl') as string).trim() || null;
+    const primaryColor =
+      (formData.get('primaryColor') as string).trim().toUpperCase() || null;
+    const secondaryColor =
+      (formData.get('secondaryColor') as string).trim().toUpperCase() || null;
+    // Checkbox: present only when checked. We invert: input is named
+    // "publicHidden" (default unchecked = publicVisible=true, the
+    // privacy-friendly opt-out). This makes the form control match how
+    // a user thinks about the action ("hide my airline").
+    const publicVisible = formData.get('publicHidden') !== 'on';
 
     startTransition(async () => {
       try {
-        await updateAirlineSettings({ name, icao, callsign, iata, logoUrl });
+        await updateAirlineSettings({
+          name,
+          icao,
+          callsign,
+          iata,
+          logoUrl,
+          tagline,
+          description,
+          websiteUrl,
+          primaryColor,
+          secondaryColor,
+          publicVisible,
+        });
         setSaved(true);
         setIcaoUnlocked(false); // re-lock after save so next edit needs unlock again
         router.refresh();
@@ -169,6 +194,132 @@ export function AirlineSettingsForm({ initial }: Props) {
           <p className="text-xs text-gray-500 mt-1">
             Optional. URL zu einem öffentlich erreichbaren Bild.
           </p>
+        </div>
+
+        {/* Welle 8: Branding section. Visually separated from the
+            identity-fields above because these only affect the public
+            airline-page (/a/[icao]) — admin should be aware they're
+            editing the public-facing presentation, not internal config. */}
+        <div className="pt-4 mt-4 border-t border-gray-200 dark:border-gray-800">
+          <h3 className="text-sm font-semibold mb-3">Branding (Public)</h3>
+
+          <div className="space-y-4">
+            <div>
+              <label className="block text-xs uppercase tracking-wider text-gray-500 mb-1">
+                Tagline
+              </label>
+              <input
+                type="text"
+                name="tagline"
+                maxLength={120}
+                defaultValue={initial.tagline ?? ''}
+                placeholder="z. B. Das Tor zur Welt"
+                className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-950 border border-gray-300 dark:border-gray-700 rounded text-sm focus:border-indigo-500 outline-none"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Ein Satz, der unter dem Airline-Namen auf der public-page
+                erscheint. Max 120 Zeichen.
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-xs uppercase tracking-wider text-gray-500 mb-1">
+                Beschreibung
+              </label>
+              <textarea
+                name="description"
+                maxLength={2000}
+                rows={4}
+                defaultValue={initial.description ?? ''}
+                placeholder="Kurze Vorstellung der Airline. Wird auf der public-page als Fließtext angezeigt."
+                className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-950 border border-gray-300 dark:border-gray-700 rounded text-sm focus:border-indigo-500 outline-none resize-y"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Plain text, max 2000 Zeichen. Markdown wird (noch) nicht
+                gerendert.
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-xs uppercase tracking-wider text-gray-500 mb-1">
+                Website
+              </label>
+              <input
+                type="url"
+                name="websiteUrl"
+                maxLength={500}
+                defaultValue={initial.websiteUrl ?? ''}
+                placeholder="https://example.com"
+                className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-950 border border-gray-300 dark:border-gray-700 rounded text-sm focus:border-indigo-500 outline-none"
+              />
+            </div>
+
+            <div className="grid md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs uppercase tracking-wider text-gray-500 mb-1">
+                  Primärfarbe
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    name="primaryColor"
+                    defaultValue={initial.primaryColor ?? '#4F46E5'}
+                    className="h-10 w-16 rounded border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-950 cursor-pointer"
+                  />
+                  <span className="text-xs text-gray-500 font-mono">
+                    {initial.primaryColor ?? 'Standard'}
+                  </span>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  Akzent auf Buttons, Links und Header der public-page.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs uppercase tracking-wider text-gray-500 mb-1">
+                  Sekundärfarbe
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    name="secondaryColor"
+                    defaultValue={initial.secondaryColor ?? '#1F2937'}
+                    className="h-10 w-16 rounded border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-950 cursor-pointer"
+                  />
+                  <span className="text-xs text-gray-500 font-mono">
+                    {initial.secondaryColor ?? 'Standard'}
+                  </span>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  Hintergrund-Akzent (Cards, Footer).
+                </p>
+              </div>
+            </div>
+
+            {/* Visibility toggle. Stored DB-side as publicVisible boolean
+                (default true), but presented as the inverted action
+                "verstecken" so the checkbox semantics match user intent.
+                See handleSubmit() for the inversion logic. */}
+            <div>
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  name="publicHidden"
+                  defaultChecked={!initial.publicVisible}
+                  className="mt-0.5"
+                />
+                <span className="text-xs text-gray-500">
+                  <strong className="block text-sm text-gray-700 dark:text-gray-300 mb-0.5">
+                    Airline verstecken
+                  </strong>
+                  Wenn aktiviert, ist die airline nicht im /airlines-Verzeichnis
+                  auffindbar und /a/{initial.icao} liefert 404. Members und Admin
+                  bleiben unverändert eingeloggt — nur die public-pages werden
+                  ausgeblendet.
+                </span>
+              </label>
+            </div>
+          </div>
         </div>
 
         <div className="pt-2">

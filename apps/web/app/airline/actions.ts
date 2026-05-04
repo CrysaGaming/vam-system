@@ -82,6 +82,13 @@ export type AirlineSettings = {
   name: string;
   callsign: string | null;
   logoUrl: string | null;
+  // Welle 8 branding fields (8A-2)
+  tagline: string | null;
+  description: string | null;
+  websiteUrl: string | null;
+  primaryColor: string | null;
+  secondaryColor: string | null;
+  publicVisible: boolean;
 };
 
 /**
@@ -507,6 +514,25 @@ const AirlineSettingsSchema = z.object({
     .optional()
     .nullable(),
   logoUrl: z.string().url().max(500).optional().nullable(),
+  // Welle 8 branding fields. All optional — admin can leave empty.
+  tagline: z.string().trim().max(120).optional().nullable(),
+  description: z.string().trim().max(2000).optional().nullable(),
+  websiteUrl: z.string().url().max(500).optional().nullable(),
+  // Hex-color regex: #RRGGBB only (no shorthand like #FFF, no alpha,
+  // no rgb()). Keeps the rendering layer simple — both Tailwind's
+  // arbitrary-value syntax `bg-[#RRGGBB]` and inline `style={{}}`
+  // work directly with this format.
+  primaryColor: z
+    .string()
+    .regex(/^#[0-9A-Fa-f]{6}$/, 'Format: #RRGGBB')
+    .optional()
+    .nullable(),
+  secondaryColor: z
+    .string()
+    .regex(/^#[0-9A-Fa-f]{6}$/, 'Format: #RRGGBB')
+    .optional()
+    .nullable(),
+  publicVisible: z.boolean(),
 });
 
 /** Read airline settings for the admin's airline. */
@@ -521,6 +547,12 @@ export async function getAirlineSettings(): Promise<AirlineSettings> {
     name: a.name,
     callsign: a.callsign,
     logoUrl: a.logoUrl,
+    tagline: a.tagline,
+    description: a.description,
+    websiteUrl: a.websiteUrl,
+    primaryColor: a.primaryColor,
+    secondaryColor: a.secondaryColor,
+    publicVisible: a.publicVisible,
   };
 }
 
@@ -559,6 +591,15 @@ export async function updateAirlineSettings(
         callsign: parsed.callsign?.trim().toUpperCase() || null,
         iata: parsed.iata?.trim().toUpperCase() || null,
         logoUrl: parsed.logoUrl?.trim() || null,
+        tagline: parsed.tagline?.trim() || null,
+        description: parsed.description?.trim() || null,
+        websiteUrl: parsed.websiteUrl?.trim() || null,
+        // Hex normalization: store always as uppercase #RRGGBB so the
+        // public-page renderer doesn't need to lower/upper-case at read
+        // time.
+        primaryColor: parsed.primaryColor?.toUpperCase() || null,
+        secondaryColor: parsed.secondaryColor?.toUpperCase() || null,
+        publicVisible: parsed.publicVisible,
       },
     });
   } catch (e: unknown) {
@@ -588,4 +629,10 @@ export async function updateAirlineSettings(
   revalidatePath('/airline');
   revalidatePath('/dashboard');
   revalidatePath('/'); // header shows ICAO too
+  // Welle 8 public pages. revalidatePath uses the OLD icao if it changed
+  // — we accept a one-render staleness on the new path because we don't
+  // know the previous value here without an extra query. The directory
+  // page covers the visibility toggle anyway.
+  revalidatePath(`/a/${newIcao}`);
+  revalidatePath('/airlines');
 }
