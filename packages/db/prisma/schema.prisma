@@ -188,12 +188,26 @@ enum ScheduledFlightStatus {
 }
 
 model Airline {
-  id              String  @id @default(cuid())
-  icao            String  @unique
-  iata            String? @unique
-  name            String
-  callsign        String?
-  logoUrl         String?
+  id       String  @id @default(cuid())
+  icao     String  @unique
+  iata     String? @unique
+  name     String
+  callsign String?
+  logoUrl  String?
+
+  // Welle 8: Branding-fields für public airline-pages (/a/[icao]).
+  // Alle nullable — airline ist auch ohne branding-content nutzbar.
+  // Hex-color-format (#RRGGBB) wird app-layer-validated, nicht im schema.
+  tagline        String?
+  description    String?
+  websiteUrl     String?
+  primaryColor   String?
+  secondaryColor String?
+  // Opt-out: airline ist per default public sichtbar unter /a/[icao] und
+  // im /airlines directory. Admin kann auf false setzen für staging-airlines
+  // oder private-roleplay-groups (UI sichtbar nur für eingeloggte members).
+  publicVisible  Boolean @default(true)
+
   // SimBrief Override-Hierarchie Ebene 1 (lowest precedence). Per-airline
   // defaults für SimBrief-Dispatch (cont_fuel_pct, units, OFP-Layout, etc).
   // Schema: apps/web/lib/simbrief/overlay.ts SimBriefOverlaySchema. Wird
