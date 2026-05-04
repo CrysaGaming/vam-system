@@ -25,3 +25,9 @@ export { AircraftStatus } from "@prisma/client";
 // dropdown, filter-tabs in /airline/pilots, status-badges in /pilots).
 // Default ACTIVE für alle existing user (additive migration).
 export { EmploymentStatus } from "@prisma/client";
+// Welle 7: Schedule-system. Status-enum für ScheduledFlight-instanzen
+// (Planned/Booked/Completed/Cancelled), Type-exports für ScheduleTemplate
+// und ScheduledFlight damit lib/schedule helper + UI-components typed
+// arbeiten können.
+export { ScheduledFlightStatus } from "@prisma/client";
+export type { ScheduleTemplate, ScheduledFlight } from "@prisma/client";
