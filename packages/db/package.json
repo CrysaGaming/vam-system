@@ -2,6 +2,7 @@
     "name": "@vam/db",
     "version": "1.0.0",
     "description": "",
+    "type": "module",
     "main": "src/index.ts",
     "types": "src/index.ts",
     "scripts": {
@@ -9,7 +10,8 @@
         "migrate": "prisma migrate dev",
         "generate": "prisma generate",
         "seed": "tsx prisma/seed.ts",
-        "studio": "prisma studio"
+        "studio": "prisma studio",
+        "typecheck": "tsc --noEmit"
     },
     "keywords": [],
     "author": "",

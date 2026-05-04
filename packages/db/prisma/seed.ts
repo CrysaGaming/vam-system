@@ -1,5 +1,5 @@
 import { PrismaClient } from '@prisma/client';
-import { aircraftTypeSeed } from './aircraft-types';
+import { aircraftTypeSeed } from './aircraft-types.js';
 
 const prisma = new PrismaClient();
 

@@ -1,0 +1,16 @@
+{
+    "extends": "../../tsconfig.json",
+    "compilerOptions": {
+        "module": "NodeNext",
+        "moduleResolution": "NodeNext",
+        "noEmit": true,
+        "allowImportingTsExtensions": false,
+        "resolveJsonModule": true
+    },
+    "include": [
+        "src/**/*",
+        "prisma/seed.ts",
+        "prisma/aircraft-types.ts",
+        "prisma.config.ts"
+    ]
+}
