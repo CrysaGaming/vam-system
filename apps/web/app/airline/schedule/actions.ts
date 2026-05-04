@@ -442,3 +442,70 @@ export async function generateScheduleInstances(
     result,
   };
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// Cancel scheduled-flight instance (Welle 7 commit 7B-3)
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Cancel a single ScheduledFlight instance. Setzt status → Cancelled.
+ *
+ * Constraints:
+ *  - Nur für Planned-instances erlaubt. Booked → Pilot hat schon
+ *    committed, Cancel würde ihn screwen ohne explizite kommunikation.
+ *    Completed → der flight ist bereits geflogen, Cancel ergibt keinen
+ *    sinn. Cancelled → no-op (idempotent: returns ok ohne update).
+ *  - Cancel ist NICHT delete: row bleibt erhalten damit a) der generator
+ *    den slot beim re-run via dedup-check nicht erneut materialisiert,
+ *    und b) admin später nachvollziehen kann was cancelled wurde
+ *    (audit-trail for free).
+ *
+ * Reactivate (Cancelled → Planned) ist intentional NICHT implementiert:
+ * YAGNI für 7B-3, kann additiv kommen. Cancel sollte final wirken.
+ */
+export async function cancelScheduledFlight(
+  formData: FormData,
+): Promise<ScheduleTemplateFormState> {
+  const { airlineId } = await requireAirlineAdmin();
+
+  const flightId = String(formData.get('flightId') ?? '');
+  if (!flightId) return { ok: false, message: 'Flight-ID fehlt.' };
+
+  const flight = await prisma.scheduledFlight.findUnique({
+    where: { id: flightId },
+    select: {
+      id: true,
+      airlineId: true,
+      status: true,
+      route: { select: { flightNumber: true } },
+    },
+  });
+
+  if (!flight || flight.airlineId !== airlineId) {
+    return { ok: false, message: 'Flight gehört nicht zu deiner airline.' };
+  }
+
+  if (flight.status === 'Cancelled') {
+    return { ok: true, message: 'Bereits cancelled.' };
+  }
+
+  if (flight.status !== 'Planned') {
+    return {
+      ok: false,
+      message: `Nur Planned-flights können cancelled werden (aktueller status: ${flight.status}).`,
+    };
+  }
+
+  await prisma.scheduledFlight.update({
+    where: { id: flightId },
+    data: { status: 'Cancelled' },
+  });
+
+  revalidatePath('/airline/schedule/instances');
+  revalidatePath('/airline/schedule');
+
+  return {
+    ok: true,
+    message: `${flight.route.flightNumber} cancelled.`,
+  };
+}
