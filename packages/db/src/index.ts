@@ -71,3 +71,14 @@ export type { ScheduleTemplate, ScheduledFlight } from "@prisma/client";
 // Type-exports für die pairing-helpers + auto-PIREP-trigger.
 export { Simulator, AcarsEventType } from "@prisma/client";
 export type { AcarsPairingCode, AcarsEvent } from "@prisma/client";
+// Welle 13 (Economy MVP): Wallet + Transaction enums + types. Die enums
+// werden in switch-statements im UI für color-coding/icons gemappt;
+// die types in queries die wallets/transactions includen.
+export { WalletOwnerType, TransactionType } from "@prisma/client";
+export type { Wallet, Transaction } from "@prisma/client";
+
+// Welle 13 (Economy MVP): wallet/transfer/decimal helpers. Re-exports
+// vom ./economy barrel damit consumer (apps/web, apps/bot) alles via
+// `import { transfer, formatVamCurrency } from "@vam/db"` kriegen ohne
+// subpath-imports. Siehe ./economy/index.ts für die einzelnen module.
+export * from "./economy/index.js";
