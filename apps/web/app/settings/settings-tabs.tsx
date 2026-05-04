@@ -2,13 +2,17 @@
 
 import { useEffect, useState } from 'react';
 
-type TabKey = 'profile' | 'connections' | 'simbrief' | 'overlay';
+type TabKey = 'profile' | 'connections' | 'simbrief' | 'overlay' | 'acars';
 
 const TABS: Array<{ key: TabKey; label: string; icon: string }> = [
   { key: 'profile', label: 'Profil', icon: '👤' },
   { key: 'connections', label: 'Verbindungen', icon: '🔗' },
   { key: 'simbrief', label: 'SimBrief', icon: '✈️' },
   { key: 'overlay', label: 'OBS-Overlay', icon: '🎬' },
+  // Welle 9 (ACARS Phase 2-5): pairing-flow + status for the desktop-
+  // client. The client itself is a separate Electron-app project; this
+  // tab is the web-side configuration surface.
+  { key: 'acars', label: 'ACARS', icon: '📡' },
 ];
 
 interface Props {
@@ -16,6 +20,7 @@ interface Props {
   connectionsContent: React.ReactNode;
   simbriefContent: React.ReactNode;
   overlayContent: React.ReactNode;
+  acarsContent: React.ReactNode;
 }
 
 /**
@@ -36,6 +41,7 @@ export function SettingsTabs({
   connectionsContent,
   simbriefContent,
   overlayContent,
+  acarsContent,
 }: Props) {
   const [activeTab, setActiveTab] = useState<TabKey>('profile');
   const [mounted, setMounted] = useState(false);
@@ -133,6 +139,14 @@ export function SettingsTabs({
         hidden={visibleTab !== 'overlay'}
       >
         {overlayContent}
+      </div>
+      <div
+        role="tabpanel"
+        id="tabpanel-acars"
+        aria-labelledby="tab-acars"
+        hidden={visibleTab !== 'acars'}
+      >
+        {acarsContent}
       </div>
     </>
   );

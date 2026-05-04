@@ -20,6 +20,8 @@ import { AircraftOverlayCard } from './aircraft-overlay-card';
 import { RouteOverlayCard } from './route-overlay-card';
 import { CollapsibleSection } from './_collapsible-section';
 import { SettingsTabs } from './settings-tabs';
+import { AcarsCard } from './acars-card';
+import { getAcarsStatus } from './acars-actions';
 
 /**
  * Settings page — refactored from a long single-column layout into 4
@@ -79,6 +81,9 @@ export default async function SettingsPage({
   // Both edit-only — the rows exist independently of overlay state.
   const aircraft = await listAirlineAircraft();
   const routes = await listAirlineRoutes();
+
+  // ACARS pairing-status + active-session info for the ACARS-tab card.
+  const acarsStatus = await getAcarsStatus();
 
   const statusBanner =
     params.status === 'success' && params.provider
@@ -279,6 +284,14 @@ export default async function SettingsPage({
     </>
   );
 
+  const acarsContent = (
+    <AcarsCard
+      initial={acarsStatus}
+      vatsimLinked={!!user.vatsimCid}
+      ivaoLinked={!!user.ivaoVid}
+    />
+  );
+
   return (
     <main className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-white p-8">
       <div className="max-w-4xl mx-auto">
@@ -314,6 +327,7 @@ export default async function SettingsPage({
           connectionsContent={connectionsContent}
           simbriefContent={simbriefContent}
           overlayContent={overlayContent}
+          acarsContent={acarsContent}
         />
       </div>
     </main>
