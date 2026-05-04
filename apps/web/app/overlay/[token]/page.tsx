@@ -46,7 +46,7 @@ export const metadata = {
 type SearchParams = Promise<{ layout?: string; position?: string }>;
 type RouteParams = Promise<{ token: string }>;
 
-const VALID_LAYOUTS: readonly OverlayLayout[] = ['bar', 'card'];
+const VALID_LAYOUTS: readonly OverlayLayout[] = ['bar', 'card', 'cockpit'];
 const VALID_POSITIONS: readonly CardPosition[] = [
   'top-left',
   'top-right',

@@ -167,12 +167,19 @@ export function OverlayPreferences({
             selected={layout === 'card'}
             onSelect={() => handleLayoutChange('card')}
           />
+          <LayoutOption
+            id="cockpit"
+            label="Cockpit"
+            description="MFD-style mit ACARS-Telemetrie"
+            selected={layout === 'cockpit'}
+            onSelect={() => handleLayoutChange('cockpit')}
+          />
         </div>
       </Section>
 
-      {/* Card-Position (nur wenn Layout=card) */}
-      {layout === 'card' && (
-        <Section title="Card Position">
+      {/* Position-picker — gilt für card UND cockpit (beide nutzen 4-Ecken) */}
+      {(layout === 'card' || layout === 'cockpit') && (
+        <Section title={layout === 'cockpit' ? 'Cockpit Position' : 'Card Position'}>
           <div className="grid grid-cols-2 gap-2">
             {CARD_POSITIONS.map((pos) => (
               <PositionOption
@@ -444,8 +451,8 @@ function SetupGuide({
 }) {
   // URL ggf. mit aktuellen Parametern bauen für Custom-URL
   const fullUrl = overlayUrl
-    ? layout === 'card'
-      ? `${overlayUrl}?layout=card&position=${cardPosition}`
+    ? layout === 'card' || layout === 'cockpit'
+      ? `${overlayUrl}?layout=${layout}&position=${cardPosition}`
       : overlayUrl
     : null;
 

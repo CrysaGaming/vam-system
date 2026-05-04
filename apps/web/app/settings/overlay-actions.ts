@@ -31,7 +31,7 @@ export {
 // VALIDATION
 // ────────────────────────────────────────────────────────────
 
-const VALID_LAYOUTS: OverlayLayout[] = ['bar', 'card'];
+const VALID_LAYOUTS: OverlayLayout[] = ['bar', 'card', 'cockpit'];
 const VALID_CARD_POSITIONS: CardPosition[] = [
   'top-left',
   'top-right',

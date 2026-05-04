@@ -17,8 +17,13 @@
 // LAYOUT-TYPES
 // ────────────────────────────────────────────────────────────
 
-export type OverlayLayout = 'bar' | 'card';
-// Future: 'compact' | 'cockpit' | 'glass' (Phase 5+)
+export type OverlayLayout = 'bar' | 'card' | 'cockpit';
+// Future: 'glass' (apple-vision-style halbtransparente bubble)
+//
+// 'cockpit' (Welle 10 commit 10B) ist das ACARS-aware layout: rendert
+// IAS/Mach/VS/AP/Flaps/Gear/N1/Wind/OAT etc. aus dem Welle-9-telemetry-
+// block. Bei VATSIM/IVAO-feeds (kein ACARS) sind die felder null und
+// das layout zeigt platzhalter "—".
 
 /**
  * Card-Position auf dem Stream-Bild.
