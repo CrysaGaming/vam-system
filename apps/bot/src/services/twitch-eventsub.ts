@@ -144,8 +144,13 @@ const SUBSCRIPTION_TEMPLATES: ReadonlyArray<{
     description: 'Someone cheered bits on the pilot',
   },
   {
+    // Twitch deprecated hype_train v1 on 2026-01-22 (see
+    // discuss.dev.twitch.com/t/legacy-get-hype-train-events-api-and-eventsub-hype-train-v1-subscription-types-deprecation-and-withdrawal-timeline).
+    // v2 has the same scope-requirement (channel:read:hype_train) but
+    // updated event-payload shape — `level` field still present, so
+    // formatEventSummary doesn't need adjusting.
     type: 'channel.hype_train.begin',
-    version: '1',
+    version: '2',
     buildCondition: (id) => ({ broadcaster_user_id: id }),
     description: 'Hype-train started on the pilot channel',
   },
