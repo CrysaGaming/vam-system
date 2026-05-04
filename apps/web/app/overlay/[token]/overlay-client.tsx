@@ -140,6 +140,43 @@ type OverlayData =
 const POLL_INTERVAL_MS = 5000;
 const FETCH_TIMEOUT_MS = 4500;
 
+// Welle 10 commit 10C: trail polls slower than data because the trail
+// only changes incrementally (one new point per heartbeat). 10s gives
+// the streamer a smooth-feeling polyline without burning rate-limit on
+// the shared bucket. The trail-fetch and data-fetch are independent
+// loops — they don't await each other.
+const TRAIL_POLL_INTERVAL_MS = 10000;
+const TRAIL_FETCH_TIMEOUT_MS = 8000;
+
+// ────────────────────────────────────────────────────────────
+// TRAIL TYPES (mirror /api/overlay/[token]/trail)
+// ────────────────────────────────────────────────────────────
+
+type TrailPoint = {
+  lat: number;
+  lng: number;
+  alt: number;
+  t: string;
+  phase: string | null;
+};
+
+type TrailAirport = {
+  icao: string;
+  lat: number;
+  lng: number;
+};
+
+type TrailData =
+  | {
+      active: true;
+      sessionId: string;
+      points: TrailPoint[];
+      departure: TrailAirport | null;
+      arrival: TrailAirport | null;
+      current: { lat: number; lng: number; heading: number };
+    }
+  | { active: false };
+
 // ────────────────────────────────────────────────────────────
 // MAIN COMPONENT
 // ────────────────────────────────────────────────────────────
@@ -149,6 +186,7 @@ export function OverlayClient({
   initialLayout,
   cardPosition = 'top-right',
   phaseColorOverride,
+  showTrail = false,
 }: {
   token: string;
   initialLayout: OverlayLayout;
@@ -156,10 +194,26 @@ export function OverlayClient({
   cardPosition?: CardPosition;
   /** Optional User-Override für Phase-Colors (sonst Defaults) */
   phaseColorOverride?: PhaseColorMap | null;
+  /**
+   * Welle 10 commit 10C: mini-map activation. URL-only opt-in via
+   * `?map=on` — page.tsx resolves the param and passes the boolean.
+   * When true, the client runs an additional 10s poll-loop against
+   * `/api/overlay/[token]/trail` and renders a small SVG-polyline map
+   * in the bottom-right corner. Independent of the layout-choice.
+   */
+  showTrail?: boolean;
 }) {
   const [data, setData] = useState<OverlayData | null>(null);
   const [hasError, setHasError] = useState(false);
   const isFetchingRef = useRef(false);
+
+  // Trail state runs in parallel to data state with its own poll
+  // loop. We don't gate the trail-fetch on data being loaded — both
+  // routes have the same auth (token in path), and starting both
+  // loops simultaneously means the polyline appears as soon as the
+  // overlay mounts.
+  const [trail, setTrail] = useState<TrailData | null>(null);
+  const isFetchingTrailRef = useRef(false);
 
   const phaseColors: Record<FlightPhaseId, PhaseColor> = {
     ...DEFAULT_PHASE_COLORS,
@@ -199,29 +253,107 @@ export function OverlayClient({
     }
   }, [token]);
 
+  /**
+   * Welle 10 commit 10C: trail-fetch loop. Independent from the data-
+   * fetch — separate ref-guard against overlapping requests, separate
+   * error handling. We deliberately don't reset trail to null on a
+   * single failed fetch; the polyline staying briefly stale is
+   * preferable to flickering off and on if a transient network blip
+   * happens. If the session goes inactive (active: false), we DO clear
+   * — the trail isn't relevant when there's no flight.
+   */
+  const fetchTrail = useCallback(async () => {
+    if (isFetchingTrailRef.current) return;
+    isFetchingTrailRef.current = true;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), TRAIL_FETCH_TIMEOUT_MS);
+
+    try {
+      const res = await fetch(`/api/overlay/${token}/trail`, {
+        signal: controller.signal,
+        cache: 'no-store',
+      });
+      if (!res.ok) {
+        // Don't blank the trail on transient errors — keep last good
+        // polyline visible. Real auth failures (401) will repeat at
+        // every interval and are visible in dev-tools console.
+        return;
+      }
+      const json: TrailData = await res.json();
+      setTrail(json);
+    } catch (err) {
+      if ((err as Error).name !== 'AbortError') {
+        console.error('Overlay trail fetch failed:', err);
+      }
+    } finally {
+      clearTimeout(timeout);
+      isFetchingTrailRef.current = false;
+    }
+  }, [token]);
+
   useEffect(() => {
     void fetchData();
     const interval = setInterval(() => void fetchData(), POLL_INTERVAL_MS);
     return () => clearInterval(interval);
   }, [fetchData]);
 
+  useEffect(() => {
+    if (!showTrail) {
+      // showTrail can change (parent re-renders with different prop)
+      // — stop polling and clear when disabled. The fetch-ref-guard
+      // means an in-flight request will still complete and may set
+      // state once, but the next render-pass with showTrail=false
+      // won't render <MiniMap/> anyway.
+      setTrail(null);
+      return;
+    }
+    void fetchTrail();
+    const interval = setInterval(() => void fetchTrail(), TRAIL_POLL_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [fetchTrail, showTrail]);
+
   if (!data || data.active === false || hasError) {
     return null;
   }
 
-  switch (initialLayout) {
-    case 'card':
-      return (
-        <CardLayout data={data} phaseColors={phaseColors} position={cardPosition} />
-      );
-    case 'cockpit':
-      return (
-        <CockpitLayout data={data} phaseColors={phaseColors} position={cardPosition} />
-      );
-    case 'bar':
-    default:
-      return <BarLayout data={data} phaseColors={phaseColors} />;
-  }
+  // Layout-element selected first; mini-map (when enabled + trail
+  // available) is appended as a sibling so layouts and the map don't
+  // share positioning/z-index decisions.
+  const layoutEl = (() => {
+    switch (initialLayout) {
+      case 'card':
+        return (
+          <CardLayout data={data} phaseColors={phaseColors} position={cardPosition} />
+        );
+      case 'cockpit':
+        return (
+          <CockpitLayout data={data} phaseColors={phaseColors} position={cardPosition} />
+        );
+      case 'bar':
+      default:
+        return <BarLayout data={data} phaseColors={phaseColors} />;
+    }
+  })();
+
+  // Mini-map only when explicitly enabled AND we have trail-data with
+  // at least one point. A single point is enough to render the
+  // current-position-marker (the polyline gets one segment of length
+  // 0, harmless).
+  const showMiniMap =
+    showTrail &&
+    trail !== null &&
+    trail.active === true &&
+    trail.points.length >= 1;
+
+  return (
+    <>
+      {layoutEl}
+      {showMiniMap && trail.active && (
+        <MiniMap trail={trail} layoutPosition={cardPosition} layout={initialLayout} />
+      )}
+    </>
+  );
 }
 
 // ────────────────────────────────────────────────────────────
@@ -1125,6 +1257,278 @@ function MetaLine({ label, value }: { label: string; value: string }) {
     <div style={{ display: 'flex', justifyContent: 'space-between', gap: '6px' }}>
       <span style={{ opacity: 0.5, fontSize: '9px', letterSpacing: '0.1em' }}>{label}</span>
       <span style={{ fontWeight: 700 }}>{value}</span>
+    </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────
+// MINI-MAP (Welle 10 commit 10C)
+// ────────────────────────────────────────────────────────────
+
+/**
+ * Lightweight SVG-polyline mini-map for the overlay. Activated via
+ * `?map=on` URL-param. Renders:
+ *   - A polyline of the trail (last 100 LiveSessionPositions)
+ *   - Departure + arrival markers with ICAO-labels (when known)
+ *   - Current-position marker (pulsing cyan dot, oriented by heading)
+ *
+ * Projection: equirectangular (raw lat/lng with cosine-correction for
+ * lng-degree-shrink at higher latitudes). For typical short/medium-haul
+ * flights the distortion is sub-pixel. Long-haul or polar routes will
+ * look stretched but the map's purpose is "show the streamer's general
+ * path", not navigation-grade accuracy.
+ *
+ * Position: bottom-right by default. If the layout puts a card in the
+ * bottom-right (CardLayout with position='bottom-right' or CockpitLayout
+ * with position='bottom-right'), we shift the map to bottom-left to
+ * avoid overlap. The bar-layout sits at the top so doesn't conflict.
+ *
+ * No external map-tile dependencies (Mapbox/Leaflet) — keeps the public
+ * overlay-page free of API-key-leakage and works without internet
+ * during a sim-flight (positions render even if mapbox.com is blocked).
+ */
+function MiniMap({
+  trail,
+  layoutPosition,
+  layout,
+}: {
+  trail: Extract<TrailData, { active: true }>;
+  layoutPosition: CardPosition;
+  layout: OverlayLayout;
+}) {
+  const WIDTH = 240;
+  const HEIGHT = 140;
+  const PADDING = 12;
+
+  // Collect all coordinates for bbox-calculation: trail points +
+  // departure + arrival + current. The dep/arr matter especially when
+  // the trail is short (just took off, only a handful of points) —
+  // including them ensures the map shows context.
+  const allLats: number[] = [];
+  const allLngs: number[] = [];
+  for (const p of trail.points) {
+    allLats.push(p.lat);
+    allLngs.push(p.lng);
+  }
+  if (trail.departure) {
+    allLats.push(trail.departure.lat);
+    allLngs.push(trail.departure.lng);
+  }
+  if (trail.arrival) {
+    allLats.push(trail.arrival.lat);
+    allLngs.push(trail.arrival.lng);
+  }
+  allLats.push(trail.current.lat);
+  allLngs.push(trail.current.lng);
+
+  let minLat = Math.min(...allLats);
+  let maxLat = Math.max(...allLats);
+  let minLng = Math.min(...allLngs);
+  let maxLng = Math.max(...allLngs);
+
+  // Guard against degenerate bbox (single-point flight pre-takeoff):
+  // expand by a tiny amount so the projection-divisor isn't zero.
+  if (maxLat - minLat < 0.001) {
+    minLat -= 0.005;
+    maxLat += 0.005;
+  }
+  if (maxLng - minLng < 0.001) {
+    minLng -= 0.005;
+    maxLng += 0.005;
+  }
+
+  // Apply cosine-of-mid-lat correction to lng-range so the rendered
+  // shape isn't stretched horizontally at higher latitudes. Without
+  // this, a flight at 60°N would appear roughly 2× wider than it
+  // actually is.
+  const midLat = (minLat + maxLat) / 2;
+  const lngScale = Math.cos((midLat * Math.PI) / 180);
+  const lngRange = (maxLng - minLng) * lngScale;
+  const latRange = maxLat - minLat;
+
+  // Fit-to-viewport: pick the larger axis-ratio so neither dimension
+  // overflows the map-area. Then center the smaller axis with margins.
+  const drawW = WIDTH - PADDING * 2;
+  const drawH = HEIGHT - PADDING * 2;
+  const aspectMap = lngRange / latRange;
+  const aspectView = drawW / drawH;
+
+  let scaleX: number;
+  let scaleY: number;
+  let offsetX: number;
+  let offsetY: number;
+  if (aspectMap > aspectView) {
+    // Map wider than viewport: lng-axis fills, lat-axis centers.
+    scaleX = drawW / lngRange;
+    scaleY = scaleX;
+    offsetX = PADDING;
+    offsetY = PADDING + (drawH - latRange * scaleY) / 2;
+  } else {
+    // Map taller than viewport: lat-axis fills, lng-axis centers.
+    scaleY = drawH / latRange;
+    scaleX = scaleY;
+    offsetX = PADDING + (drawW - lngRange * scaleX) / 2;
+    offsetY = PADDING;
+  }
+
+  function project(lat: number, lng: number): { x: number; y: number } {
+    // x: longitude → linear, scaled. y: latitude → linear, INVERTED
+    // (north is up but SVG-y grows downward).
+    const x = offsetX + (lng - minLng) * lngScale * scaleX;
+    const y = offsetY + (maxLat - lat) * scaleY;
+    return { x, y };
+  }
+
+  // Build polyline points-attribute. Single string of "x,y x,y x,y …".
+  const polylinePoints = trail.points
+    .map((p) => {
+      const { x, y } = project(p.lat, p.lng);
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(' ');
+
+  const dep = trail.departure ? project(trail.departure.lat, trail.departure.lng) : null;
+  const arr = trail.arrival ? project(trail.arrival.lat, trail.arrival.lng) : null;
+  const cur = project(trail.current.lat, trail.current.lng);
+
+  // Position-resolution: avoid overlap with whatever layout has the
+  // bottom-right corner. card and cockpit can sit there; bar always
+  // sits at the top so doesn't conflict.
+  const conflictsBottomRight =
+    (layout === 'card' || layout === 'cockpit') && layoutPosition === 'bottom-right';
+  const conflictsBottomLeft =
+    (layout === 'card' || layout === 'cockpit') && layoutPosition === 'bottom-left';
+
+  const mapStyle: React.CSSProperties = conflictsBottomRight
+    ? { bottom: '20px', left: '20px' }
+    : conflictsBottomLeft
+      ? { bottom: '20px', right: '20px' }
+      : { bottom: '20px', right: '20px' };
+
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        ...mapStyle,
+        pointerEvents: 'none',
+      }}
+    >
+      <svg
+        width={WIDTH}
+        height={HEIGHT}
+        viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
+        style={{
+          background: 'rgba(2, 12, 24, 0.78)',
+          backdropFilter: 'blur(10px)',
+          WebkitBackdropFilter: 'blur(10px)',
+          border: '1px solid rgba(125, 211, 252, 0.18)',
+          borderRadius: '8px',
+          boxShadow: '0 8px 28px rgba(0, 0, 0, 0.6)',
+        }}
+      >
+        {/* Trail polyline. Only render if 2+ points — a 1-point trail
+            is just the current-position-marker, no line needed. */}
+        {trail.points.length >= 2 && (
+          <polyline
+            points={polylinePoints}
+            fill="none"
+            stroke="#7DD3FC"
+            strokeWidth="1.6"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            opacity="0.75"
+          />
+        )}
+
+        {/* Departure marker — green, square-ish */}
+        {dep && (
+          <g>
+            <rect
+              x={dep.x - 3}
+              y={dep.y - 3}
+              width="6"
+              height="6"
+              fill="#22C55E"
+              stroke="rgba(0, 0, 0, 0.4)"
+              strokeWidth="0.5"
+              rx="1"
+            />
+            {trail.departure && (
+              <text
+                x={dep.x + 6}
+                y={dep.y + 3}
+                fontSize="8"
+                fontFamily="monospace"
+                fontWeight="700"
+                fill="#22C55E"
+              >
+                {trail.departure.icao}
+              </text>
+            )}
+          </g>
+        )}
+
+        {/* Arrival marker — amber/orange star-ish (just a different
+            shape so it's visually distinct from departure). */}
+        {arr && (
+          <g>
+            <circle
+              cx={arr.x}
+              cy={arr.y}
+              r="3.5"
+              fill="#F59E0B"
+              stroke="rgba(0, 0, 0, 0.4)"
+              strokeWidth="0.5"
+            />
+            {trail.arrival && (
+              <text
+                x={arr.x + 6}
+                y={arr.y + 3}
+                fontSize="8"
+                fontFamily="monospace"
+                fontWeight="700"
+                fill="#F59E0B"
+              >
+                {trail.arrival.icao}
+              </text>
+            )}
+          </g>
+        )}
+
+        {/* Current-position marker. Pulsing cyan dot oriented by
+            heading. The triangle-rotation gives a "this is the plane,
+            facing this way" affordance — viewers parse direction at a
+            glance even at this scale. */}
+        <g
+          transform={`translate(${cur.x}, ${cur.y}) rotate(${trail.current.heading})`}
+        >
+          {/* Outer pulse-ring */}
+          <circle
+            cx="0"
+            cy="0"
+            r="6"
+            fill="rgba(125, 211, 252, 0.35)"
+            style={{ animation: 'minimap-pulse 2s ease-in-out infinite' }}
+          />
+          {/* Heading-triangle (points up before rotation = north) */}
+          <polygon
+            points="0,-5 4,4 0,2 -4,4"
+            fill="#7DD3FC"
+            stroke="#0F172A"
+            strokeWidth="0.6"
+          />
+        </g>
+      </svg>
+
+      {/* Pulse keyframes inlined alongside cockpit-pulse. Both layouts
+          can share the page; no namespace collision since the keyframe-
+          name is unique to the minimap. */}
+      <style>{`
+        @keyframes minimap-pulse {
+          0%, 100% { opacity: 0.7; r: 6; }
+          50% { opacity: 0.3; r: 9; }
+        }
+      `}</style>
     </div>
   );
 }

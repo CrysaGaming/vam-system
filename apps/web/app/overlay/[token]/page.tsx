@@ -43,7 +43,18 @@ export const metadata = {
   robots: 'noindex, nofollow',
 };
 
-type SearchParams = Promise<{ layout?: string; position?: string }>;
+type SearchParams = Promise<{
+  layout?: string;
+  position?: string;
+  /**
+   * Welle 10 commit 10C: mini-map toggle. URL-only opt-in (kein DB-pref) —
+   * streamer setzt einmal `?map=on` in der OBS-browser-source-URL und
+   * fertig. Werte: 'on' aktiviert, alles andere (oder fehlend) = aus.
+   * Wenn user-feedback zeigt dass das pref gespeichert werden soll,
+   * kommt das in einem follow-up commit mit User.overlayTrailEnabled.
+   */
+  map?: string;
+}>;
 type RouteParams = Promise<{ token: string }>;
 
 const VALID_LAYOUTS: readonly OverlayLayout[] = ['bar', 'card', 'cockpit'];
@@ -74,7 +85,11 @@ export default async function OverlayPage({
   searchParams: SearchParams;
 }) {
   const { token } = await params;
-  const { layout: layoutParam, position: positionParam } = await searchParams;
+  const {
+    layout: layoutParam,
+    position: positionParam,
+    map: mapParam,
+  } = await searchParams;
 
   // ─── Token-Format-Pre-Check ──────────────────────────────
   if (!isValidTokenFormat(token)) {
@@ -111,12 +126,19 @@ export default async function OverlayPage({
   const phaseColors: PhaseColorMap | null =
     (user?.overlayPhaseColors as PhaseColorMap | null) ?? null;
 
+  // ─── Mini-Map-Resolution ─────────────────────────────────
+  // Strict opt-in via 'on' string. Anything else (incl. typos like
+  // 'true'/'1') deliberately fails closed — better to show no map
+  // than to surprise a streamer who didn't ask for one.
+  const showTrail = mapParam === 'on';
+
   return (
     <OverlayClient
       token={token}
       initialLayout={layoutMode}
       cardPosition={cardPosition}
       phaseColorOverride={phaseColors}
+      showTrail={showTrail}
     />
   );
 }
