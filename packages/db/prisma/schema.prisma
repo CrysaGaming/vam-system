@@ -157,6 +157,36 @@ enum RequestStatus {
   Rejected
 }
 
+// Welle 7: State einer konkreten ScheduledFlight-instanz. Orthogonal zur
+// FlightState (Pirep-runtime) und PirepStatus (approval-workflow):
+//
+// - Planned: generator hat slot erstellt, noch unbooked. Sichtbar in pilot-
+//   booking-UI als "available scheduled flight". Häufigster initial-state.
+// - Booked: ein pilot hat den slot via createBookingFromScheduledFlight
+//   gepickt. ScheduledFlight.bookingId ist set, Booking.state ist Created
+//   (oder weiter im booking-lifecycle). Slot ist nicht mehr verfügbar für
+//   andere piloten.
+// - Completed: PIREP wurde gefiled UND approved. Terminal-state — slot ist
+//   "history". Wird aus pilot-UI rausgefiltert, bleibt in admin-grid für
+//   reporting/leaderboards sichtbar.
+// - Cancelled: admin oder pilot hat den slot abgesagt. Terminal aber nicht-
+//   completed. Wenn pilot canceled → Booking.state=Cancelled triggert
+//   ScheduledFlight back zu... hmm, eigentlich Cancelled (slot ist tot —
+//   admin kann manuell neuen für gleichen zeit-slot generieren wenn ge-
+//   wünscht). Bewusst NICHT zurück zu Planned, weil das booking-cancellation
+//   eines piloten nicht impliziert dass der slot wieder offen sein soll —
+//   der admin entscheidet das per re-generation.
+//
+// Bewusst KEIN "InProgress"/"Departed"/"Airborne" — das ist die domäne von
+// FlightState am Pirep, nicht des schedule-records. Hier interessiert nur:
+// ist dieser slot offen, hat ihn jemand, ist er fertig, oder ist er tot?
+enum ScheduledFlightStatus {
+  Planned
+  Booked
+  Completed
+  Cancelled
+}
+
 model Airline {
   id              String  @id @default(cuid())
   icao            String  @unique
@@ -200,6 +230,13 @@ model Airline {
   // referenzieren, default = primary-hub. Hubs sind die orte an denen
   // jumpseat-transfers günstig/free sind und scheduling beginnt.
   hubs AirlineHub[]
+
+  // Welle 7: Schedule-System. Templates definieren wiederkehrende muster
+  // (Mo+Mi+Fr 14:30 UTC), scheduledFlights sind die generierten konkreten
+  // instanzen. Cascade-on-delete via the relation definition (Airline-
+  // löschung räumt schedule-data mit auf).
+  scheduleTemplates ScheduleTemplate[]
+  scheduledFlights  ScheduledFlight[]
 
   // System-Catalog Request-Flow — eine Airline kann mehrere Requests
   // einreichen. Optional FK auf Request damit auch user-ohne-airline
@@ -411,29 +448,29 @@ model Role {
 }
 
 model Aircraft {
-  id              String        @id @default(cuid())
-  airlineId       String
-  airline         Airline       @relation(fields: [airlineId], references: [id])
-  registration    String        @unique
-  type            String
+  id             String         @id @default(cuid())
+  airlineId      String
+  airline        Airline        @relation(fields: [airlineId], references: [id])
+  registration   String         @unique
+  type           String
   // FK zu System-curated AircraftType-Catalog. Nullable für 1-Release-
   // Migration: existing airframes haben nur `type: String`, neue Logik
   // resolves via aircraftTypeId mit Fallback auf type-string-match.
   // Backfill-Script in Phase 1 matched bestehende `type` strings gegen
   // AircraftType.icaoType seed.
-  aircraftTypeId  String?
-  aircraftType    AircraftType? @relation(fields: [aircraftTypeId], references: [id])
-  homeIcao        String?
+  aircraftTypeId String?
+  aircraftType   AircraftType?  @relation(fields: [aircraftTypeId], references: [id])
+  homeIcao       String?
   // Welle 5: Aircraft-Lifecycle-Status. Default ACTIVE für additive
   // migration — alle existing airframes mit active=true bekommen
   // status=ACTIVE, alle mit active=false bekommen status=RETIRED (im
   // backfill-step der migration). Siehe AircraftStatus-enum-docstring
   // für die semantik der einzelnen states.
-  status          AircraftStatus @default(ACTIVE)
+  status         AircraftStatus @default(ACTIVE)
   // Legacy boolean — bleibt für app-compatibility erhalten, wird im
   // app-layer synchron mit status gehalten (status==ACTIVE → active=true).
   // Phase 2 (Welle 6+) deprecated dieses field nach UI-rollout.
-  active          Boolean       @default(true)
+  active         Boolean        @default(true)
 
   // Welle 5: Aircraft-Position-Tracking. Mirrors User.currentLocation*-
   // pattern (Welle 4). Wird beim PIREP-approval auf arrival.icao gesetzt
@@ -451,11 +488,17 @@ model Aircraft {
   // z.B. "this specific D-AIBL has reduced MTOW because of MEL". Über-
   // steuert Airline + Fleet defaults.
   simBriefOverlay Json?
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @default(now()) @updatedAt
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @default(now()) @updatedAt
 
   routes Route[]
   pireps Pirep[]
+
+  // Welle 7: Schedule-System back-relations. Beide named-relations weil
+  // sowohl ScheduleTemplate als auch ScheduledFlight ein optionales
+  // preferredAircraftId-FK haben (informational, keine hard-block in 7A).
+  scheduleTemplatePreferences ScheduleTemplate[] @relation("ScheduleTemplatePreferredAircraft")
+  scheduledFlightPreferences  ScheduledFlight[]  @relation("ScheduledFlightPreferredAircraft")
 
   // Welle 5: Indexes für die /airline/aircraft filter-UI.
   // - (airlineId, status): "alle aktiven aircraft meiner airline" (häufigster query)
@@ -600,6 +643,15 @@ model Route {
 
   pireps   Pirep[]
   bookings Booking[]
+
+  // Welle 7: Schedule-System back-relations. Routes können mehrere
+  // ScheduleTemplate-rows referenzieren (z.B. selber flightNumber zu
+  // verschiedenen tageszeiten) und entsprechend viele ScheduledFlight-
+  // instanzen produzieren. Cascade beim Route-delete: zugehörige
+  // templates+instances werden mit aufgeräumt (Routes ohne schedules
+  // sind weiter möglich).
+  scheduleTemplates ScheduleTemplate[]
+  scheduledFlights  ScheduledFlight[]
 
   @@unique([airlineId, flightNumber])
   @@index([departureId])
@@ -799,6 +851,13 @@ model Booking {
 
   pirep           Pirep?
   flightPlanCache FlightPlanCache?
+
+  // Welle 7: 1:0..1 zur ScheduledFlight. Set wenn die booking via
+  // scheduled-flight-pickup erstellt wurde (vs. ad-hoc free-pull-route-
+  // booking aus der bisherigen route-liste). NULL für legacy- und
+  // free-bookings. SetNull-cascade: wenn ScheduledFlight gelöscht
+  // wird (sollte nicht passieren), bleibt die Booking erhalten.
+  scheduledFlight ScheduledFlight?
 
   @@index([userId, state])
   @@index([airlineId, state])
@@ -1219,4 +1278,155 @@ model JumpseatTransfer {
   @@index([userId, createdAt])
   // Sekundär: "alle transfers nach airport X" (admin-debug).
   @@index([toIcao, createdAt])
+}
+
+// ============================================================================
+// WELLE 7 — SCHEDULE GENERATOR
+//
+// Zwei-schichten-architektur:
+//
+//   ScheduleTemplate    →    ScheduledFlight    →    Booking    →    Pirep
+//   (recurring rule)         (concrete instance)     (pilot)        (filed)
+//
+// 1. ScheduleTemplate: admin definiert wiederkehrende muster ("Mo+Mi+Fr 14:30 UTC
+//    auf route LH123, A320 als preferred airframe"). Templates haben einen
+//    validity-window (validFrom..validUntil) und einen active-flag für
+//    soft-disable.
+//
+// 2. Generator-helper (@/lib/schedule, kommt 7A-2) materialisiert templates
+//    zu konkreten ScheduledFlight-instanzen über einen date-range. Idempotent:
+//    läuft re-runs ohne duplikate (skipt schon-existierende slots an gleichem
+//    departureTime + templateId).
+//
+// 3. Pilot pickt einen Planned-slot aus seiner schedule-view → wir erstellen
+//    eine Booking und linken sie atomar via ScheduledFlight.bookingId. Slot
+//    flippt auf Booked.
+//
+// 4. Booking wird durch den existierenden booking-flow gefahren (SimBrief
+//    dispatch, PIREP file, approval). Bei PIREP-approval setzen wir den
+//    ScheduledFlight auf Completed.
+//
+// CHARTER-flights: ein ScheduledFlight ohne templateId = einmal-flug der
+// nicht aus einem recurring-pattern stammt. Admin erstellt manuell, pilot
+// pickt wie eine reguläre scheduled-instanz. FlightType.CHARTER wird beim
+// booking gesetzt (statt SCHEDULED).
+//
+// Was 7A NICHT macht: hard-conflicts auf preferredAircraft (A320 ist um
+// 14:30 schon auf LH456 → blockiere LH789). Conflict-detection als UI-
+// warning ja, hard-block kommt mit fleet-rotation-logik später.
+// ============================================================================
+
+// ScheduleTemplate — wiederkehrendes flug-muster pro route. Admin-only-CRUD
+// via /airline/schedule (kommt 7B-1). Generator-helper kann instanzen für
+// ein date-window materialisieren.
+model ScheduleTemplate {
+  id        String  @id @default(cuid())
+  airlineId String
+  airline   Airline @relation(fields: [airlineId], references: [id], onDelete: Cascade)
+  routeId   String
+  route     Route   @relation(fields: [routeId], references: [id], onDelete: Cascade)
+
+  // Optional human-friendly label, z.B. "Daily MUC-FRA Morning Shuttle".
+  // Falls NULL, rendert UI route.flightNumber + departureTime als fallback.
+  label String?
+
+  // Wochentage an denen dieses template ausgeführt wird. ISO-8601: 1=Monday,
+  // 7=Sunday. Postgres Int[]-array — direkter array-contains query möglich
+  // ("alle templates die montags laufen"). Validation in app-layer:
+  // Werte müssen in {1..7} liegen, mind. 1 element.
+  daysOfWeek Int[]
+
+  // Departure-time als minuten-seit-mitternacht UTC (0..1439). Bewusst Int
+  // statt String "HH:mm": sortierbar (ORDER BY departureMinuteUtc), arith-
+  // metisch (z.B. "alle flüge zwischen 06:00-12:00 UTC" als single range-
+  // query), keine timezone-ambiguität. Display-helper rendert zu "HH:mm Z".
+  // Wahl von UTC über local-time-of-airport: vermeidet DST-surprises wenn
+  // Europa shiftet aber Asia nicht, und matcht wie SimBrief/VATSIM/IVAO
+  // über zeit denken.
+  departureMinuteUtc Int
+
+  // Validity-window. Generator erstellt instanzen NUR für dates in
+  // [validFrom, validUntil ?? +infinity]. Use-cases: seasonal routes
+  // (sommer-only), graceful-retire (validUntil setzen statt template-
+  // löschen, behält historische instances/bookings intakt), promo-
+  // schedules (limited-time offers).
+  validFrom  DateTime
+  validUntil DateTime?
+
+  // Optional preferred airframe. NULL = generator setzt keinen airframe an
+  // den instanzen, pilot picked beim booking. Set = generator inheritet
+  // den preferredAircraftId an die generierten ScheduledFlight-rows.
+  // Conflict-detection (airframe doppelt verplant) ist 7A nur informational
+  // im UI; hard-block ist out-of-scope. SetNull bei aircraft-delete damit
+  // template überlebt.
+  preferredAircraftId String?
+  preferredAircraft   Aircraft? @relation("ScheduleTemplatePreferredAircraft", fields: [preferredAircraftId], references: [id], onDelete: SetNull)
+
+  // Soft-disable. Generator skipt active=false templates auch wenn date in
+  // validity-window. Existing instanzen bleiben bestehen (sie sind ja schon
+  // generated). Re-aktivieren = einfach active=true setzen.
+  active Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  scheduledFlights ScheduledFlight[]
+
+  // Häufige queries:
+  // - "alle aktiven templates meiner airline" (admin overview)
+  // - "alle templates für route X" (route-detail-view, falls je gebraucht)
+  @@index([airlineId, active])
+  @@index([routeId])
+}
+
+// ScheduledFlight — konkrete generierte instanz oder ad-hoc charter-slot.
+// Lebenszyklus: Planned → Booked → Completed (oder Cancelled).
+model ScheduledFlight {
+  id        String  @id @default(cuid())
+  airlineId String
+  airline   Airline @relation(fields: [airlineId], references: [id], onDelete: Cascade)
+  routeId   String
+  route     Route   @relation(fields: [routeId], references: [id], onDelete: Cascade)
+
+  // Optional template-FK. Set für generator-erzeugte instanzen, NULL für
+  // ad-hoc charter-flights die admin manuell anlegt. Cascade-on-delete:
+  // wenn template gelöscht wird, gehen alle daraus generierten instanzen
+  // mit (charter-flights bleiben bestehen weil sie kein template haben).
+  templateId String?
+  template   ScheduleTemplate? @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  // Voll-aufgelöste UTC-departure. Generator berechnet das aus template.
+  // validFrom + recurrence-rule (daysOfWeek + departureMinuteUtc) für jeden
+  // tag im generation-window. Charter-flights haben das direkt vom admin
+  // gesetzt.
+  departureTime DateTime
+
+  // Optional preferred airframe — inherited vom template oder direkt am
+  // charter gesetzt. Selbe semantik wie ScheduleTemplate.preferredAircraft:
+  // informational in 7A, hard-conflict-detection später.
+  preferredAircraftId String?
+  preferredAircraft   Aircraft? @relation("ScheduledFlightPreferredAircraft", fields: [preferredAircraftId], references: [id], onDelete: SetNull)
+
+  status ScheduledFlightStatus @default(Planned)
+
+  // 1:0..1 zur Booking. Set wenn ein pilot den slot gepickt hat. SetNull-
+  // cascade falls Booking gelöscht wird (sollte normalerweise nicht passieren
+  // — Bookings werden cancelled, nicht deleted), damit der slot in einem
+  // sauberen state landet.
+  bookingId String?  @unique
+  booking   Booking? @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Häufige queries:
+  // - "alle planned flights von airline X in den nächsten N tagen" (pilot-
+  //   facing booking-view + admin grid)
+  // - "alle flights zu route X, sortiert by departure" (route-detail)
+  // - "alle flights die airframe Y nutzen, sortiert by departure" (conflict-
+  //   detection beim template-anlegen)
+  @@index([airlineId, status, departureTime])
+  @@index([routeId, departureTime])
+  @@index([preferredAircraftId, departureTime])
+  @@index([departureTime])
 }
