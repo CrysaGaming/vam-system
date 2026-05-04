@@ -277,6 +277,31 @@ model User {
   ivaoRefreshToken   String?   @db.Text
   ivaoTokenExpiresAt DateTime?
 
+  // Welle 11 (Twitch-OAuth Foundation): Twitch-Account-Linking. Pattern
+  // mirrors VATSIM/IVAO above — same OAuth-2.0-Authorization-Code-flow,
+  // same refresh-token-handling. Twitch-IDs sind strings (nicht ints
+  // wie VATSIM/IVAO), so twitchUserId ist String. twitchUsername ist
+  // der mutable display-name (twitch erlaubt rename) — wird beim
+  // OAuth-callback via /helix/users gefetched und beim refresh-flow
+  // re-synchronisiert.
+  //
+  // Scopes (siehe lib/twitch-oauth.ts): bits:read, channel:read:subscriptions,
+  // channel:read:hype_train, channel:read:redemptions — die minimum-set
+  // für unsere geplanten EventSub-subscriptions in 11D. Wenn Welle 14
+  // (Twitch Channel-Points → Tickets) kommt, müssen wir scopes
+  // erweitern und re-authentifizierung anstoßen (fresh-grant flow).
+  //
+  // Token-lifetime: twitch user-access-tokens leben ~4h, refresh-tokens
+  // sind langlebig. Refresh passiert lazy beim nächsten API-call wenn
+  // tokenExpiresAt < now() + 60s buffer. Bot-side EventSub-websocket
+  // erkennt token-expire via 401-revocation und triggert refresh.
+  twitchUserId          String?   @unique
+  twitchUsername        String?
+  twitchVerifiedAt      DateTime?
+  twitchAccessToken     String?   @db.Text
+  twitchRefreshToken    String?   @db.Text
+  twitchTokenExpiresAt  DateTime?
+
   // SimBrief-Account-Identifier für API-Dispatch. Wenn null, dispatcht User
   // via Browser-Fallback (prefilled URL).
   simBriefUsername String?
