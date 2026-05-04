@@ -39,6 +39,48 @@ export {
 // API-RESPONSE TYPE (mirror /api/overlay/[token]/data)
 // ────────────────────────────────────────────────────────────
 
+/**
+ * ACARS-only telemetry block (Welle 10 commit 10A).
+ *
+ * VATSIM/IVAO-feeds füllen die felder nicht (network-feeds liefern nur
+ * basics) → bei `dataSource !== 'ACARS_CLIENT'` sind alle felder null.
+ * Layouts, die telemetry rendern (cockpit, future), müssen null-tolerant
+ * sein. Die default-layouts 'bar' und 'card' ignorieren telemetry.
+ */
+export type OverlayTelemetry = {
+  altitudeAglFt: number | null;
+  indicatedAirspeed: number | null;
+  trueAirspeed: number | null;
+  mach: number | null;
+  verticalSpeedFpm: number | null;
+  pitch: number | null;
+  bank: number | null;
+  engineN1Avg: number | null;
+  engineN2Avg: number | null;
+  fuelFlowPph: number | null;
+  fuelTotalKg: number | null;
+  flapsPercent: number | null;
+  gearDown: boolean | null;
+  spoilersDeployed: boolean | null;
+  parkingBrake: boolean | null;
+  autopilotMaster: boolean | null;
+  gForce: number | null;
+  windSpeedKts: number | null;
+  windDirection: number | null;
+  oatCelsius: number | null;
+  landingRateFpm: number | null;
+};
+
+/** Where the telemetry-stream is coming from. Drives the quality-tier
+ * badge in cockpit/glass layouts: ACARS_CLIENT = 🟢 1-2s, network-API
+ * = 🟡 30s, MANUAL/REPLAY = ⚪ admin-injected. Mirrors LiveSession.dataSource. */
+export type OverlayDataSource =
+  | 'VATSIM_API'
+  | 'IVAO_API'
+  | 'ACARS_CLIENT'
+  | 'MANUAL'
+  | 'REPLAY';
+
 type OverlayData =
   | {
       active: true;
@@ -48,6 +90,9 @@ type OverlayData =
         rank: string | null;
       };
       network: 'VATSIM' | 'IVAO' | 'Offline';
+      // 9E (committed b599803): wurde im API hinzugefügt aber das client-type
+      // nicht synchronisiert. 10A schließt diesen typ-mismatch.
+      dataSource: OverlayDataSource;
       aircraft: {
         type: string | null;
         registration: string | null;
@@ -67,6 +112,8 @@ type OverlayData =
         heading: number;
         onGround: boolean;
       };
+      // 10A: extended telemetry. Object always present, fields nullable.
+      telemetry: OverlayTelemetry;
       phase: {
         id: FlightPhaseId;
         label: string;

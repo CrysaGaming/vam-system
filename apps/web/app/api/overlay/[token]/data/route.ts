@@ -54,6 +54,58 @@ type OverlayUser = {
   rank: string | null;
 };
 
+/**
+ * Telemetry-block — Welle 10 commit 10A.
+ *
+ * Extended fields aus dem Welle-9-LiveSession-schema. Alle nullable:
+ *   - VATSIM/IVAO-tracker schreiben sie nicht (network-feeds liefern nur
+ *     position+speed+altitude+heading) → all null
+ *   - ACARS_CLIENT-feed schreibt sie pro heartbeat → großteils gefüllt
+ *   - Einzelne felder können auch bei ACARS null sein wenn das aircraft
+ *     diese SimVar nicht hat (z.B. engineN1 bei einem glider)
+ *
+ * Layouts entscheiden self-aware was sie rendern:
+ *   - 'bar' / 'card': ignoriert telemetry komplett (10A = passthrough only)
+ *   - 'cockpit' (10B): rendert IAS/Mach/VS/AP/Flaps/Gear/N1/Wind etc.
+ *
+ * landingRateFpm ist nicht in LiveSession persistiert sondern kommt aus
+ * dem letzten TOUCHDOWN-AcarsEvent dieser session. Wir lookup'en das
+ * lazy nur wenn die session active ist und onGround=true ist (sprich:
+ * unmittelbar post-touchdown bis BLOCK_ON die session schließt). Hard-
+ * Landing-indicator im UI checkt landingRateFpm < -800.
+ */
+type OverlayTelemetry = {
+  altitudeAglFt: number | null;
+  indicatedAirspeed: number | null;
+  trueAirspeed: number | null;
+  mach: number | null;
+  verticalSpeedFpm: number | null;
+  pitch: number | null;
+  bank: number | null;
+
+  // Engines (averaged over installed engines, client computes)
+  engineN1Avg: number | null;
+  engineN2Avg: number | null;
+  fuelFlowPph: number | null;
+  fuelTotalKg: number | null;
+
+  // State / surface
+  flapsPercent: number | null;
+  gearDown: boolean | null;
+  spoilersDeployed: boolean | null;
+  parkingBrake: boolean | null;
+  autopilotMaster: boolean | null;
+
+  // Forces + environment
+  gForce: number | null;
+  windSpeedKts: number | null;
+  windDirection: number | null;
+  oatCelsius: number | null;
+
+  // Derived (post-touchdown only): from latest TOUCHDOWN AcarsEvent
+  landingRateFpm: number | null;
+};
+
 type OverlayActiveResponse = {
   active: true;
   user: OverlayUser;
@@ -83,6 +135,9 @@ type OverlayActiveResponse = {
     heading: number;
     onGround: boolean;
   };
+  // Welle 10 commit 10A: extended telemetry. ACARS-only fields.
+  // Always present (object never null), individual fields nullable.
+  telemetry: OverlayTelemetry;
   phase: {
     id: FlightPhase;
     label: string;
@@ -314,7 +369,32 @@ export async function GET(
     (Date.now() - new Date(session.connectedAt).getTime()) / 60_000,
   );
 
-  // ─── 8. Response ───────────────────────────────────────────
+  // ─── 8. Landing-rate (post-touchdown only) ────────────────
+  // Look up latest TOUCHDOWN-event for this session if we're plausibly
+  // post-touchdown (onGround=true). Skip the query for airborne sessions
+  // — saves a DB-hit on the 99% case where the pilot is mid-flight. The
+  // ACARS-client emits TOUCHDOWN at runway-contact and BLOCK_ON at
+  // parking, so the window we want this populated is roughly
+  // touchdown→taxi-in→gate (a few minutes).
+  let landingRateFpm: number | null = null;
+  if (session.dataSource === 'ACARS_CLIENT' && session.onGround) {
+    const touchdown = await prisma.acarsEvent.findFirst({
+      where: { sessionId: session.id, type: 'TOUCHDOWN' },
+      orderBy: { timestamp: 'desc' },
+      select: { payload: true },
+    });
+    if (touchdown?.payload && typeof touchdown.payload === 'object') {
+      const v = (touchdown.payload as Record<string, unknown>).verticalSpeedFpm;
+      if (typeof v === 'number' && Number.isFinite(v)) {
+        landingRateFpm = Math.round(v);
+      } else if (typeof v === 'string') {
+        const n = Number.parseFloat(v);
+        if (Number.isFinite(n)) landingRateFpm = Math.round(n);
+      }
+    }
+  }
+
+  // ─── 9. Response ───────────────────────────────────────────
   const response: OverlayActiveResponse = {
     active: true,
     user: {
@@ -341,6 +421,29 @@ export async function GET(
       groundSpeed: session.groundSpeed,
       heading: session.heading,
       onGround: session.onGround,
+    },
+    telemetry: {
+      altitudeAglFt: session.altitudeAglFt,
+      indicatedAirspeed: session.indicatedAirspeed,
+      trueAirspeed: session.trueAirspeed,
+      mach: session.mach,
+      verticalSpeedFpm: session.verticalSpeedFpm,
+      pitch: session.pitch,
+      bank: session.bank,
+      engineN1Avg: session.engineN1Avg,
+      engineN2Avg: session.engineN2Avg,
+      fuelFlowPph: session.fuelFlowPph,
+      fuelTotalKg: session.fuelTotalKg,
+      flapsPercent: session.flapsPercent,
+      gearDown: session.gearDown,
+      spoilersDeployed: session.spoilersDeployed,
+      parkingBrake: session.parkingBrake,
+      autopilotMaster: session.autopilotMaster,
+      gForce: session.gForce,
+      windSpeedKts: session.windSpeedKts,
+      windDirection: session.windDirection,
+      oatCelsius: session.oatCelsius,
+      landingRateFpm,
     },
     phase: {
       id: phase,
