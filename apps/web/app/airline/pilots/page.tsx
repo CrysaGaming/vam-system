@@ -10,6 +10,7 @@ import {
 import { listAvailableRanks } from '../actions';
 import { EmploymentStatusToggle } from './employment-status-toggle';
 import { RankDropdown } from './rank-dropdown';
+import { RankFilterSelect } from './rank-filter-select';
 
 /**
  * /airline/pilots — Personnel-Management-Page (Welle 6 commit 6B-4).
@@ -178,45 +179,14 @@ export default async function AirlinePilotsPage({
             />
           </div>
 
-          {/* Rank-filter (URL-based, page reload). Form ist hier ohne JS — admin
-              wählt rank, browser sendet GET mit dem param. */}
-          <form className="flex items-center gap-2">
-            {/* Status preserve hidden — sonst verliert sich der status-filter beim
-                rank-change. */}
-            {params.status && (
-              <input type="hidden" name="status" value={params.status} />
-            )}
-            <label
-              htmlFor="rank-filter"
-              className="text-xs text-gray-500 dark:text-gray-400"
-            >
-              Rang:
-            </label>
-            <select
-              id="rank-filter"
-              name="rank"
-              defaultValue={params.rank ?? ''}
-              onChange={(e) => e.currentTarget.form?.submit()}
-              className="text-xs px-2 py-1.5 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded focus:outline-none focus:border-indigo-500"
-            >
-              <option value="">Alle Ränge</option>
-              <option value="NONE">— Kein Rang —</option>
-              {availableRanks.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.name}
-                </option>
-              ))}
-            </select>
-            {/* Reset-link wenn ein rank-filter aktiv ist */}
-            {params.rank && (
-              <Link
-                href={buildFilterHref({ ...params, rank: undefined })}
-                className="text-xs text-gray-500 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition"
-              >
-                ✕ Zurücksetzen
-              </Link>
-            )}
-          </form>
+          {/* Rank-filter — client component because the onChange handler
+              can't be passed to children from a server component (RSC
+              cannot serialize functions). See rank-filter-select.tsx. */}
+          <RankFilterSelect
+            currentRank={params.rank}
+            currentStatus={params.status}
+            availableRanks={availableRanks}
+          />
         </section>
 
         {/* Pilot-list */}
