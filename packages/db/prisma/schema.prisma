@@ -358,8 +358,29 @@ model User {
   // log-table (out-of-scope für 6B). updatedAt am User-record reicht erstmal.
   employmentStatus EmploymentStatus @default(ACTIVE)
 
+  // Welle 9: ACARS-Client-Pairing. Token wird einmalig beim pairing
+  // generiert (siehe AcarsPairingCode redeem-flow), bleibt valid bis
+  // der user manuell disconnected oder neu paired (rotation überschreibt).
+  // Bearer-token im /api/acars/heartbeat header. NULL = nicht paired.
+  // acarsLastSeen wird bei jedem heartbeat upgedated — UI nutzt das für
+  // online/offline-state ("paired aber nicht aktiv" vs "live").
+  acarsToken       String?     @unique
+  acarsPairedAt    DateTime?
+  acarsLastSeen    DateTime?
+  // User-wahl welches network der ACARS-client per default annoncen soll.
+  // VATSIM/IVAO sind erst sinnvoll wenn user die jeweilige account-
+  // verknüpfung gemacht hat (vatsimCid / ivaoVid gesetzt) — sonst ist
+  // Offline der einzige sinnvolle wert. Validation app-layer, kein
+  // schema-constraint.
+  preferredNetwork NetworkType @default(Offline)
+
   // Welle 4: Audit-trail für jumpseat-transfers (no-flight position-changes).
   jumpseatTransfers JumpseatTransfer[]
+
+  // Welle 9: ACARS pairing-codes (1:N for code-history, but only one
+  // code is unconsumed-and-unexpired at a time per requestPairingCode
+  // logic — older unconsumed codes are force-expired by the request).
+  acarsPairingCodes AcarsPairingCode[]
 
   // System-Catalog Request-Flow — Audit-Trail Beziehungen.
   // Ein User kann gleichzeitig Submitter (airline-admin) und Reviewer
@@ -386,6 +407,49 @@ model LiveSession {
   acarsClientVersion String?
   lastAcarsHeartbeat DateTime?
 
+  // Welle 9 (ACARS Phase 2-5): Extended telemetry from ACARS-client.
+  // Alle nullable additive — VATSIM/IVAO-tracker fill nur die basics
+  // weiter, nur ACARS_CLIENT füllt diese. UI muss null-tolerant sein.
+  flightNumber   String?
+  aircraftTitle  String? // ACARS only, e.g. "Asobo A320 Lufthansa"
+  acarsSimulator Simulator?
+
+  // Position-extension (über die basics altitude/groundSpeed/heading hinaus)
+  altitudeAglFt     Int?
+  indicatedAirspeed Int?
+  trueAirspeed      Int?
+  mach              Float?
+  verticalSpeedFpm  Int?
+  pitch             Float?
+  bank              Float?
+
+  // Engine — averaged over engines (client computes; server doesn't average)
+  engineN1Avg Float?
+  engineN2Avg Float?
+  fuelFlowPph Int?
+  fuelTotalKg Int?
+
+  // State — surface + control settings
+  flapsPercent     Int?
+  gearDown         Boolean?
+  spoilersDeployed Boolean?
+  parkingBrake     Boolean?
+  autopilotMaster  Boolean?
+
+  // Forces + environment + phase
+  gForce        Float?
+  windSpeedKts  Int?
+  windDirection Int?
+  oatCelsius    Int?
+  currentPhase  String? // 'PreFlight'|'Pushback'|'Taxi'|'Takeoff'|'Climb'|'Cruise'|'Descent'|'Approach'|'Landing'|'TaxiIn'|'BlockOn'
+
+  // Anti-cheat: simRate >1.0 bedeutet sim-time-acceleration; totalPause-
+  // Seconds aggregiert pause-zeit über die session. Beides wird in
+  // PIREP-validation berücksichtigt (out-of-scope für 9A schema, das
+  // ist 9F territory).
+  simRate           Float?
+  totalPauseSeconds Int    @default(0)
+
   aircraftType         String?
   aircraftRegistration String?
 
@@ -410,6 +474,7 @@ model LiveSession {
   isActive      Boolean  @default(true)
 
   positions LiveSessionPosition[]
+  events    AcarsEvent[]
 
   @@unique([network, externalId])
   @@index([userId, isActive])
@@ -428,6 +493,18 @@ model LiveSessionPosition {
   groundSpeed Int
   heading     Int
   onGround    Boolean
+
+  // Welle 9 (ACARS Phase 2-5): per-frame telemetry extensions for
+  // PIREP-replay and chart-rendering. All nullable — VATSIM/IVAO
+  // tracker writes only the basics above.
+  altitudeAglFt     Int?
+  indicatedAirspeed Int?
+  verticalSpeedFpm  Int?
+  pitch             Float?
+  bank              Float?
+  flapsPercent      Int?
+  gearDown          Boolean?
+  phase             String?
 
   recordedAt DateTime @default(now())
 
@@ -721,6 +798,11 @@ model Pirep {
   bookingId       String?          @unique
   booking         Booking?         @relation(fields: [bookingId], references: [id], onDelete: SetNull)
   flightPlanCache FlightPlanCache?
+
+  // Welle 9 (ACARS Phase 2-5): wenn dieser PIREP von einem auto-trigger
+  // (BLOCK_ON event vom ACARS-client) erzeugt wurde, points back to
+  // the source-event for audit-trail. NULL für manuelle PIREPs (default).
+  triggeringEvent AcarsEvent? @relation("PirepTriggeringEvent")
 
   @@index([userId, submittedAt])
   @@index([airlineId, status])
@@ -1443,4 +1525,91 @@ model ScheduledFlight {
   @@index([routeId, departureTime])
   @@index([preferredAircraftId, departureTime])
   @@index([departureTime])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Welle 9: ACARS Phase 2-5
+// ─────────────────────────────────────────────────────────────────────────
+
+enum Simulator {
+  MSFS
+  P3D
+  XPLANE
+  FSX
+}
+
+/// Lifecycle-events vom ACARS-client. Stored as audit-trail and used by
+/// 9F auto-PIREP-trigger (BLOCK_ON erstellt PIREP-draft). Other events
+/// like INCIDENT (HARD_LANDING/STALL/OVERSPEED) sind future flagging-
+/// targets.
+enum AcarsEventType {
+  PHASE_CHANGE
+  TOUCHDOWN
+  BLOCK_ON
+  BLOCK_OFF
+  INCIDENT
+  CONNECTION_LOST
+  CONNECTION_RESUMED
+}
+
+/// Temporäre 15-min-codes die der user in der Web-Settings-page generiert
+/// und in der ACARS-app eingibt. Nach redeem wird `consumedAt` gesetzt
+/// und der code ist verbraucht — neue requests invalidieren alte
+/// unbenutzte codes (force-expire über expiresAt-update). Lifecycle:
+///   1. user clicks "Pair Device" → row created, expiresAt = now+15min
+///   2. user types code in app → app POSTs /api/acars/pairing/redeem
+///   3. server validates (exists, not consumed, not expired), generates
+///      acarsToken, sets consumedAt
+///   4. row stays als audit-record (kann via cleanup-job gelöscht werden
+///      wenn DB-bloat — aber bei realistic-volume vernachlässigbar)
+model AcarsPairingCode {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Format: 9 chars in 3-3-3 segments mit unambiguous-alphabet
+  // (ohne 0/O/1/I/L), z.B. "X4F-7K2-9PB". Generation in @/lib/acars/pairing.
+  code String @unique
+
+  expiresAt  DateTime
+  consumedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([code])
+  @@index([userId, consumedAt])
+}
+
+/// Lifecycle + telemetry-events vom ACARS-client. Stored separat von
+/// LiveSessionPosition damit positions-stream high-frequency (1-2s) ist
+/// und events low-frequency aber semantisch wichtig sind. Payload ist
+/// Json damit verschiedene event-types ihre eigenen schemas einbringen
+/// können ohne dass jedes feld eigene column kriegt.
+///
+/// Payload-conventions (app-layer, kein schema-constraint):
+///   - PHASE_CHANGE: { from: string, to: string }
+///   - TOUCHDOWN: { verticalSpeedFpm, gForce, flapsPercent, indicatedAirspeed }
+///   - BLOCK_ON: { totalFlightTimeMin, totalFuelUsedKg, blockTimeMin }
+///   - BLOCK_OFF: { fuelOnBoardKg }
+///   - INCIDENT: { kind: 'HARD_LANDING'|'STALL'|'OVERSPEED'|'OVERBANK', severity, value }
+///   - CONNECTION_LOST: { lastHeartbeatAt, reason }
+///   - CONNECTION_RESUMED: { gapSeconds }
+///
+/// triggeredPirepId ist nur für BLOCK_ON-events gesetzt die einen draft-
+/// PIREP erzeugt haben. 1:1 (jedes event triggert max 1 PIREP, jeder
+/// auto-erstellte PIREP hat genau 1 source-event).
+model AcarsEvent {
+  id        String      @id @default(cuid())
+  sessionId String
+  session   LiveSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  type      AcarsEventType
+  timestamp DateTime       @default(now())
+
+  payload Json?
+
+  triggeredPirepId String? @unique
+  triggeredPirep   Pirep?  @relation("PirepTriggeringEvent", fields: [triggeredPirepId], references: [id], onDelete: SetNull)
+
+  @@index([sessionId, type, timestamp])
 }

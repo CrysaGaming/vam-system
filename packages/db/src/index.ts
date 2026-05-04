@@ -31,3 +31,8 @@ export { EmploymentStatus } from "@prisma/client";
 // arbeiten können.
 export { ScheduledFlightStatus } from "@prisma/client";
 export type { ScheduleTemplate, ScheduledFlight } from "@prisma/client";
+// Welle 9: ACARS Phase 2-5. Simulator + AcarsEventType enums für die
+// settings-UI (sim-picker) und die heartbeat/event-API endpoints.
+// Type-exports für die pairing-helpers + auto-PIREP-trigger.
+export { Simulator, AcarsEventType } from "@prisma/client";
+export type { AcarsPairingCode, AcarsEvent } from "@prisma/client";
