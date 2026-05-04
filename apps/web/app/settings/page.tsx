@@ -277,6 +277,7 @@ export default async function SettingsPage({
           initialLayout={overlayPrefs.layout}
           initialCardPosition={overlayPrefs.cardPosition}
           initialColors={overlayPrefs.phaseColors}
+          initialBranding={overlayPrefs.branding}
           callsign={user.name}
           overlayUrl={`${process.env.NEXTAUTH_URL ?? 'https://vam.kevindrack.de'}/overlay/${overlayToken}`}
         />

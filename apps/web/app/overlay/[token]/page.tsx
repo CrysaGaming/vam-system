@@ -103,6 +103,15 @@ export default async function OverlayPage({
       overlayLayout: true,
       overlayCardPosition: true,
       overlayPhaseColors: true,
+      // Welle 10 commit 10D: custom-branding. Read directly from DB
+      // here (not via /api/overlay/[token]/data) for two reasons:
+      // (a) the API is the high-rate polling channel — branding is
+      // static across a flight, no point pushing it every 5s; (b)
+      // branding is rendered chrome (logo + CSS-vars) that's set
+      // once at mount, identical pattern to layout/cardPosition.
+      overlayLogoUrl: true,
+      overlayPrimaryColor: true,
+      overlayAccentColor: true,
     },
   });
 
@@ -132,6 +141,29 @@ export default async function OverlayPage({
   // than to surprise a streamer who didn't ask for one.
   const showTrail = mapParam === 'on';
 
+  // ─── Branding-Resolution ─────────────────────────────────
+  // Read-through from the User row. Validation already happened in
+  // updateOverlayBranding (settings server-action) — by the time the
+  // values land in the DB they're either valid or null. We still
+  // shape-narrow to be defensive (e.g., a manual SQL update bypassing
+  // the action wouldn't go through validation).
+  const branding = {
+    logoUrl:
+      typeof user?.overlayLogoUrl === 'string' && user.overlayLogoUrl.length > 0
+        ? user.overlayLogoUrl
+        : null,
+    primaryColor:
+      typeof user?.overlayPrimaryColor === 'string' &&
+      /^#[0-9A-Fa-f]{6}$/.test(user.overlayPrimaryColor)
+        ? user.overlayPrimaryColor
+        : null,
+    accentColor:
+      typeof user?.overlayAccentColor === 'string' &&
+      /^#[0-9A-Fa-f]{6}$/.test(user.overlayAccentColor)
+        ? user.overlayAccentColor
+        : null,
+  };
+
   return (
     <OverlayClient
       token={token}
@@ -139,6 +171,7 @@ export default async function OverlayPage({
       cardPosition={cardPosition}
       phaseColorOverride={phaseColors}
       showTrail={showTrail}
+      branding={branding}
     />
   );
 }

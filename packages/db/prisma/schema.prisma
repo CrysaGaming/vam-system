@@ -287,6 +287,23 @@ model User {
   overlayCardPosition String @default("top-right")
   overlayPhaseColors  Json? // optional override
 
+  // Welle 10 commit 10D: Custom-Branding für streamer-overlay. Alle drei
+  // optional — wenn null/missing, fallback auf default cyan/green theme.
+  // Validation passiert app-layer:
+  //   - overlayLogoUrl: muss valide https-URL sein, max 500 chars,
+  //     darf nur auf bilder verweisen (image/png|jpeg|webp|svg). Server-
+  //     action checkt content-type bevor sie speichert.
+  //   - overlayPrimaryColor / overlayAccentColor: hex-strings #RGB oder
+  //     #RRGGBB, regex-validated.
+  // Logo wird vom client direkt geladen (browser-side fetch), kein
+  // proxying durch unsere domain — keep public-overlay frei von
+  // image-bandwidth-overhead. CSP des overlay-pages erlaubt img-src *
+  // damit beliebige logo-hosts funktionieren (imgur, github, eigene
+  // CDNs etc.).
+  overlayLogoUrl       String?
+  overlayPrimaryColor  String?
+  overlayAccentColor   String?
+
   image            String?
   totalFlightHours Float    @default(0)
   totalFlights     Int      @default(0)

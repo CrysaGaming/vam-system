@@ -81,6 +81,24 @@ export type OverlayDataSource =
   | 'MANUAL'
   | 'REPLAY';
 
+/**
+ * Custom-branding for streamer-overlay (Welle 10 commit 10D).
+ *
+ * Resolved server-side from User.overlayLogoUrl/PrimaryColor/AccentColor
+ * in /overlay/[token]/page.tsx. Each field is independent — a user might
+ * set just a logo, just colors, or a full brand kit. Layouts that opt
+ * into branding pick up `--brand-primary` / `--brand-accent` from the
+ * CSS-vars on the wrapper; the logo is rendered as a fixed-position
+ * image by `<BrandLogo>` regardless of layout choice.
+ *
+ * `null` everywhere = pilot has not set up branding yet → default theme.
+ */
+export type OverlayBranding = {
+  logoUrl: string | null;
+  primaryColor: string | null;
+  accentColor: string | null;
+};
+
 type OverlayData =
   | {
       active: true;
@@ -187,6 +205,7 @@ export function OverlayClient({
   cardPosition = 'top-right',
   phaseColorOverride,
   showTrail = false,
+  branding,
 }: {
   token: string;
   initialLayout: OverlayLayout;
@@ -202,6 +221,13 @@ export function OverlayClient({
    * in the bottom-right corner. Independent of the layout-choice.
    */
   showTrail?: boolean;
+  /**
+   * Welle 10 commit 10D: optional custom-branding (logo + brand colors).
+   * Resolved in page.tsx from User.overlay{Logo,Primary,Accent}*.
+   * When omitted (legacy callers) we treat as fully-null — same as
+   * "no branding configured", default theme everywhere.
+   */
+  branding?: OverlayBranding;
 }) {
   const [data, setData] = useState<OverlayData | null>(null);
   const [hasError, setHasError] = useState(false);
@@ -348,9 +374,42 @@ export function OverlayClient({
 
   return (
     <>
+      {/*
+        Welle 10 commit 10D: branding-CSS-var injection. Sets
+        --brand-primary and --brand-accent on a zero-size root div
+        so they cascade to all fixed-position children below. Layouts
+        don't currently consume these vars in their inline-styles
+        (would require touching every layout-renderer), but the vars
+        are present in the cascade for any current/future inline
+        `style={{ color: 'var(--brand-primary, #7DD3FC)' }}` patterns
+        — providing future layouts a styling-knob without further
+        plumbing. Cost is one empty <div>; no perf or layout impact.
+      */}
+      {(branding?.primaryColor || branding?.accentColor) && (
+        <div
+          style={
+            {
+              position: 'fixed',
+              width: 0,
+              height: 0,
+              overflow: 'hidden',
+              ...(branding.primaryColor && {
+                ['--brand-primary' as string]: branding.primaryColor,
+              }),
+              ...(branding.accentColor && {
+                ['--brand-accent' as string]: branding.accentColor,
+              }),
+            } as React.CSSProperties
+          }
+          aria-hidden="true"
+        />
+      )}
       {layoutEl}
       {showMiniMap && trail.active && (
         <MiniMap trail={trail} layoutPosition={cardPosition} layout={initialLayout} />
+      )}
+      {branding?.logoUrl && (
+        <BrandLogo logoUrl={branding.logoUrl} layoutPosition={cardPosition} layout={initialLayout} />
       )}
     </>
   );
@@ -1529,6 +1588,101 @@ function MiniMap({
           50% { opacity: 0.3; r: 9; }
         }
       `}</style>
+    </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────
+// BRAND LOGO (Welle 10 commit 10D)
+// ────────────────────────────────────────────────────────────
+
+/**
+ * Custom-branding logo for the streamer-overlay. Rendered as a fixed-
+ * position image positioned in the corner *opposite* to the active
+ * card-layout, so it never overlaps with the data-panel.
+ *
+ * Position-resolution per layout:
+ *   - bar-layout:    bar sits top-center; logo defaults to top-left.
+ *     If the streamer wants it elsewhere they can crop in OBS.
+ *   - card/cockpit:  diagonal-opposite of cardPosition. e.g.
+ *     cardPosition='top-right' → logo='bottom-left'. Mini-map (10C)
+ *     also picks a corner; logo + map can co-exist if they both end
+ *     up in different corners after their own conflict-resolution.
+ *
+ * Sizing: capped at 80×80px with object-fit:contain. PNGs/JPGs/SVGs
+ * with non-square aspect ratios scale to fit. The logo doesn't have
+ * background-blur or border — just the raw image. Streamers that want
+ * a frame should bake it into their image before upload.
+ *
+ * Rendered as plain <img>: no Next.js Image component because (a) the
+ * URL points to an arbitrary external host that wasn't whitelisted
+ * in next.config.js (we'd need next/image domains config), and (b) the
+ * overlay is a one-shot render at OBS-source-load time, not a long-
+ * lived gallery — Image's optimization story doesn't help here.
+ *
+ * Failure mode: if logoUrl 404s or has an invalid content-type, the
+ * browser shows a broken-image icon. We don't try to detect this
+ * client-side because the resulting flicker would be worse than the
+ * silent-broken-image. Streamer notices once, fixes the URL, done.
+ */
+function BrandLogo({
+  logoUrl,
+  layoutPosition,
+  layout,
+}: {
+  logoUrl: string;
+  layoutPosition: CardPosition;
+  layout: OverlayLayout;
+}) {
+  // Diagonal-opposite of cardPosition for card/cockpit. Bar sits at
+  // the top, so we default logo to top-left there — top-right is
+  // typically clear in a stream layout (chat/face-cam tends to live
+  // bottom-right or be in a separate scene-area).
+  const logoStyle: React.CSSProperties = (() => {
+    if (layout === 'bar') {
+      return { top: '20px', left: '20px' };
+    }
+    switch (layoutPosition) {
+      case 'top-right':
+        return { bottom: '20px', left: '20px' };
+      case 'top-left':
+        return { bottom: '20px', right: '20px' };
+      case 'bottom-right':
+        return { top: '20px', left: '20px' };
+      case 'bottom-left':
+        return { top: '20px', right: '20px' };
+    }
+  })();
+
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        ...logoStyle,
+        pointerEvents: 'none',
+        // Subtle drop-shadow so the logo reads against any stream
+        // background (light skies, dark cockpits, gameplay scenes).
+        // No blur-backdrop or frame — the streamer's logo is the
+        // brand, not VAM's overlay-chrome.
+        filter: 'drop-shadow(0 4px 12px rgba(0, 0, 0, 0.5))',
+      }}
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={logoUrl}
+        alt=""
+        style={{
+          maxWidth: '80px',
+          maxHeight: '80px',
+          objectFit: 'contain',
+          display: 'block',
+        }}
+        // referrerpolicy='no-referrer' protects the streamer's overlay-
+        // token from leaking into the logo-host's request logs (the
+        // referrer header would otherwise carry the full overlay URL,
+        // including the token).
+        referrerPolicy="no-referrer"
+      />
     </div>
   );
 }

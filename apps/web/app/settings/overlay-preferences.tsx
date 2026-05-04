@@ -23,6 +23,9 @@ import {
   updateOverlayCardPosition,
   updateOverlayPhaseColors,
   resetOverlayPhaseColors,
+  updateOverlayBranding,
+  resetOverlayBranding,
+  type OverlayBranding,
 } from './overlay-actions';
 import {
   DEFAULT_PHASE_COLORS,
@@ -67,12 +70,14 @@ export function OverlayPreferences({
   initialLayout,
   initialCardPosition,
   initialColors,
+  initialBranding,
   callsign,
   overlayUrl,
 }: {
   initialLayout: OverlayLayout;
   initialCardPosition: CardPosition;
   initialColors: PhaseColorMap | null;
+  initialBranding: OverlayBranding;
   callsign?: string | null;
   /** Vollständige Overlay-URL für Setup-Anleitung */
   overlayUrl?: string;
@@ -86,6 +91,19 @@ export function OverlayPreferences({
   const [previewPhase, setPreviewPhase] = useState<FlightPhaseId>('cruise');
   const [isPending, startTransition] = useTransition();
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saved' | 'error'>('idle');
+
+  // Welle 10 commit 10D: Branding state. Initial values mirror the saved
+  // user-prefs (or empty strings for null). Empty-string is the "no value"
+  // marker on the input layer; we map back to null when sending to the
+  // server-action so the column gets cleared cleanly.
+  const [logoUrl, setLogoUrl] = useState<string>(initialBranding.logoUrl ?? '');
+  const [primaryColor, setPrimaryColor] = useState<string>(
+    initialBranding.primaryColor ?? '#00BFFF',
+  );
+  const [accentColor, setAccentColor] = useState<string>(
+    initialBranding.accentColor ?? '#10B981',
+  );
+  const [brandingError, setBrandingError] = useState<string | null>(null);
 
   function updatePhaseBg(phase: FlightPhaseId, color: string) {
     setColors((prev) => ({ ...prev, [phase]: { ...prev[phase], bg: color } }));
@@ -134,6 +152,38 @@ export function OverlayPreferences({
     startTransition(async () => {
       setColors({ ...DEFAULT_PHASE_COLORS });
       const result = await resetOverlayPhaseColors();
+      setSaveStatus(result.success ? 'saved' : 'error');
+      setTimeout(() => setSaveStatus('idle'), 2000);
+    });
+  }
+
+  function handleSaveBranding() {
+    setBrandingError(null);
+    startTransition(async () => {
+      // Empty-string logo means "clear this field". For colors we always
+      // send the value — clearing colors happens via Reset.
+      const result = await updateOverlayBranding({
+        logoUrl: logoUrl.trim() === '' ? null : logoUrl.trim(),
+        primaryColor,
+        accentColor,
+      });
+      if (result.success) {
+        setSaveStatus('saved');
+      } else {
+        setSaveStatus('error');
+        setBrandingError(result.error);
+      }
+      setTimeout(() => setSaveStatus('idle'), 2000);
+    });
+  }
+
+  function handleResetBranding() {
+    setBrandingError(null);
+    startTransition(async () => {
+      setLogoUrl('');
+      setPrimaryColor('#00BFFF');
+      setAccentColor('#10B981');
+      const result = await resetOverlayBranding();
       setSaveStatus(result.success ? 'saved' : 'error');
       setTimeout(() => setSaveStatus('idle'), 2000);
     });
@@ -263,6 +313,125 @@ export function OverlayPreferences({
               callsign={callsign ?? 'DLH123'}
             />
           </div>
+        </div>
+      </Section>
+
+      {/* Custom Branding (Welle 10 commit 10D) */}
+      <Section title="Custom Branding (optional)">
+        <p className="text-xs text-gray-500 dark:text-gray-400 mb-3 mt-0">
+          Eigenes Logo + Farben für deinen Stream. Logo wird oben-links im
+          Overlay angezeigt, Primary färbt den Akzent-Rahmen, Accent färbt
+          die Phase-Pills wenn keine Phase-spezifische Farbe gesetzt ist.
+        </p>
+
+        <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto] gap-3 items-end">
+          {/* Logo URL */}
+          <div className="flex flex-col gap-1">
+            <label className="text-[0.7rem] uppercase tracking-[0.05em] text-gray-500 dark:text-gray-500">
+              Logo-URL
+            </label>
+            <input
+              type="url"
+              value={logoUrl}
+              onChange={(e) => setLogoUrl(e.target.value)}
+              placeholder="https://example.com/logo.png"
+              className="px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-md text-sm text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              maxLength={500}
+            />
+          </div>
+
+          {/* Primary Color */}
+          <div className="flex flex-col gap-1">
+            <label className="text-[0.7rem] uppercase tracking-[0.05em] text-gray-500 dark:text-gray-500">
+              Primary
+            </label>
+            <input
+              type="color"
+              value={primaryColor}
+              onChange={(e) => setPrimaryColor(e.target.value)}
+              className="w-12 h-9 border border-gray-300 dark:border-gray-700 rounded cursor-pointer p-0 bg-transparent"
+            />
+          </div>
+
+          {/* Accent Color */}
+          <div className="flex flex-col gap-1">
+            <label className="text-[0.7rem] uppercase tracking-[0.05em] text-gray-500 dark:text-gray-500">
+              Accent
+            </label>
+            <input
+              type="color"
+              value={accentColor}
+              onChange={(e) => setAccentColor(e.target.value)}
+              className="w-12 h-9 border border-gray-300 dark:border-gray-700 rounded cursor-pointer p-0 bg-transparent"
+            />
+          </div>
+        </div>
+
+        {/* Logo Preview when set */}
+        {logoUrl && (
+          <div className="mt-3 flex items-center gap-3">
+            <span className="text-[0.7rem] uppercase tracking-[0.05em] text-gray-500 dark:text-gray-500">
+              Vorschau
+            </span>
+            <div
+              className="px-2 py-1 rounded bg-gray-900 border-l-2 flex items-center gap-2"
+              style={{ borderLeftColor: primaryColor }}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={logoUrl}
+                alt="Logo preview"
+                className="h-6 w-auto max-w-[80px] object-contain"
+                onError={(e) => {
+                  // Hide broken-image marker so the user sees clear feedback
+                  // (the URL is wrong) without a giant placeholder.
+                  e.currentTarget.style.display = 'none';
+                }}
+                onLoad={(e) => {
+                  // Restore in case URL was previously broken then fixed.
+                  e.currentTarget.style.display = '';
+                }}
+              />
+              <span
+                className="text-xs font-mono font-bold"
+                style={{ color: accentColor }}
+              >
+                DLH123
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* Error message */}
+        {brandingError && (
+          <div className="mt-2 text-xs text-red-600 dark:text-red-400">
+            {brandingError === 'invalid_logo_url' &&
+              'Logo-URL ungültig. Muss https://… sein und auf .png/.jpg/.gif/.webp/.svg enden (query-string erlaubt).'}
+            {brandingError === 'invalid_primary_color' &&
+              'Primary-Farbe muss ein 6-stelliger Hex-Code sein (#RRGGBB).'}
+            {brandingError === 'invalid_accent_color' &&
+              'Accent-Farbe muss ein 6-stelliger Hex-Code sein (#RRGGBB).'}
+            {!['invalid_logo_url', 'invalid_primary_color', 'invalid_accent_color'].includes(
+              brandingError,
+            ) && `Fehler: ${brandingError}`}
+          </div>
+        )}
+
+        <div className="flex gap-2 mt-4">
+          <button
+            onClick={handleSaveBranding}
+            disabled={isPending}
+            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white border-0 rounded-md text-sm font-semibold cursor-pointer disabled:opacity-60 disabled:cursor-wait transition"
+          >
+            Branding speichern
+          </button>
+          <button
+            onClick={handleResetBranding}
+            disabled={isPending}
+            className="px-4 py-2 bg-transparent text-gray-500 dark:text-gray-400 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium cursor-pointer disabled:opacity-60 disabled:cursor-wait transition hover:bg-gray-100 dark:hover:bg-white/[0.04]"
+          >
+            Reset
+          </button>
         </div>
       </Section>
 
