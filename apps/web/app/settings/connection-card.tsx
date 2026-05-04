@@ -3,7 +3,7 @@
 import Link from 'next/link';
 
 type Props = {
-  provider: 'discord' | 'vatsim' | 'ivao';
+  provider: 'discord' | 'vatsim' | 'ivao' | 'twitch';
   name: string;
   icon: string;
   colorClass: string;

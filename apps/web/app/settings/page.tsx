@@ -56,6 +56,16 @@ export default async function SettingsPage({
       vatsimVerifiedAt: true,
       ivaoVid: true,
       ivaoVerifiedAt: true,
+      // Welle 11 commit 11C: Twitch-account-fields. Username + verifiedAt
+      // werden in der ConnectionCard angezeigt; userId ist optional (in
+      // der card als ID-fallback wenn username null wäre, aber username
+      // ist beim erfolgreichen connect immer gesetzt). Tokens lesen wir
+      // hier NICHT — die brauchen wir nur in den OAuth-routes und im
+      // bot-EventSub. Settings-page-load soll keine secrets in die
+      // server-component-render-payload ziehen.
+      twitchUserId: true,
+      twitchUsername: true,
+      twitchVerifiedAt: true,
       simBriefUsername: true,
     },
   });
@@ -187,6 +197,41 @@ export default async function SettingsPage({
           accountId={user.ivaoVid?.toString() ?? null}
           verified={!!user.ivaoVerifiedAt}
           verifiedAt={user.ivaoVerifiedAt}
+          canDisconnect={true}
+        />
+
+        {/*
+          Welle 11 commit 11C: Twitch-card. Stack mit den anderen
+          netzwerk-cards weil "account-verknüpfung" die richtige
+          mental-map ist (eine eigene "streaming"-tab wäre verwirrend
+          gewesen — der pilot denkt "ich link mein twitch-account",
+          nicht "ich konfiguriere streaming"). Twitch-spezifika:
+            - accountId zeigt twitchUsername (display-name) statt der
+              numerischen user-id — viel besser scannbar im UI.
+              twitchUsername ist beim erfolgreichen connect immer
+              gesetzt; defensives toString-fallback für die unwahr-
+              scheinliche edge-case dass nur die userId persistiert
+              wurde.
+            - Lila brand-color (#9146FF, twitch's offizieller hex)
+              via bg-purple-500 — exakte twitch-purple ist nicht in
+              der tailwind-default-palette, der unterschied ist im
+              kleinen 40px-circle nicht relevant.
+            - icon = 📺 — generisches stream-symbol, nicht das twitch-
+              glitch-logo (vermeidet trademark-konflikt + braucht keine
+              SVG-import-pipeline).
+            - canDisconnect=true: pilot kann jederzeit unlinken,
+              callback /api/auth/twitch/disconnect cleart DB + revoked
+              token bei twitch.
+        */}
+        <ConnectionCard
+          provider="twitch"
+          name="Twitch"
+          icon="📺"
+          colorClass="bg-purple-500"
+          connected={!!user.twitchUserId}
+          accountId={user.twitchUsername ?? user.twitchUserId ?? null}
+          verified={!!user.twitchVerifiedAt}
+          verifiedAt={user.twitchVerifiedAt}
           canDisconnect={true}
         />
       </div>
