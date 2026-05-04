@@ -3,22 +3,25 @@ import { redirect } from 'next/navigation';
 import { prisma } from '@vam/db';
 import Link from 'next/link';
 import { DeleteScheduleTemplateButton } from './delete-template-button';
+import { GenerateInstancesButton } from './generate-instances-button';
 import { formatDaysOfWeekDe, formatMinuteUtc } from '@/lib/schedule';
 
 /**
  * /airline/schedule — Schedule-template-verwaltung für airline-admins
- * (Welle 7 commit 7B-1).
+ * (Welle 7 commit 7B-1 + 7B-2).
  *
  * Listet alle templates der eigenen airline (active + inactive) mit
- * edit/delete-actions. Spiegelt /airline/routes pattern: server-component
- * für initial-render, table layout, action-buttons rechts.
+ * edit/delete-actions und einem Generate-button (7B-2) der aus aktiven
+ * templates konkrete ScheduledFlight-instanzen materialisiert. Spiegelt
+ * /airline/routes pattern: server-component für initial-render, table
+ * layout, action-buttons rechts.
  *
  * Spalten: Route, Label, Wochentage, Zeit (UTC), Gültigkeit, Aircraft,
  * Status, Aktionen.
  *
- * Out-of-scope für 7B-1:
- * - Generate-button für instances (kommt 7B-2)
- * - Instance-grid-view (kommt 7B-3)
+ * Out-of-scope:
+ * - Instance-grid-view mit week-overlay (kommt 7B-3)
+ * - Instance-level cancel/reschedule
  * - Inline-quick-edit
  */
 export default async function AirlineSchedulePage() {
@@ -91,16 +94,28 @@ export default async function AirlineSchedulePage() {
           </div>
         </header>
 
-        {/* Help-text für leeres / volles state */}
+        {/* Generator-section: button + help-text. Bewusst oberhalb der
+            template-tabelle weil das die häufigste workflow-action ist
+            (admin lockt vorbei → "wieviele instances habe ich für nächste
+            woche generiert?" → ggf. neu triggern). */}
         {templates.length > 0 && (
-          <div className="mb-6 p-3 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg text-sm text-blue-700 dark:text-blue-300">
-            <p>
-              <strong>So funktioniert&apos;s:</strong> Templates definieren
-              wiederkehrende muster (z.B. Mo+Mi+Fr 14:30 UTC). Der Generator
-              erstellt daraus konkrete <em>scheduled flights</em>, die piloten
-              dann buchen können. Generator-button kommt mit dem nächsten commit.
-            </p>
-          </div>
+          <section className="mb-6 p-4 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="flex-1 min-w-0">
+                <h2 className="text-sm font-semibold text-gray-900 dark:text-white">
+                  Scheduled Flights generieren
+                </h2>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 max-w-2xl">
+                  Erstellt aus den aktiven templates konkrete instances für die
+                  nächsten N tage. Idempotent — re-runs erzeugen keine
+                  duplikate. Aktuell: <strong>{totalInstances}</strong>{' '}
+                  generierte instances aus <strong>{activeCount}</strong>{' '}
+                  aktiven templates.
+                </p>
+              </div>
+              <GenerateInstancesButton activeTemplateCount={activeCount} />
+            </div>
+          </section>
         )}
 
         {/* Empty-state oder table */}

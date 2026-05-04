@@ -4,7 +4,11 @@ import { auth } from '@/auth';
 import { prisma } from '@vam/db';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
-import { parseMinuteUtc } from '@/lib/schedule';
+import {
+  parseMinuteUtc,
+  generateInstancesForAirline,
+  type BulkGenerateResult,
+} from '@/lib/schedule';
 
 /**
  * Schedule-template management server-actions (Welle 7 commit 7B-1).
@@ -367,5 +371,74 @@ export async function deleteScheduleTemplate(
       template._count.scheduledFlights > 0
         ? `Template ${template.route.flightNumber} gelöscht (${template._count.scheduledFlights} instances mit-entfernt).`
         : `Template ${template.route.flightNumber} gelöscht.`,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Generate scheduled-flight instances (Welle 7 commit 7B-2)
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Bulk-generation der ScheduledFlight-instances für alle aktiven templates
+ * der eigenen airline über N tage in die zukunft.
+ *
+ * Validierung: daysAhead muss zwischen 1 und 90 liegen. Untergrenze
+ * verhindert leere generation; obergrenze verhindert dass admin
+ * versehentlich 5 jahre an instances erzeugt (bei zu vielen aktiven
+ * templates wären das schnell tausende rows + UI-überlauf).
+ *
+ * Idempotent (über @/lib/schedule helper) — re-runs skippen existierende
+ * slots. Admin kann den button mehrmals klicken ohne duplikate zu
+ * erzeugen.
+ *
+ * Returns BulkGenerateResult für UI-feedback (welche templates wieviele
+ * neue instances bekommen haben). Server-action signature ist async
+ * function callable vom client mit dem (FormData) → Result pattern.
+ */
+const GenerateScheduleSchema = z.object({
+  daysAhead: z.coerce.number().int().min(1).max(90),
+});
+
+export type GenerateScheduleResult =
+  | { ok: true; message: string; result: BulkGenerateResult }
+  | { ok: false; message: string };
+
+export async function generateScheduleInstances(
+  formData: FormData,
+): Promise<GenerateScheduleResult> {
+  const { airlineId } = await requireAirlineAdmin();
+
+  const parsed = GenerateScheduleSchema.safeParse({
+    daysAhead: formData.get('daysAhead'),
+  });
+  if (!parsed.success) {
+    return {
+      ok: false,
+      message: `Ungültiger zeitraum: ${parsed.error.issues[0]?.message ?? 'unknown'}`,
+    };
+  }
+
+  const result = await generateInstancesForAirline(
+    airlineId,
+    parsed.data.daysAhead,
+  );
+
+  revalidatePath('/airline/schedule');
+
+  if (result.templates === 0) {
+    return {
+      ok: false,
+      message:
+        'Keine aktiven templates gefunden. Lege erst ein template an oder aktiviere ein bestehendes.',
+    };
+  }
+
+  return {
+    ok: true,
+    message:
+      result.created > 0
+        ? `${result.created} neue instances generiert (${result.skipped} schon vorhanden, ${result.templates} templates verarbeitet).`
+        : `Alles aktuell — keine neuen instances nötig (${result.skipped} bereits vorhanden, ${result.templates} templates verarbeitet).`,
+    result,
   };
 }
