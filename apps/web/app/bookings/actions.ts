@@ -468,3 +468,135 @@ export async function cloneBooking(
 
   return { id: booking.id };
 }
+// ─────────────────────────────────────────────────────────────────────────
+// Booking from scheduled flight (Welle 7 commit 7C)
+// ─────────────────────────────────────────────────────────────────────────
+
+const CreateBookingFromScheduledFlightSchema = z.object({
+  scheduledFlightId: z.string().cuid(),
+  intendedNetwork: z.nativeEnum(NetworkType).optional(),
+});
+
+/**
+ * Create a Booking by claiming an existing ScheduledFlight slot.
+ *
+ * Mirrors createBooking's policy (active-booking-guard, airline-scope,
+ * 7d TTL) but inherits route + departure-time from the slot rather than
+ * accepting them as input. The user effectively picks a pre-planned
+ * timeslot from the airline's published schedule.
+ *
+ * Race-handling: two pilots tapping the same slot at the same moment
+ * could both pass our preliminary checks. The atomic claim is done via
+ * `updateMany({ where: { status: 'Planned', bookingId: null } })` —
+ * Postgres serializes these and exactly one returns count=1. The loser
+ * sees a friendly error and re-renders the slot as taken.
+ *
+ * Transaction order:
+ *   1. Claim the slot (status → Booked, bookingId still null)
+ *   2. Create the Booking row (gets new id)
+ *   3. Set bookingId on the slot (now safe from race — we own it)
+ * If step 2 or 3 throws, the transaction reverts the claim (slot returns
+ * to Planned, bookingId still null). User can retry.
+ *
+ * scheduledDeparture: copied from slot.departureTime (UTC). User does NOT
+ * get to override it for scheduled flights — the schedule is the airline's
+ * commitment. If they want flexible timing, they use Free Flight.
+ *
+ * NetworkType: optional, same semantics as createBooking — UI hint, not
+ * enforced. Actual network comes from PIREP/LiveSession later.
+ */
+export async function createBookingFromScheduledFlight(
+  input: z.input<typeof CreateBookingFromScheduledFlightSchema>,
+) {
+  const { scheduledFlightId, intendedNetwork } =
+    CreateBookingFromScheduledFlightSchema.parse(input);
+
+  const { id: userId, airlineId } = await requireUserWithAirline();
+
+  // Active-booking guard — same constraint as createBooking. Done OUTSIDE
+  // the transaction because it's read-only and we want to fail fast before
+  // touching the slot. There's a tiny TOCTOU window where the user could
+  // create another booking concurrently — but the worst case is they have
+  // two active bookings, which is a UX issue, not a data-corruption one.
+  const existingActive = await prisma.booking.findFirst({
+    where: {
+      userId,
+      airlineId,
+      state: { in: ['Created', 'SimBriefDispatched'] },
+    },
+    select: { id: true },
+  });
+  if (existingActive) {
+    throw new Error(
+      'Du hast bereits ein aktives Booking. Storniere oder beende es zuerst.',
+    );
+  }
+
+  // Pre-fetch slot details for routeId + scheduledDeparture. Done outside
+  // the transaction for the same reason as above (read-only, fail-fast on
+  // not-found / wrong-airline). The actual claim re-checks status + bookingId
+  // atomically.
+  const slot = await prisma.scheduledFlight.findUnique({
+    where: { id: scheduledFlightId },
+    select: {
+      id: true,
+      airlineId: true,
+      routeId: true,
+      departureTime: true,
+      status: true,
+      bookingId: true,
+    },
+  });
+  if (!slot || slot.airlineId !== airlineId) {
+    throw new Error('Scheduled flight not found in your airline');
+  }
+  if (slot.status !== 'Planned' || slot.bookingId !== null) {
+    throw new Error('Dieser slot ist bereits vergeben oder cancelled.');
+  }
+
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+  const booking = await prisma.$transaction(async (tx) => {
+    // (1) Atomic claim. updateMany returns count=0 if the WHERE no longer
+    // matches (race lost). This is the linearization point for slot
+    // ownership.
+    const claim = await tx.scheduledFlight.updateMany({
+      where: {
+        id: scheduledFlightId,
+        status: 'Planned',
+        bookingId: null,
+      },
+      data: { status: 'Booked' },
+    });
+    if (claim.count !== 1) {
+      throw new Error('Dieser slot wurde gerade von jemand anderem gebucht.');
+    }
+
+    // (2) Create booking. scheduledDeparture comes from the slot — UTC,
+    // already aligned with the schedule.
+    const created = await tx.booking.create({
+      data: {
+        airlineId,
+        userId,
+        routeId: slot.routeId,
+        intendedNetwork,
+        scheduledDeparture: slot.departureTime,
+        expiresAt,
+      },
+      select: { id: true, state: true, expiresAt: true },
+    });
+
+    // (3) Link booking back to slot. Now safe — we hold the claim.
+    await tx.scheduledFlight.update({
+      where: { id: scheduledFlightId },
+      data: { bookingId: created.id },
+    });
+
+    return created;
+  });
+
+  revalidatePath('/bookings');
+  revalidatePath('/airline/schedule/instances');
+
+  return booking;
+}
