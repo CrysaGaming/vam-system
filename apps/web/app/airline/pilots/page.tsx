@@ -397,6 +397,17 @@ function PersonnelRow({
             )}
           </div>
         </Link>
+        {/* Welle 13E-6: Admin-quick-link zur per-pilot license-management
+            page. Bewusst NICHT in den outer-link reingenestet (würde
+            invalid-HTML — verschachtelte <a>) sondern als eigene zeile
+            unter dem name+role-block. Sehr subtil styled damit es die
+            primäre name-action nicht überschattet. */}
+        <Link
+          href={`/airline/pilots/${pilot.id}`}
+          className="inline-flex items-center gap-1 mt-1 text-[11px] text-gray-500 dark:text-gray-500 hover:text-indigo-600 dark:hover:text-indigo-400 transition"
+        >
+          <span aria-hidden="true">📜</span> Lizenzen verwalten
+        </Link>
       </td>
 
       {/* Rank: dropdown */}
