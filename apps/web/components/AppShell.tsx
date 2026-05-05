@@ -612,6 +612,12 @@ function Sidebar({ user, pathname }: SidebarProps) {
                 <NavLink href="/admin/pilots" pathname={pathname} icon="👥" label="Alle Piloten" />
                 <NavLink href="/admin/requests" pathname={pathname} icon="📥" label="Requests" />
                 <NavLink href="/admin/roles" pathname={pathname} icon="🔐" label="Rollen" />
+                {/* Welle 13E-11: FlightSchools sind cross-airline NPC-orgs, also
+                    system-admin-only (nicht airline-admin). Sichtbar für isAdmin
+                    unabhängig vom career-mode-toggle, weil das CRUD-tool für
+                    den system-admin auch dann erreichbar bleiben muss wenn auf
+                    seiner persönlichen airline career deaktiviert ist. */}
+                <NavLink href="/admin/flight-schools" pathname={pathname} icon="🎓" label="Flugschulen" />
               </>
             )}
           </NavSection>
