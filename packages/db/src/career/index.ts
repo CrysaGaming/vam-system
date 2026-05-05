@@ -90,3 +90,22 @@ export {
   type SubmitTheoryExamInput,
   type SubmitTheoryExamResult,
 } from "./theory-exam.js";
+
+// 13E-14: practical-exam helpers (PIREP-based pilot flow + instructor pass/fail)
+export {
+  MIN_FLIGHT_TIME_MIN_BY_LICENSE,
+  getMinFlightTimeForLicense,
+  validatePirepForPracticalExam,
+  markPirepAsPracticalExam,
+  unsetPracticalExamPirep,
+  passPracticalExam,
+  failPracticalExam,
+  listEnrollmentsAwaitingPracticalReview,
+  type PirepCandidate,
+  type ValidationResult,
+  type MarkPirepInput,
+  type PassPracticalExamInput,
+  type PassPracticalExamResult,
+  type FailPracticalExamInput,
+  type AwaitingReviewFilters,
+} from "./practical-exam.js";
