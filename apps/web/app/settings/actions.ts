@@ -573,3 +573,42 @@ export async function updateRouteSimBriefOverlay(
 
   return { success: true };
 }
+
+/**
+ * Welle 13D-1: User-level economy opt-in.
+ *
+ * Toggelt User.economyEnabled. Default ist false (alle existing user
+ * additive-migrated). Erst wenn DIESER flag UND airline.economyEnabled
+ * beide true sind, läuft processFlightEconomy beim PIREP-approval und
+ * bucht wallet-transactions. Solange einer der beiden flags false ist,
+ * skippt der orchestrator mit reason="airline-economy-disabled" oder
+ * "user-economy-disabled" — stille no-ops, kein UI-impact.
+ *
+ * Side-effects beim TOGGLE:
+ *   - Disable: keine retroaktive löschung. Existing wallets + transactions
+ *     bleiben in DB (audit-trail). Künftige PIREPs werden nicht mehr
+ *     gebucht. Re-enable wirkt nur prospektiv.
+ *   - Enable: kein wallet wird hier eager erstellt. Lazy creation passiert
+ *     beim ersten PIREP-approval (siehe processFlightEconomy → getOrCreate-
+ *     Wallet). Wenn user noch nie geflogen ist, gibt's noch nichts zu sehen.
+ *
+ * Bewusst KEINE prüfung ob airline.economyEnabled hier — der user-toggle
+ * ist orthogonal. Wenn die airline-flag noch off ist, sieht der user
+ * im UI einen hint, aber der toggle selbst ist set-bar.
+ */
+export async function setUserEconomyEnabled(enabled: boolean) {
+  const session = await auth();
+  if (!session?.user) throw new Error('Unauthorized');
+
+  await prisma.user.update({
+    where: { id: session.user.id },
+    data: { economyEnabled: enabled },
+  });
+
+  // Dashboard zeigt seit 13D-2 die WalletCard wenn beide flags true sind
+  // — also auch revalidaten damit der toggle sofort wirkt.
+  revalidatePath('/settings');
+  revalidatePath('/dashboard');
+
+  return { success: true, economyEnabled: enabled };
+}

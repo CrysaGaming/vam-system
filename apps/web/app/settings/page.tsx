@@ -22,6 +22,7 @@ import { CollapsibleSection } from './_collapsible-section';
 import { SettingsTabs } from './settings-tabs';
 import { AcarsCard } from './acars-card';
 import { getAcarsStatus } from './acars-actions';
+import { EconomyCard } from './economy-card';
 
 /**
  * Settings page — refactored from a long single-column layout into 4
@@ -67,6 +68,15 @@ export default async function SettingsPage({
       twitchUsername: true,
       twitchVerifiedAt: true,
       simBriefUsername: true,
+      // Welle 13D-1: economy-flag + airline-flag für die <EconomyCard>
+      // im Profil-tab. user.economyEnabled ist der toggle-state, die
+      // airline-flag dient für den hint-text wenn beide voneinander
+      // abhängen. Wenn user.airlineId null, ist airline.economyEnabled
+      // ebenfalls null.
+      economyEnabled: true,
+      airline: {
+        select: { economyEnabled: true },
+      },
     },
   });
 
@@ -118,33 +128,50 @@ export default async function SettingsPage({
   //     messages remain visible regardless of which tab is open. ===
 
   const profileContent = (
-    <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6">
-      <h2 className="text-sm uppercase tracking-wider text-gray-500 mb-4">
-        Profil
-      </h2>
-      <div className="flex items-center gap-4">
-        {/* user.image wird in <picture> gewrapped — siehe
-            components/AppShell.tsx:BrandLink für den vollen kontext zur
-            preload-warning + warum comments außerhalb des ternary
-            stehen müssen (Turbopack-comment-stripping bug). */}
-        {user.image ? (
-          <picture>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={user.image}
-              alt={user.name ?? 'Avatar'}
-              className="w-16 h-16 rounded-full border border-gray-300 dark:border-gray-700"
-            />
-          </picture>
-        ) : (
-          <div className="w-16 h-16 rounded-full bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700" />
-        )}
-        <div>
-          <p className="text-lg font-semibold">{user.name ?? 'Unbenannt'}</p>
-          <p className="text-sm text-gray-500 dark:text-gray-400">{user.email}</p>
+    <>
+      <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6">
+        <h2 className="text-sm uppercase tracking-wider text-gray-500 mb-4">
+          Profil
+        </h2>
+        <div className="flex items-center gap-4">
+          {/* user.image wird in <picture> gewrapped — siehe
+              components/AppShell.tsx:BrandLink für den vollen kontext zur
+              preload-warning + warum comments außerhalb des ternary
+              stehen müssen (Turbopack-comment-stripping bug). */}
+          {user.image ? (
+            <picture>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={user.image}
+                alt={user.name ?? 'Avatar'}
+                className="w-16 h-16 rounded-full border border-gray-300 dark:border-gray-700"
+              />
+            </picture>
+          ) : (
+            <div className="w-16 h-16 rounded-full bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700" />
+          )}
+          <div>
+            <p className="text-lg font-semibold">{user.name ?? 'Unbenannt'}</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">{user.email}</p>
+          </div>
         </div>
+      </section>
+
+      {/* Welle 13D-1: Economy opt-in. Bewusst im Profil-tab statt
+          eigene tab — economy-features sind persönliche präferenzen
+          (wie der avatar oder die display-name), keine separate
+          domain. Sichtbar für ALLE user (auch ohne airline) damit
+          das mental-model "ich aktivier das, sobald airline ready
+          ist" möglich bleibt. EconomyCard rendert eigene hint-states
+          basierend auf hasAirline + airlineEconomyEnabled. */}
+      <div className="mt-6">
+        <EconomyCard
+          initialEnabled={user.economyEnabled}
+          airlineEconomyEnabled={user.airline?.economyEnabled ?? null}
+          hasAirline={!!user.airline}
+        />
       </div>
-    </section>
+    </>
   );
 
   const connectionsContent = (

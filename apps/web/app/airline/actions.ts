@@ -89,6 +89,10 @@ export type AirlineSettings = {
   primaryColor: string | null;
   secondaryColor: string | null;
   publicVisible: boolean;
+  // Welle 13D-1: airline-weite economy-flag. Required für wallet-features.
+  // Kombination mit user.economyEnabled — beide flags müssen true sein
+  // damit processFlightEconomy beim PIREP-approval läuft.
+  economyEnabled: boolean;
 };
 
 /**
@@ -533,6 +537,12 @@ const AirlineSettingsSchema = z.object({
     .optional()
     .nullable(),
   publicVisible: z.boolean(),
+  // Welle 13D-1: airline-weite economy-flag. Default beim erstem öffnen
+  // der settings ist false (additive migration für existing airlines).
+  // Form-checkbox kann den admin opt-in lassen; UI zeigt eine warnung
+  // dass das nur bei der ersten enable einen "frischen" wallet-state
+  // bedeutet — disable + re-enable behält existing transactions.
+  economyEnabled: z.boolean(),
 });
 
 /** Read airline settings for the admin's airline. */
@@ -553,6 +563,7 @@ export async function getAirlineSettings(): Promise<AirlineSettings> {
     primaryColor: a.primaryColor,
     secondaryColor: a.secondaryColor,
     publicVisible: a.publicVisible,
+    economyEnabled: a.economyEnabled,
   };
 }
 
@@ -600,6 +611,13 @@ export async function updateAirlineSettings(
         primaryColor: parsed.primaryColor?.toUpperCase() || null,
         secondaryColor: parsed.secondaryColor?.toUpperCase() || null,
         publicVisible: parsed.publicVisible,
+        // Welle 13D-1: economy-flag durchreichen. Disable hat KEINE
+        // retroaktive wirkung — existing wallets/transactions bleiben
+        // erhalten (audit-trail). Re-enable wirkt nur prospektiv auf
+        // künftige PIREP-approvals. Kein eager wallet-create hier; lazy
+        // beim ersten approval via getOrCreateWallet (siehe processFlight-
+        // Economy in @vam/db).
+        economyEnabled: parsed.economyEnabled,
       },
     });
   } catch (e: unknown) {

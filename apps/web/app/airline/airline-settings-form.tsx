@@ -33,24 +33,39 @@ export function AirlineSettingsForm({ initial }: Props) {
     setError(null);
     setSaved(false);
 
-    const name = (formData.get('name') as string).trim();
-    const icao = (formData.get('icao') as string).trim().toUpperCase();
-    const callsign = (formData.get('callsign') as string).trim() || null;
-    const iata = (formData.get('iata') as string).trim() || null;
-    const logoUrl = (formData.get('logoUrl') as string).trim() || null;
+    // Defensive null-coalescing für FormData.get(): disabled inputs werden
+    // NICHT in FormData submitted (HTML-spec). icao ist disabled wenn
+    // !icaoUnlocked → formData.get('icao') ist null. Pre-existing latent
+    // bug der erst mit 13D-1 manifestiert wurde, weil admins jetzt häufiger
+    // speichern ohne ICAO zu unlocken (z.B. nur economyEnabled toggle).
+    // Fallback auf initial.<field> wo das spec-mässig angemessen ist
+    // (sprich: icao wird vom DB-state genommen wenn das input disabled war,
+    // wir wollen keine andere semantik dafür).
+    const name = ((formData.get('name') as string | null) ?? initial.name).trim();
+    const icao = ((formData.get('icao') as string | null) ?? initial.icao).trim().toUpperCase();
+    const callsign = ((formData.get('callsign') as string | null) ?? '').trim() || null;
+    const iata = ((formData.get('iata') as string | null) ?? '').trim() || null;
+    const logoUrl = ((formData.get('logoUrl') as string | null) ?? '').trim() || null;
     // Welle 8 branding fields
-    const tagline = (formData.get('tagline') as string).trim() || null;
-    const description = (formData.get('description') as string).trim() || null;
-    const websiteUrl = (formData.get('websiteUrl') as string).trim() || null;
+    const tagline = ((formData.get('tagline') as string | null) ?? '').trim() || null;
+    const description = ((formData.get('description') as string | null) ?? '').trim() || null;
+    const websiteUrl = ((formData.get('websiteUrl') as string | null) ?? '').trim() || null;
     const primaryColor =
-      (formData.get('primaryColor') as string).trim().toUpperCase() || null;
+      ((formData.get('primaryColor') as string | null) ?? '').trim().toUpperCase() || null;
     const secondaryColor =
-      (formData.get('secondaryColor') as string).trim().toUpperCase() || null;
+      ((formData.get('secondaryColor') as string | null) ?? '').trim().toUpperCase() || null;
     // Checkbox: present only when checked. We invert: input is named
     // "publicHidden" (default unchecked = publicVisible=true, the
     // privacy-friendly opt-out). This makes the form control match how
     // a user thinks about the action ("hide my airline").
     const publicVisible = formData.get('publicHidden') !== 'on';
+
+    // Welle 13D-1: Economy-flag. Direkt-checkbox (kein invert) — der
+    // admin denkt "economy aktivieren" als positives opt-in, nicht als
+    // verstecken. Default beim ersten render = current DB-state, nicht
+    // hardcoded false (sonst würde re-saven der form ohne änderung den
+    // toggle versehentlich abschalten).
+    const economyEnabled = formData.get('economyEnabled') === 'on';
 
     startTransition(async () => {
       try {
@@ -66,6 +81,7 @@ export function AirlineSettingsForm({ initial }: Props) {
           primaryColor,
           secondaryColor,
           publicVisible,
+          economyEnabled,
         });
         setSaved(true);
         setIcaoUnlocked(false); // re-lock after save so next edit needs unlock again
@@ -319,6 +335,45 @@ export function AirlineSettingsForm({ initial }: Props) {
                 </span>
               </label>
             </div>
+          </div>
+        </div>
+
+        {/* Welle 13D-1: Economy-section. Eigene section unter Branding,
+            visuell getrennt durch border-top weil das ein anderer
+            domain-bereich ist (geld + transactions, nicht presentation).
+            Aktivieren ist airline-weit — alle members die ihren persönlichen
+            economyEnabled-toggle aktiviert haben, bekommen ab dem nächsten
+            approved PIREP wallet-bewegungen. Disable wirkt nur prospektiv,
+            existing wallets/transactions bleiben in DB als audit-trail. */}
+        <div className="pt-4 mt-4 border-t border-gray-200 dark:border-gray-800">
+          <h3 className="text-sm font-semibold mb-3">Economy (Beta)</h3>
+
+          <div>
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                name="economyEnabled"
+                defaultChecked={initial.economyEnabled}
+                className="mt-0.5"
+              />
+              <span className="text-xs text-gray-500">
+                <strong className="block text-sm text-gray-700 dark:text-gray-300 mb-0.5">
+                  Economy für diese Airline aktivieren
+                </strong>
+                Schaltet VAM$-Wallet, Salary-Auszahlungen und Revenue-/
+                Expense-Tracking pro Flug für die Airline frei. Beim ersten
+                approved PIREP wird automatisch ein Airline-Wallet mit
+                Start-Kreditrahmen angelegt. Damit ein Pilot tatsächlich
+                Buchungen erhält, muss er ZUSÄTZLICH seinen persönlichen
+                Economy-Toggle in den Profil-Einstellungen aktivieren.
+                <br />
+                <br />
+                <em className="not-italic text-gray-400 dark:text-gray-500">
+                  Deaktivieren stoppt nur künftige Buchungen — bestehende
+                  Wallets und Transaktionen bleiben als Audit-Trail erhalten.
+                </em>
+              </span>
+            </label>
           </div>
         </div>
 
