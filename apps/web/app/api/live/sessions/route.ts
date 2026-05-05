@@ -31,6 +31,13 @@ export async function GET() {
           name: true,
           image: true,
           rank: { select: { name: true } },
+          // Welle 14C: Twitch-live-status für den live-map sidebar-badge.
+          // Wenn ein flying-pilot AUCH grade auf twitch streamt, zeigt
+          // der SessionSidebar einen "🔴 LIVE"-badge neben dem namen
+          // mit link zu twitch.tv/{username}. twitchUsername wird für
+          // den link-construction gebraucht.
+          twitchIsLive: true,
+          twitchUsername: true,
         },
       },
     },
@@ -53,6 +60,9 @@ export async function GET() {
       name: s.user.name,
       avatarUrl: s.user.image,
       rank: s.user.rank?.name ?? null,
+      // Welle 14C: durchreichen für sidebar-badge.
+      twitchIsLive: s.user.twitchIsLive,
+      twitchUsername: s.user.twitchUsername,
     },
     aircraft: {
       type: s.aircraftType,

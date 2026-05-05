@@ -36,6 +36,13 @@ type LiveSession = {
     name: string | null;
     avatarUrl: string | null;
     rank: string | null;
+    // Welle 14C: Twitch-live-status. Wenn der pilot grade auf twitch
+    // streamt, zeigt der SessionSidebar einen "🔴 LIVE"-badge neben
+    // dem namen mit link zu twitch.tv/{username}. Beide felder kommen
+    // vom /api/live/sessions endpoint (User.twitchIsLive/twitchUsername
+    // durchgereicht).
+    twitchIsLive: boolean;
+    twitchUsername: string | null;
   };
   aircraft: {
     type: string | null;
@@ -1464,16 +1471,69 @@ function SessionSidebar({
             <NetworkBadge network={session.network} />
             <DataSourceBadge dataSource={session.dataSource} />
           </div>
-          <p
+          {/* Welle 14C: name-zeile mit optional twitch-live-badge. Wenn der
+              fliegende pilot AUCH grade auf twitch streamt, zeigen wir hier
+              einen kleinen "🔴 LIVE"-badge der zu twitch.tv/{username} verlinkt.
+              Doppelte sichtbarkeit (fliegt UND streamt) ist genau der case
+              den Welle 14C besonders heben will — ein streamer-pilot mit live-
+              audience verdient den extra-hint. Inline-style statt tailwind weil
+              die ganze live-map.tsx auf inline-styles läuft (mapbox-overlay-
+              context). */}
+          <div
             style={{
-              fontSize: '0.875rem',
-              color: 'rgb(156, 163, 175)',
-              margin: 0,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              flexWrap: 'wrap',
             }}
           >
-            {session.pilot.name}
-            {session.pilot.rank && ` · ${session.pilot.rank}`}
-          </p>
+            <p
+              style={{
+                fontSize: '0.875rem',
+                color: 'rgb(156, 163, 175)',
+                margin: 0,
+              }}
+            >
+              {session.pilot.name}
+              {session.pilot.rank && ` · ${session.pilot.rank}`}
+            </p>
+            {session.pilot.twitchIsLive && session.pilot.twitchUsername && (
+              <a
+                href={`https://twitch.tv/${session.pilot.twitchUsername}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.3rem',
+                  padding: '0.1rem 0.4rem',
+                  borderRadius: '0.25rem',
+                  backgroundColor: '#dc2626',
+                  color: 'white',
+                  fontSize: '0.65rem',
+                  fontWeight: 700,
+                  textDecoration: 'none',
+                  letterSpacing: '0.03em',
+                }}
+                title={`${session.pilot.name ?? 'Pilot'} streamt grade live auf Twitch`}
+                aria-label={`${session.pilot.name ?? 'Pilot'} streamt live auf Twitch`}
+              >
+                <span
+                  style={{
+                    display: 'inline-block',
+                    width: '0.4rem',
+                    height: '0.4rem',
+                    borderRadius: '50%',
+                    backgroundColor: 'white',
+                    animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+                  }}
+                  aria-hidden="true"
+                />
+                LIVE
+              </a>
+            )}
+          </div>
         </div>
         <button
           onClick={onClose}

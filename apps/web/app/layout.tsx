@@ -3,7 +3,7 @@ import { Geist, Geist_Mono } from 'next/font/google';
 import Script from 'next/script';
 import './globals.css';
 import { auth } from '@/auth';
-import { prisma } from '@vam/db';
+import { prisma, countLivePilots } from '@vam/db';
 import { AppShell, type ShellUser } from '@/components/AppShell';
 import { ThemeProvider, themeInitScript } from '@/components/Theme';
 import { isApproverRole } from '@/lib/roles';
@@ -51,6 +51,11 @@ export default async function RootLayout({
       select: {
         name: true,
         image: true,
+        // Welle 14C: airlineId für den countLivePilots-call (live-counter
+        // im header). Brauchen wir nur für den separaten count-query
+        // unten — nicht direkt in shellUser durchgereicht weil airlineName
+        // schon airline-context für die UI liefert.
+        airlineId: true,
         // logoUrl mit fetchen für den header-brand-block. Optional auf der
         // airline; wenn null, fällt der BrandLink auf einen ICAO-monogramm
         // zurück.
@@ -80,6 +85,17 @@ export default async function RootLayout({
 
     if (user) {
       const roleName = user.role?.name ?? null;
+
+      // Welle 14C: Live-stream-count für den header-counter ("🔴 N live").
+      // Filter auf airlineId — counter zeigt nur live-pilots der eigenen
+      // airline (cross-airline-snooping ist out-of-scope und auch UX-mäßig
+      // verwirrend wenn ein admin in einer anderen airline werkelt).
+      // Wenn user.airlineId null (rare — solo-pilot vor airline-zuweisung),
+      // fällt count auf 0 zurück und der counter wird nicht gerendert.
+      const liveStreamCount = user.airlineId
+        ? await countLivePilots({ airlineId: user.airlineId })
+        : 0;
+
       shellUser = {
         name: user.name,
         image: user.image,
@@ -148,6 +164,11 @@ export default async function RootLayout({
         // dokumentiert (siehe Sidebar-component-comment).
         baseIcao: user.baseIcao,
         currentLocationIcao: user.currentLocationIcao,
+        // Welle 14C: Live-stream-count für den header-counter. 0 wenn keine
+        // pilots live oder user keiner airline angehört. Header rendert
+        // den counter nur wenn > 0 — versteckt sich also unauffällig wenn
+        // grade niemand streamt.
+        liveStreamCount,
       };
     }
   }

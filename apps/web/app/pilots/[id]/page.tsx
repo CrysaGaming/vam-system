@@ -1,6 +1,6 @@
 import { auth } from '@/auth';
 import { redirect, notFound } from 'next/navigation';
-import { prisma } from '@vam/db';
+import { prisma, substituteThumbnailDimensions } from '@vam/db';
 import Link from 'next/link';
 
 export default async function PilotProfile({
@@ -156,7 +156,7 @@ export default async function PilotProfile({
               <div className="w-24 h-24 rounded-full bg-gray-200 dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-700" />
             )}
             <div>
-              <h1 className="text-3xl font-bold flex items-center gap-3">
+              <h1 className="text-3xl font-bold flex items-center gap-3 flex-wrap">
                 {pilot.name ?? 'Unbenannt'}
                 {isMe && (
                   <span
@@ -165,6 +165,29 @@ export default async function PilotProfile({
                   >
                     Du
                   </span>
+                )}
+                {/* Welle 14C: Inline live-badge im h1. Klein aber auffällig
+                    (animate-pulse + red), immer sichtbar wenn pilot grade
+                    streamt. Verlinkt auf twitch.tv/{username} im neuen tab.
+                    Größere card-section weiter unten zeigt details (title,
+                    game, thumbnail, "watch on twitch"-button). Kondition
+                    twitchIsLive UND twitchUsername — falls username nie
+                    gesynct wurde (seltener edge-case), ist der link nicht
+                    konstruierbar und wir skippen. */}
+                {pilot.twitchIsLive && pilot.twitchUsername && (
+                  <a
+                    href={`https://twitch.tv/${pilot.twitchUsername}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-semibold text-white bg-red-600 hover:bg-red-700 transition"
+                    aria-label={`${pilot.name ?? 'Pilot'} streamt grade live auf Twitch`}
+                  >
+                    <span
+                      className="inline-block w-2 h-2 rounded-full bg-white animate-pulse"
+                      aria-hidden="true"
+                    />
+                    LIVE
+                  </a>
                 )}
               </h1>
               <p className="text-gray-500 dark:text-gray-400 mt-1">
@@ -182,6 +205,120 @@ export default async function PilotProfile({
             </div>
           </div>
         </section>
+
+        {/* Welle 14C: Live-Stream-Card. Sichtbar nur wenn pilot.twitchIsLive
+            UND pilot.twitchUsername gesetzt sind. Zeigt thumbnail (320x180-
+            template-substituiert), title, game, "online seit"-zeitstempel
+            und prominenten "Watch on Twitch"-button.
+
+            Position: zwischen profile-header und position-section, weil
+            der live-status JETZT-aktuell ist und top-of-page-priorität
+            verdient. Andere users (nicht-isMe-view) sollen sofort sehen
+            "ah, der streamt grade — schauen wir mal rein".
+
+            Thumbnail-fallback: wenn twitch keine thumbnail-URL gesendet
+            hat (rare aber möglich beim ersten go-live), rendern wir nur
+            das text-block ohne image. substituteThumbnailDimensions
+            returnt null bei fehlender URL und wir konditionalisieren
+            auf das ergebnis.
+
+            "Online seit"-anzeige: nutzt twitchLastWentLiveAt (gesetzt vom
+            14B-handler). Format: "vor X min" oder "seit HH:MM" je nach
+            länge — Date.now() vs lastWentLiveAt.getTime() differenz. */}
+        {pilot.twitchIsLive && pilot.twitchUsername && (
+          <section className="bg-gradient-to-br from-red-50 to-purple-50 dark:from-red-950/20 dark:to-purple-950/20 border border-red-500/30 rounded-lg p-6 mb-8">
+            <div className="flex items-start gap-6 flex-wrap md:flex-nowrap">
+              {(() => {
+                const thumb = substituteThumbnailDimensions(
+                  pilot.twitchStreamThumbnailUrl,
+                  320,
+                  180,
+                );
+                return thumb ? (
+                  <a
+                    href={`https://twitch.tv/${pilot.twitchUsername}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="shrink-0 block w-full md:w-80 rounded overflow-hidden border border-red-500/30 hover:border-red-500 transition relative"
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element -- twitch CDN URL, bewusst kein next/image */}
+                    <picture>
+                      <img
+                        src={thumb}
+                        alt={`Live-thumbnail von ${pilot.name ?? pilot.twitchUsername}`}
+                        className="w-full aspect-video object-cover"
+                      />
+                    </picture>
+                    <span className="absolute top-2 left-2 inline-flex items-center gap-1.5 px-2 py-1 rounded bg-red-600 text-white text-xs font-semibold">
+                      <span
+                        className="inline-block w-2 h-2 rounded-full bg-white animate-pulse"
+                        aria-hidden="true"
+                      />
+                      LIVE
+                    </span>
+                  </a>
+                ) : null;
+              })()}
+
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-xs uppercase tracking-wider text-red-600 dark:text-red-400 font-semibold">
+                    🔴 Streamt grade live
+                  </span>
+                  {pilot.twitchLastWentLiveAt && (
+                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                      ·{' '}
+                      {(() => {
+                        const liveSinceMs =
+                          Date.now() -
+                          new Date(pilot.twitchLastWentLiveAt).getTime();
+                        const liveSinceMin = Math.floor(liveSinceMs / 60_000);
+                        if (liveSinceMin < 60) {
+                          return `seit ${liveSinceMin} min`;
+                        }
+                        const hours = Math.floor(liveSinceMin / 60);
+                        const mins = liveSinceMin % 60;
+                        return `seit ${hours}h ${mins}min`;
+                      })()}
+                    </span>
+                  )}
+                </div>
+
+                {pilot.twitchStreamTitle && (
+                  <h2 className="text-lg font-semibold mb-2 line-clamp-2">
+                    {pilot.twitchStreamTitle}
+                  </h2>
+                )}
+
+                {pilot.twitchStreamGameName && (
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                    Spielt:{' '}
+                    <span className="font-medium text-gray-800 dark:text-gray-200">
+                      {pilot.twitchStreamGameName}
+                    </span>
+                  </p>
+                )}
+
+                <a
+                  href={`https://twitch.tv/${pilot.twitchUsername}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded text-sm font-medium transition"
+                >
+                  <svg
+                    className="w-4 h-4"
+                    viewBox="0 0 24 24"
+                    fill="currentColor"
+                    aria-hidden="true"
+                  >
+                    <path d="M11.571 4.714h1.715v5.143H11.57zm4.715 0H18v5.143h-1.714zM6 0L1.714 4.286v15.428h5.143V24l4.286-4.286h3.428L22.286 12V0zm14.571 11.143l-3.428 3.428h-3.429l-3 3v-3H6.857V1.714h13.714Z" />
+                  </svg>
+                  Watch on Twitch
+                </a>
+              </div>
+            </div>
+          </section>
+        )}
 
         {/* Position-section (Welle 4). Zeigt base + current-location für
             den pilot. Nur sichtbar wenn pilot eine airline hat. Wenn beide

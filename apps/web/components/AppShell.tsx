@@ -71,6 +71,13 @@ export type ShellUser = {
   // Wenn beide null, zeigt der block "📍 Position unbekannt".
   baseIcao: string | null;
   currentLocationIcao: string | null;
+  // Welle 14C: Live-stream-count für den header-counter ("🔴 N live").
+  // Anzahl der pilots aus DERSELBEN airline die grade twitch-live sind.
+  // 0 wenn keine pilots live oder user keiner airline angehört. Header
+  // rendert den counter nur wenn > 0 — bei 0 versteckt sich der button
+  // komplett damit der header nicht mit dauerhaft-leeren indikatoren
+  // überfüllt ist.
+  liveStreamCount: number;
 };
 
 interface Props {
@@ -204,10 +211,46 @@ function Header({ user }: { user: ShellUser }) {
     >
       <BrandLink user={user} />
       <div className="flex items-center gap-1 sm:gap-2">
+        <LiveStreamCounter count={user.liveStreamCount} />
         <ThemeToggle />
         <UserDropdown user={user} />
       </div>
     </header>
+  );
+}
+
+/**
+ * Welle 14C: Header-counter "🔴 N live". Sichtbar nur wenn count > 0
+ * (versteckt sich komplett bei 0 damit der header nicht permanent
+ * mit toten indikatoren überfüllt ist). Klick → /live page für details.
+ *
+ * Visuell: red-pulse-dot + count + "live"-label. Auf mobile (sm-) zeigt
+ * nur den dot + count, das "live"-label kommt erst ab sm: dazu damit
+ * platz im engen header bleibt.
+ *
+ * Realtime-update-policy: der count kommt vom RSC layout.tsx und ist
+ * ein stale-snapshot zum render-zeitpunkt. Bei live-event-änderungen
+ * wird er erst beim nächsten page-load aktualisiert. Das ist akzeptabel
+ * weil livestreams nicht so häufig wechseln dass die UI stale wirken
+ * würde — bei einer realtime-anforderung würde ein websocket-push
+ * dazukommen (out-of-scope für 14C).
+ */
+function LiveStreamCounter({ count }: { count: number }) {
+  if (count <= 0) return null;
+  return (
+    <Link
+      href="/live"
+      className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md bg-red-600/10 hover:bg-red-600/20 dark:bg-red-500/15 dark:hover:bg-red-500/25 text-red-700 dark:text-red-400 text-sm font-medium transition border border-red-500/20 hover:border-red-500/40"
+      aria-label={`${count} ${count === 1 ? 'Pilot streamt' : 'Piloten streamen'} grade live`}
+      title={`${count} ${count === 1 ? 'Pilot streamt' : 'Piloten streamen'} grade live`}
+    >
+      <span
+        className="inline-block w-2 h-2 rounded-full bg-red-600 dark:bg-red-500 animate-pulse"
+        aria-hidden="true"
+      />
+      <span className="font-semibold">{count}</span>
+      <span className="hidden sm:inline">live</span>
+    </Link>
   );
 }
 
