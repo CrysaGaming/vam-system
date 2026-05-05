@@ -191,6 +191,20 @@ type OverlayData =
 const POLL_INTERVAL_MS = 5000;
 const FETCH_TIMEOUT_MS = 4500;
 
+/**
+ * Track 1 #8 Phase 6: SSE-stream-endpoint. Wir versuchen primary
+ * EventSource → polling als fallback. Nach SSE_FAIL_THRESHOLD failed
+ * connection-attempts ohne erfolgreiches data-event geben wir SSE auf
+ * und fallen auf polling zurück (für die restliche session). Das schützt
+ * gegen proxies die SSE-streams blockieren oder buffern (alte corporate
+ * firewalls, manche reverse-proxies ohne no-transform).
+ *
+ * Threshold = 2 mit EventSource's default 3s reconnect-delay = ~6s
+ * grace-period bevor wir polling starten. Wenn SSE in den ersten 6s
+ * keinen einzigen frame liefert ist es vermutlich permanent kaputt.
+ */
+const SSE_FAIL_THRESHOLD = 2;
+
 // Welle 10 commit 10C: trail polls slower than data because the trail
 // only changes incrementally (one new point per heartbeat). 10s gives
 // the streamer a smooth-feeling polyline without burning rate-limit on
@@ -351,11 +365,107 @@ export function OverlayClient({
     }
   }, [token]);
 
+  /**
+   * Track 1 #8 Phase 6: SSE-stream als primary-channel mit polling-
+   * fallback. Strategy:
+   *
+   * 1. Auf mount: EventSource gegen /api/overlay/[token]/stream öffnen
+   * 2. onmessage: payload parsen → setData (failCount reset)
+   * 3. onerror: failCount++, EventSource auto-reconnects (default 3s)
+   * 4. Nach SSE_FAIL_THRESHOLD failures: SSE permanent close, polling-
+   *    fallback start. Bleibt für rest der session im polling-mode.
+   *
+   * Cleanup auf unmount schließt beide (EventSource + setInterval).
+   */
   useEffect(() => {
-    void fetchData();
-    const interval = setInterval(() => void fetchData(), POLL_INTERVAL_MS);
-    return () => clearInterval(interval);
-  }, [fetchData]);
+    let cancelled = false;
+    let eventSource: EventSource | null = null;
+    let pollInterval: ReturnType<typeof setInterval> | null = null;
+    let failCount = 0;
+    let inPollingFallback = false;
+
+    const startPolling = () => {
+      if (pollInterval !== null || cancelled) return;
+      inPollingFallback = true;
+      void fetchData();
+      pollInterval = setInterval(() => void fetchData(), POLL_INTERVAL_MS);
+    };
+
+    const stopSse = () => {
+      if (eventSource) {
+        eventSource.close();
+        eventSource = null;
+      }
+    };
+
+    const startSse = () => {
+      try {
+        eventSource = new EventSource(`/api/overlay/${token}/stream`);
+      } catch (err) {
+        // EventSource constructor doesn't usually throw, but if the
+        // browser doesn't support it (extremely old) we fall straight
+        // through to polling.
+        console.error('Overlay SSE constructor failed:', err);
+        startPolling();
+        return;
+      }
+
+      eventSource.onmessage = (ev) => {
+        if (cancelled) return;
+        try {
+          const json = JSON.parse(ev.data) as OverlayData;
+          setData(json);
+          setHasError(false);
+          // Successful frame — reset fail-count. Means proxies that
+          // intermittently flake won't kick us out of SSE-mode.
+          failCount = 0;
+        } catch (err) {
+          console.error('Overlay SSE parse failed:', err);
+        }
+      };
+
+      // Server-sent named "error" event (non-recoverable, e.g. DB-fail
+      // in the stream loop). EventSource treats this as a regular event
+      // and DOESN'T close itself; we close manually and switch to
+      // polling so the user keeps seeing data.
+      eventSource.addEventListener('error', () => {
+        if (cancelled || inPollingFallback) return;
+        console.warn('Overlay SSE got server-side error, falling back to polling');
+        stopSse();
+        startPolling();
+      });
+
+      // EventSource's onerror fires both for transient connection-
+      // drops (auto-reconnects) and for permanent failures (auth fail,
+      // route 404). We only count it as a "fail" if there's no
+      // pending reconnect — but EventSource doesn't expose that
+      // directly. readyState === CLOSED means it gave up; CONNECTING
+      // means it's mid-retry. We tally either way and bail at threshold.
+      eventSource.onerror = () => {
+        if (cancelled || inPollingFallback) return;
+        failCount++;
+        if (failCount >= SSE_FAIL_THRESHOLD) {
+          console.warn(
+            `Overlay SSE failed ${failCount}× — falling back to polling`,
+          );
+          stopSse();
+          startPolling();
+        }
+        // Otherwise let EventSource auto-reconnect (default 3s).
+      };
+    };
+
+    startSse();
+
+    return () => {
+      cancelled = true;
+      stopSse();
+      if (pollInterval !== null) {
+        clearInterval(pollInterval);
+        pollInterval = null;
+      }
+    };
+  }, [token, fetchData]);
 
   useEffect(() => {
     if (!showTrail) {
