@@ -2,6 +2,7 @@ import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@vam/db";
 import Link from "next/link";
+import { WalletCard } from "./wallet-card";
 
 export default async function Dashboard() {
   const session = await auth();
@@ -74,6 +75,13 @@ export default async function Dashboard() {
     ? Math.max(0, nextRank.minFlightHours - user.totalFlightHours)
     : 0;
 
+  // Welle 13D-2: Wallet-card opt-in. Nur sichtbar wenn beide flags ON.
+  // Logik gespiegelt zur EconomyCard's success-state in /settings —
+  // wallet-features sind LIVE wenn user.economyEnabled && airline.
+  // economyEnabled. Bei nicht-vorhandener airline ist die airline-flag
+  // nicht prüfbar, also implizit false → kein wallet-display.
+  const showWallet = !!(user.economyEnabled && user.airline?.economyEnabled);
+
   return (
     <main className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-white p-4 sm:p-6 lg:p-8">
       <div className="max-w-[100rem] mx-auto">
@@ -82,8 +90,11 @@ export default async function Dashboard() {
           <p className="text-gray-600 dark:text-gray-400 text-sm mt-1">Willkommen zurück, {user.name ?? "Pilot"}</p>
         </header>
 
-        {/* Profile + Airline (bestehende Sektion) */}
-        <div className="grid md:grid-cols-3 gap-6">
+        {/* Profile + Airline (+ optional Wallet) — 13D-2 fügt eine
+            4. spalte hinzu wenn beide economy-flags ON sind. Layout
+            klappt 4→3 cols zurück wenn !showWallet, damit der platz
+            nicht leer steht. */}
+        <div className={`grid ${showWallet ? "md:grid-cols-4" : "md:grid-cols-3"} gap-6`}>
           <section className="md:col-span-1 bg-white dark:bg-gray-900 rounded-lg p-6 border border-gray-200 dark:border-gray-800">
             <h2 className="text-sm uppercase tracking-wider text-gray-500 mb-4">
               Profil
@@ -161,6 +172,8 @@ export default async function Dashboard() {
               </div>
             )}
           </section>
+
+          {showWallet && <WalletCard userId={user.id} />}
         </div>
 
         {/* Next-Rank Progress */}

@@ -64,3 +64,9 @@ export {
   type ProcessFlightOptions,
   type ProcessFlightResult,
 } from "./process-flight.js";
+
+// 13D: read-only queries für UI-display.
+export {
+  getUserWalletStats,
+  type UserWalletStats,
+} from "./queries.js";
