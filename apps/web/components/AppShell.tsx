@@ -696,13 +696,106 @@ function Sidebar({ user, pathname }: SidebarProps) {
   );
 }
 
+/**
+ * Collapsible nav-section mit localStorage-persistierung pro section.
+ *
+ * Default: alle sections expanded. Wenn der user eine section collapsed,
+ * wird das in `localStorage` gespeichert unter key `vam:sidebar-collapsed:
+ * <title>` mit value '1'. Beim nächsten render (auch nach reload) liest
+ * useEffect nach mount den state aus localStorage zurück.
+ *
+ * SSR-strategie: initial state ist immer `false` (= expanded) damit
+ * server-render und initial client-render IDENTISCH sind — sonst gäbe
+ * es einen hydration-mismatch (server kennt localStorage nicht). Erst
+ * nach mount syncen wir den persisted-state. Das führt zu einem mini-
+ * flash beim ersten render: wenn der user eine section collapsed hatte,
+ * sieht er sie kurz expanded bevor sie nach hydration einklappt. Das
+ * ist akzeptabel weil die alternative (suppressHydrationWarning oder
+ * cookie-based persist) deutlich mehr complexity bringt für minimal
+ * besseres UX.
+ *
+ * Storage-key inkludiert den title — dadurch kann jede section unab-
+ * hängig collapsed werden. Title-changes (z.B. \"Airline\" → \"Flotte\")
+ * würden den state resetten weil der key sich ändert; das ist okay
+ * weil section-title-changes selten sind.
+ *
+ * Defensive try/catch um localStorage-zugriffe: SSR-environments oder
+ * private-mode browsers können den storage werfen. Bei error fällt
+ * die section auf default (expanded) zurück und persistiert nicht —
+ * UX bleibt funktional, nur die persistenz ist weg.
+ *
+ * Welle 13E-Sidebar: keyboard-a11y via button + aria-expanded, click
+ * auf den header toggled. Chevron rotiert visuell um den state zu
+ * signalisieren. Kein animation auf den content selbst — display:none
+ * via conditional render statt height-transition, weil height-transitions
+ * mit dynamic content (variable-höhe-children) immer flackern oder
+ * springen.
+ */
 function NavSection({ title, children }: { title: string; children: React.ReactNode }) {
+  const storageKey = `vam:sidebar-collapsed:${title}`;
+  const [collapsed, setCollapsed] = useState(false);
+
+  // Lade persisted-state nach mount. useEffect mit empty deps [] läuft
+  // einmal nach initial mount. Wir machen kein dependency auf storageKey
+  // weil der pro section konstant ist — title ist stable für die
+  // lifetime der component.
+  useEffect(() => {
+    try {
+      const v = localStorage.getItem(storageKey);
+      if (v === '1') setCollapsed(true);
+    } catch {
+      // localStorage unavailable (private mode, SSR-edge-cases) —
+      // ignore, behalte default-expanded state.
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function toggle() {
+    setCollapsed((prev) => {
+      const next = !prev;
+      try {
+        if (next) {
+          localStorage.setItem(storageKey, '1');
+        } else {
+          // Default ist expanded → wenn user expanded, brauchen wir
+          // keinen storage-eintrag (storage-key absent === default).
+          localStorage.removeItem(storageKey);
+        }
+      } catch {
+        // siehe useEffect oben — graceful degrade
+      }
+      return next;
+    });
+  }
+
   return (
     <div>
-      <p className="px-3 mb-1 text-xs uppercase tracking-wider text-gray-500 dark:text-gray-500 font-medium">
-        {title}
-      </p>
-      <div className="space-y-0.5">{children}</div>
+      <button
+        type="button"
+        onClick={toggle}
+        aria-expanded={!collapsed}
+        aria-controls={`navsection-${title}`}
+        className="w-full flex items-center justify-between px-3 mb-1 text-xs uppercase tracking-wider text-gray-500 dark:text-gray-500 font-medium hover:text-gray-700 dark:hover:text-gray-300 transition"
+      >
+        <span>{title}</span>
+        <svg
+          className={`w-3 h-3 transition-transform ${collapsed ? '-rotate-90' : ''}`}
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+      </button>
+      {!collapsed && (
+        <div id={`navsection-${title}`} className="space-y-0.5">
+          {children}
+        </div>
+      )}
     </div>
   );
 }
