@@ -6,6 +6,7 @@ import {
   type LiveStreamContext,
 } from '@vam/db';
 import { env } from '../env.js';
+import { ensureFreshToken, refreshUserToken } from './twitch-oauth.js';
 
 /**
  * Twitch EventSub WebSocket bridge — Welle 11 commit 11D.
@@ -49,20 +50,30 @@ import { env } from '../env.js';
  *
  * # Token Refresh
  *
- * User-access-tokens live ~4h. Subscriptions persist across token-
- * refresh as long as the new token has the same scopes. We don't
- * actively refresh tokens in 11D — when a notification arrives for
- * an event that a now-revoked token would deny, twitch sends a
- * `revocation` message and we just log it. A real refresh-flow with
- * lib/twitch-oauth.ts is a Welle 14 prerequisite (when the bot does
- * write-actions on behalf of users).
+ * User-access-tokens leben ~4h. Subscriptions persistieren über token-
+ * refresh hinweg solange der neue token die selben scopes hat. Welle 14E
+ * implementiert den proaktiven refresh-flow:
+ *
+ *   - subscribeAllPilots() ruft ensureFreshToken() vor jedem subscribe-
+ *     bootstrap. Bot-prozesse die mehrere stunden alte tokens haben
+ *     kriegen automatisch refreshs.
+ *   - handleStreamOnline() ruft ensureFreshToken() vor dem Helix-fetch
+ *     für stream-context.
+ *   - onRevocation() versucht refresh + re-subscribe wenn twitch eine
+ *     subscription revoked (typisch: token-rotation, scope-removal).
+ *
+ * Refresh-flow ist in services/twitch-oauth.ts gekapselt. Bei
+ * dauerhafter refresh-failure (pilot hat app deauthorisiert) werden
+ * die token-felder genullt und der pilot wird beim nächsten bootstrap
+ * übersprungen.
  *
  * # 11D Scope: Test-Handler Only
  *
- * Per Welle-11 roadmap: notifications are logged to console + the
- * #bot-logs discord-channel for now. No game-impact, no DB-writes.
- * The point is to prove the WebSocket bridge works end-to-end so
- * Welle 14 (twitch-channel-points → tickets) can build on top.
+ * Per Welle-11 roadmap: notifications werden initial geloggt + zum
+ * #bot-logs discord-channel mirrored. Welle 14B-D haben das routing
+ * für stream.online/offline event-types umgestellt — DB-writes,
+ * dedicated #livestreams embeds. Andere events (subs, cheers, gifts)
+ * bleiben weiterhin log-only bis sie ihre eigene welle kriegen.
  */
 
 import type { Client, TextChannel } from 'discord.js';
@@ -453,10 +464,119 @@ function onRevocation(msg: EventSubMessage): void {
   console.warn(
     `[twitch-eventsub] subscription revoked: type=${sub?.type} status=${sub?.status} broadcaster_user_id=${sub?.condition?.broadcaster_user_id}`,
   );
-  // Future (Welle 14): trigger token-refresh + re-subscribe attempt
-  // for this pilot. For 11D we just log — the next bot-restart will
-  // attempt a fresh subscribe and will fail with the same revoked
-  // token, surfacing the issue.
+  // Welle 14E: token-refresh + re-subscribe attempt. Twitch revoked
+  // subscriptions wenn ein token ungültig wurde (typisch: scope-removal,
+  // user hat die app deautorisiert, oder token-rotation hat den alten
+  // verworfen). Wir versuchen einen refresh + re-create der subscription
+  // — wenn der refresh fehlschlägt (= pilot hat die app komplett
+  // entfernt), nullt refreshUserToken die token-felder und der pilot
+  // wird beim nächsten subscribeAllPilots übersprungen.
+  void handleRevocation(sub);
+}
+
+/**
+ * Welle 14E: revocation-recovery flow.
+ *
+ * Wenn twitch eine subscription revoked, ist der ursprüngliche
+ * token-state inkonsistent geworden (status=user_removed/authorization_
+ * revoked typisch). Wir versuchen die situation zu retten:
+ *
+ *   1. Lookup VAM-user via broadcaster_user_id im subscription condition
+ *   2. Refresh den token (force, nicht via ensureFreshToken — der prüft
+ *      expires_at, aber bei revocation kann der token zwar "frisch" laut
+ *      timestamp aber trotzdem invalid sein)
+ *   3. Wenn refresh erfolgreich: re-create die EINE betroffene
+ *      subscription für die EINE event-type. Andere subscriptions des
+ *      gleichen pilots sind unaffected (twitch revoked per-subscription).
+ *   4. Wenn refresh fehlschlägt: refreshUserToken hat schon die token-
+ *      felder genullt — pilot ist effektiv unlinked bis OAuth-re-flow.
+ *      Wir loggen das prominently.
+ *
+ * Fail-mode: wenn re-subscribe nach erfolgreichem refresh trotzdem
+ * fehlschlägt (z.B. scope wirklich entfernt), loggen wir und geben auf.
+ * Der pilot wird beim nächsten bot-restart durch subscribeAllPilots
+ * wieder versucht.
+ */
+async function handleRevocation(
+  sub: EventSubMessage['payload']['subscription'],
+): Promise<void> {
+  if (!sub) return;
+  const broadcasterUserId = sub.condition?.broadcaster_user_id;
+  if (!broadcasterUserId) {
+    console.warn(
+      '[twitch-eventsub] revocation without broadcaster_user_id, cannot recover',
+    );
+    return;
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { twitchUserId: broadcasterUserId },
+    select: {
+      id: true,
+      twitchUsername: true,
+      twitchUserId: true,
+      twitchRefreshToken: true,
+    },
+  });
+
+  if (!user || !user.twitchRefreshToken) {
+    console.warn(
+      `[twitch-eventsub] revocation: pilot=${broadcasterUserId} hat keinen refresh-token, cannot recover`,
+    );
+    return;
+  }
+
+  // Force-refresh: ignoriert expires_at, nimmt direkt den refresh-call.
+  // Hintergrund: bei revocation kann der token zwar laut timestamp noch
+  // valid sein aber trotzdem von twitch's seite invalidiert. Force-
+  // refresh ersetzt ihn durch einen frischen.
+  const refreshResult = await refreshUserToken(user.id, user.twitchRefreshToken);
+  if (!refreshResult.ok) {
+    if (refreshResult.unlinked) {
+      console.warn(
+        `[twitch-eventsub] revocation-recovery: pilot=${user.twitchUsername ?? user.id} unlinked (refresh-token rejected), token-fields cleared`,
+      );
+    } else {
+      console.warn(
+        `[twitch-eventsub] revocation-recovery: pilot=${user.twitchUsername ?? user.id} refresh failed (${refreshResult.reason}), giving up`,
+      );
+    }
+    return;
+  }
+
+  // Re-create die EINE betroffene subscription. Lookup die template-
+  // version aus unserem master-table — wir wollen die selbe version
+  // benutzen die wir initial gewählt haben (z.B. hype_train.begin v2).
+  const tmpl = SUBSCRIPTION_TEMPLATES.find((t) => t.type === sub.type);
+  if (!tmpl) {
+    console.warn(
+      `[twitch-eventsub] revocation-recovery: type=${sub.type} ist nicht in SUBSCRIPTION_TEMPLATES, skip re-subscribe`,
+    );
+    return;
+  }
+
+  if (!user.twitchUserId) {
+    // Kann eigentlich nicht passieren wenn wir hier ankommen (we found
+    // user via twitchUserId), aber defensiv für TS.
+    return;
+  }
+
+  const ok = await createSubscription(
+    tmpl.type,
+    tmpl.version,
+    tmpl.buildCondition(user.twitchUserId),
+    refreshResult.accessToken,
+    user.twitchUsername ?? user.id,
+  );
+  if (ok) {
+    console.info(
+      `[twitch-eventsub] revocation-recovery: pilot=${user.twitchUsername ?? user.id} type=${tmpl.type} re-subscribed nach token-refresh`,
+    );
+  } else {
+    console.warn(
+      `[twitch-eventsub] revocation-recovery: pilot=${user.twitchUsername ?? user.id} type=${tmpl.type} re-subscribe failed nach token-refresh — scope wirklich entfernt?`,
+    );
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -492,9 +612,10 @@ async function handleStreamOnline(
   }
 
   // VAM-User lookup via twitchUserId — der string-match auf das event-
-  // feld. Wir brauchen den User auch für den access-token (für den
-  // Helix-context-fetch). Welle 14D: zusätzlich name + airlineId für
-  // den #livestreams-embed (display-name + airline-context).
+  // feld. Welle 14D: zusätzlich name + airlineId für den #livestreams-
+  // embed (display-name + airline-context). Welle 14E: twitchAccessToken
+  // wird NICHT mehr direkt selektiert — der Helix-fetch unten nutzt
+  // ensureFreshToken() das den token aktuell + valid garantiert.
   const user = await prisma.user.findUnique({
     where: { twitchUserId: broadcasterUserId },
     select: {
@@ -502,7 +623,6 @@ async function handleStreamOnline(
       name: true,
       airlineId: true,
       twitchUsername: true,
-      twitchAccessToken: true,
     },
   });
 
@@ -517,21 +637,29 @@ async function handleStreamOnline(
     return;
   }
 
-  // Helix-fetch best-effort. Token ist required für den Helix-call —
-  // ohne fallen wir auf "nur status" zurück (kein title/game/thumbnail).
+  // Helix-fetch best-effort. Welle 14E: ensureFreshToken refreshed wenn
+  // der token in den letzten 60s vor ablauf ist — bot-prozesse die
+  // mehrere stunden alte tokens haben kriegen einen frischen zurück.
+  // Wenn null (refresh-fail oder pilot unlinked), überspringen wir den
+  // Helix-fetch und fallen auf "kein context"-pfad zurück. Stream-status
+  // wird trotzdem korrekt auf live gesetzt — wir verlieren nur title/
+  // game/thumbnail.
   let context: LiveStreamContext = {
     title: null,
     gameName: null,
     thumbnailUrl: null,
   };
 
-  if (user.twitchAccessToken && env.twitch.clientId) {
-    const fetched = await fetchStreamHelixContext(
-      broadcasterUserId,
-      user.twitchAccessToken,
-    );
-    if (fetched) {
-      context = fetched;
+  if (env.twitch.clientId) {
+    const accessToken = await ensureFreshToken(user.id);
+    if (accessToken) {
+      const fetched = await fetchStreamHelixContext(
+        broadcasterUserId,
+        accessToken,
+      );
+      if (fetched) {
+        context = fetched;
+      }
     }
   }
 
@@ -725,12 +853,28 @@ async function subscribeAllPilots(): Promise<void> {
     }
     if (!pilot.twitchUserId || !pilot.twitchAccessToken) continue;
 
+    // Welle 14E: token-refresh-flow. Bot-prozesse die mehrere stunden
+    // laufen (z.B. nach einem reconnect von session_reconnect-event)
+    // haben tokens die längst über die ~4h twitch-lifetime hinaus sind.
+    // ensureFreshToken refreshed präventiv wenn nötig — wenn der pilot
+    // seinen access-revoked hat (ungültiger refresh-token), returnt
+    // null und wir skippen den pilot statt mit 401-failures alle 5
+    // subscription-types durchzubrechen.
+    const freshToken = await ensureFreshToken(pilot.id);
+    if (!freshToken) {
+      console.warn(
+        `[twitch-eventsub] subscribeAllPilots: skip pilot=${pilot.twitchUsername ?? pilot.id} — kein valid token (refresh-fail oder unlinked)`,
+      );
+      totalSkipped += SUBSCRIPTION_TEMPLATES.length;
+      continue;
+    }
+
     for (const tmpl of SUBSCRIPTION_TEMPLATES) {
       const ok = await createSubscription(
         tmpl.type,
         tmpl.version,
         tmpl.buildCondition(pilot.twitchUserId),
-        pilot.twitchAccessToken,
+        freshToken,
         pilot.twitchUsername ?? pilot.id,
       );
       if (ok) {
