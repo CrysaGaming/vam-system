@@ -143,7 +143,7 @@ export async function processFlightEconomy(
         select: {
           id: true,
           economyEnabled: true,
-          rank: { select: { order: true } },
+          rank: { select: { order: true, salaryMultiplier: true } },
         },
       },
       route: { select: { distanceNm: true } },
@@ -209,6 +209,11 @@ export async function processFlightEconomy(
     fuelUsedKg: pirep.fuelUsedKg ?? 0,
     flightTimeMin: pirep.flightTimeMin ?? 0,
     rankOrder: pirep.user.rank?.order,
+    // Welle 13E-10: explicit per-rank multiplier durchreichen. Default
+    // 1.00 in DB → calc.ts fällt auf legacy order-skalierung zurück
+    // (siehe calculatePilotSalary docstring). Wenn admin den multiplier
+    // auf z.B. 1.5 gesetzt hat, wird der hier verwendet.
+    rankSalaryMultiplier: pirep.user.rank?.salaryMultiplier ?? null,
   });
 
   // Step 6: get-or-create wallets. Außerhalb der atomic-transaction —

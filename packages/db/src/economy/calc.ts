@@ -153,22 +153,43 @@ export function calculateCateringCost(input: {
 /**
  * Pilot-salary für einen einzelnen flight.
  *
- * Formel:
+ * Welle 13E-10: Salary-multiplier-policy ist hybrid (legacy ↔ career):
+ *   - Wenn `rankSalaryMultiplier` explicit gesetzt UND ≠ 1.0 → das ist
+ *     der definitive multiplier, ersetzt die order-skalierung. Damit
+ *     flippt der admin durch setzen von rank.salaryMultiplier von
+ *     order-basierter auto-progression auf explicit per-rank-policy.
+ *   - Wenn `rankSalaryMultiplier` null/undefined ODER === 1.0 → fallback
+ *     auf legacy-formel: rank_multiplier = 1 + capped_order × PROGRESSION.
+ *
+ * Diese hybrid-policy macht den migration-pfad sanft: existing ranks haben
+ * alle default 1.00 (per migration 13E-8) und behalten daher exakt die
+ * legacy-formel. Erst wenn admin einen rank explicit auf z.B. 1.5 setzt,
+ * wird career-mode aktiv für DIESEN rank. So kann eine airline schritt-
+ * weise migrieren statt big-bang.
+ *
+ * Formel (legacy / multiplier=1.0):
  *   block_hours = flight_time_min / 60
  *   rank_multiplier = 1 + min(rank_order, MAX_ORDER) × PROGRESSION_PER_ORDER
  *   salary = block_hours × base_rate × rank_multiplier
  *
- * @param flightTimeMin   block-time des fluges in minuten (aus Pirep.flightTimeMin)
- * @param rankOrder       Rank.order des piloten zur zeit des fluges. 0 für
- *                        junior, höher für senior. Wenn pilot kein rank
- *                        hat (User.rankId=null), undefined → multiplier=1.0.
+ * Formel (career / multiplier ≠ 1.0):
+ *   block_hours = flight_time_min / 60
+ *   salary = block_hours × base_rate × rankSalaryMultiplier
+ *
+ * @param flightTimeMin           block-time des fluges in minuten
+ * @param rankOrder               Rank.order — nur in legacy-mode genutzt
+ * @param rankSalaryMultiplier    Rank.salaryMultiplier (Welle 13E-8 schema).
+ *                                Wenn !== 1.0 → ersetzt order-skalierung.
+ *                                Decimal-input für präzision; akzeptiert
+ *                                auch number/string via DecimalInput.
  * @returns Decimal salary, ≥ 0
  */
 export function calculatePilotSalary(input: {
   flightTimeMin: number;
   rankOrder?: number | null;
+  rankSalaryMultiplier?: DecimalInput | null;
 }): Decimal {
-  const { flightTimeMin, rankOrder } = input;
+  const { flightTimeMin, rankOrder, rankSalaryMultiplier } = input;
 
   if (flightTimeMin <= 0) {
     return new Decimal(0);
@@ -176,14 +197,30 @@ export function calculatePilotSalary(input: {
 
   const blockHours = new Decimal(flightTimeMin).div(60);
 
-  // Rank-multiplier: 1.0 + capped_order × progression
-  const cappedOrder = Math.min(
-    Math.max(rankOrder ?? 0, 0),
-    RANK_PROGRESSION_MAX_ORDER,
-  );
-  const rankMultiplier = new Decimal(1).add(
-    RANK_PROGRESSION_PER_ORDER.mul(cappedOrder),
-  );
+  // Welle 13E-10: explicit multiplier wins über order-basierte progression.
+  // Wir prüfen "!= 1" mit Decimal-comparison weil die DB ihn als Decimal
+  // liefert (nicht number). new Decimal(1).eq(toDecimal(...)) ist die
+  // robuste form.
+  const explicitMultiplier =
+    rankSalaryMultiplier !== null && rankSalaryMultiplier !== undefined
+      ? toDecimal(rankSalaryMultiplier)
+      : null;
+
+  let rankMultiplier: Decimal;
+  if (explicitMultiplier && !explicitMultiplier.eq(1)) {
+    // Career-mode: explizit gesetzter multiplier vom rank gewinnt.
+    rankMultiplier = explicitMultiplier;
+  } else {
+    // Legacy-mode: order-basierte progression. Capped damit ein admin
+    // mit weiten ranks (order=20) nicht aus versehen 4x salary auszahlt.
+    const cappedOrder = Math.min(
+      Math.max(rankOrder ?? 0, 0),
+      RANK_PROGRESSION_MAX_ORDER,
+    );
+    rankMultiplier = new Decimal(1).add(
+      RANK_PROGRESSION_PER_ORDER.mul(cappedOrder),
+    );
+  }
 
   return blockHours
     .mul(PILOT_BASE_SALARY_PER_HOUR_VAM)
@@ -210,6 +247,11 @@ export function calculateFlightEconomy(input: {
   fuelUsedKg: number;
   flightTimeMin: number;
   rankOrder?: number | null;
+  // Welle 13E-10: durchreichen an calculatePilotSalary. Default null →
+  // legacy order-skalierung. Wenn der orchestrator (process-flight.ts)
+  // den rank-record geladen hat, kann er rank.salaryMultiplier hier
+  // setzen.
+  rankSalaryMultiplier?: DecimalInput | null;
 }): {
   revenue: {
     passenger: Decimal;
