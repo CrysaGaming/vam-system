@@ -1,8 +1,8 @@
-import { prisma } from '@vam/db';
+import { prisma, getActiveLicenses, type LicenseType } from '@vam/db';
 import { emitRankUpgraded } from '@/lib/bot-events';
 
 /**
- * Rank-Promotion-Logic (Welle 6 commit 6B-3).
+ * Rank-Promotion-Logic (Welle 6 commit 6B-3, Welle 13E-9 career-extension).
  *
  * Zentrale stelle für die "find highest qualifying rank for this pilot's
  * flight hours and promote if needed"-logik. Vorher dupliziert in
@@ -24,6 +24,17 @@ import { emitRankUpgraded } from '@/lib/bot-events';
  *   Promotion folgt also dem hours-tracking — wo hours updated werden, muss
  *   evaluatePromotion gerufen werden.
  *
+ * Welle 13E-9 — Career-mode license-gate:
+ * - Wenn airline.careerEnabled UND user.careerEnabled, werden für die
+ *   rank-eligibility ZUSÄTZLICH zur hours-threshold die rank.requiredLicenses
+ *   geprüft. Pilot muss ALLE darin gelisteten licenses ACTIVE haben um den
+ *   rank zu erreichen.
+ * - Fallback-cascade: wenn pilot nicht den höchsten rank kriegt (licenses
+ *   fehlen), wird der nächsthöhere rank versucht den er erfüllt. So bleibt
+ *   ein neuer Captain-Anwärter ohne ATPL als Senior-FO statt einfach
+ *   blockiert auf seinem alten rank.
+ * - Career-mode aus → klassische hours-only-promotion wie vor 13E.
+ *
  * Discord-event: emitRankUpgraded bei jeder erfolgreichen promotion.
  * Bot übernimmt Discord-rolle-update + announcement im channel.
  */
@@ -38,6 +49,11 @@ export type PromotionResult =
       newRankId: string;
       newRankName: string;
       totalFlightHours: number;
+      // Welle 13E-9: welche licenses haben den new-rank-claim ermöglicht?
+      // Empty-array wenn career-mode off oder rank ohne requirements.
+      // Wird im discord-announcement nicht genutzt, aber für audit-trail
+      // im server-log und potentielle UI-anzeige.
+      licensesUsed: LicenseType[];
     };
 
 /**
@@ -69,6 +85,9 @@ export async function evaluatePromotion(
     where: { id: userId },
     include: {
       rank: true,
+      // Welle 13E-9: airline.careerEnabled für gating-decision + user-flag
+      // mit fetchen damit wir nicht nochmal queryen müssen.
+      airline: { select: { careerEnabled: true } },
       accounts: {
         where: { provider: 'discord' },
         select: { providerAccountId: true },
@@ -80,22 +99,66 @@ export async function evaluatePromotion(
     return { promoted: false, reason: 'no-airline' };
   }
 
-  // Highest rank where minFlightHours <= user's hours, sortiert nach order
-  // desc — der erste match ist der höchste rank den der user qualified ist
-  // zu erreichen. Bewusst order desc statt minFlightHours desc, weil order
-  // ist die kanonische hierarchie (admin kann theoretisch order und min-
-  // FlightHours unabhängig setzen — order entscheidet wer "höher" ist).
-  const qualifyingRank = await prisma.rank.findFirst({
-    where: {
-      airlineId: user.airlineId,
-      minFlightHours: { lte: user.totalFlightHours },
-    },
+  // Welle 13E-9: dual-gate-check ob career-mode für diesen user aktiv ist.
+  // Selbe philosophie wie hasCareer in shellUser: BEIDE flags müssen ON
+  // sein. Wenn auch nur einer false, läuft die promotion in legacy-mode
+  // (hours-only, ignoriert rank.requiredLicenses).
+  const careerActive = !!(user.careerEnabled && user.airline?.careerEnabled);
+
+  // Active licenses einmal laden (nur wenn career-mode active). Bei legacy-
+  // mode skippen wir die query komplett — kein performance-overhead für
+  // airlines die das feature nicht nutzen.
+  const activeLicenseTypes = careerActive
+    ? new Set((await getActiveLicenses(userId)).map((l) => l.type))
+    : new Set<LicenseType>();
+
+  // Alle ranks der airline laden, sortiert by order DESC. Wir filtern
+  // dann in memory weil wir mehrere kriterien kombinieren (hours +
+  // licenses) und der fallback-cascade in legacy-DB-only-pattern nicht
+  // gut ausdrückbar ist. N=2-10 ranks pro airline, application-side
+  // filterung ist trivial.
+  const allRanks = await prisma.rank.findMany({
+    where: { airlineId: user.airlineId },
     orderBy: { order: 'desc' },
   });
 
+  if (allRanks.length === 0) {
+    return { promoted: false, reason: 'no-qualifying-rank' };
+  }
+
+  // Find highest qualifying rank. In career-mode mit cascade — wenn der
+  // höchste hours-eligible rank licenses-fehlt, fallen wir auf den nächst-
+  // höheren rank zurück den der pilot erfüllt. Im legacy-mode ist es
+  // einfach der erste hours-match.
+  let qualifyingRank: (typeof allRanks)[number] | null = null;
+  let licensesUsed: LicenseType[] = [];
+
+  for (const r of allRanks) {
+    // Hours-check (gilt in beiden modi)
+    if (r.minFlightHours > user.totalFlightHours) continue;
+
+    // License-check (nur in career-mode)
+    if (careerActive && r.requiredLicenses.length > 0) {
+      const hasAll = r.requiredLicenses.every((lic) =>
+        activeLicenseTypes.has(lic),
+      );
+      if (!hasAll) {
+        // Pilot hat hours aber nicht alle required licenses — versuch
+        // den nächsten (niedrigeren) rank.
+        continue;
+      }
+    }
+
+    // Beide checks bestanden → das ist unser höchster qualifying rank.
+    qualifyingRank = r;
+    licensesUsed = careerActive ? r.requiredLicenses : [];
+    break;
+  }
+
   if (!qualifyingRank) {
-    // Edge-case: airline hat keine ranks angelegt, oder user hat 0 hours
-    // und kein rank hat minFlightHours=0. Kein promotion möglich.
+    // Edge-case: airline hat ranks, user hat 0 hours UND kein rank hat
+    // minFlightHours=0, oder career-mode mit licenses die alle ranks
+    // verfehlen. Kein promotion möglich.
     return { promoted: false, reason: 'no-qualifying-rank' };
   }
 
@@ -116,8 +179,16 @@ export async function evaluatePromotion(
     data: { rankId: qualifyingRank.id },
   });
 
+  // Server-log mit license-info wenn career-mode active. Hilft beim
+  // debugging (warum hat pilot X den FO-rank statt Captain bekommen).
+  const licenseInfo =
+    careerActive && licensesUsed.length > 0
+      ? ` [licenses: ${licensesUsed.join(', ')}]`
+      : careerActive
+        ? ' [career-mode, no license requirements]'
+        : '';
   console.log(
-    `[rank-upgrade] ${user.email}: ${user.rank?.name ?? 'None'} -> ${qualifyingRank.name} (${user.totalFlightHours.toFixed(1)}h)`,
+    `[rank-upgrade] ${user.email}: ${user.rank?.name ?? 'None'} -> ${qualifyingRank.name} (${user.totalFlightHours.toFixed(1)}h)${licenseInfo}`,
   );
 
   // Discord-event — silent failure damit bot-outage nicht promotion blockiert
@@ -141,6 +212,7 @@ export async function evaluatePromotion(
     newRankId: qualifyingRank.id,
     newRankName: qualifyingRank.name,
     totalFlightHours: user.totalFlightHours,
+    licensesUsed,
   };
 }
 
