@@ -7,11 +7,16 @@ import {
   licenseDisplayName,
   getOrCreateWallet,
   PASS_MARK_PERCENT,
+  getMinFlightTimeForLicense,
   type LicenseType,
 } from '@vam/db';
 import { EnrollmentForm } from '../enrollment-form';
 import { EnrollmentManagement } from '../enrollment-management';
 import { TheoryExamCard } from '../theory-exam-card';
+import {
+  PracticalExamCard,
+  type PirepCandidatePublic,
+} from '../practical-exam-card';
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -72,7 +77,7 @@ export default async function FlightSchoolDetailPage({ params }: Props) {
   // page sehen damit er hours buchen oder withdraw machen kann (siehe
   // schema-policy: existing enrollments dürfen weiter laufen).
 
-  const [allEnrollmentsHere, activeLicenses, userWallet] = await Promise.all([
+  const [allEnrollmentsHere, activeLicenses, userWallet, recentApprovedPireps] = await Promise.all([
     prisma.flightSchoolEnrollment.findMany({
       where: { userId: user.id, schoolId: id },
       orderBy: { enrolledAt: 'desc' },
@@ -95,7 +100,37 @@ export default async function FlightSchoolDetailPage({ params }: Props) {
     }),
     getActiveLicenses(user.id),
     getOrCreateWallet({ ownerType: 'USER', ownerUserId: user.id }),
+    // Welle 13E-14b: Approved PIREPs des users für die PracticalExamCard.
+    // Wir holen die letzten 30 ohne min-flight-time-filter — der filter
+    // pro enrollment erfolgt per JS, weil verschiedene running enrollments
+    // verschiedene min-werte haben können (PPL=60, ATPL=120, etc.). Bei
+    // 30 PIREPs ist die overhead-zeit für die client-filter vernachlässigbar.
+    prisma.pirep.findMany({
+      where: { userId: user.id, status: 'Approved' },
+      orderBy: { submittedAt: 'desc' },
+      take: 30,
+      select: {
+        id: true,
+        flightTimeMin: true,
+        submittedAt: true,
+        approvedAt: true,
+        departure: { select: { icao: true } },
+        arrival: { select: { icao: true } },
+        aircraft: { select: { type: true } },
+      },
+    }),
   ]);
+
+  // Map fetched PIREPs in das public-shape was die PracticalExamCard erwartet.
+  const allCandidates: PirepCandidatePublic[] = recentApprovedPireps.map((p) => ({
+    id: p.id,
+    flightTimeMin: p.flightTimeMin,
+    submittedAt: p.submittedAt,
+    approvedAt: p.approvedAt,
+    departureIcao: p.departure.icao,
+    arrivalIcao: p.arrival.icao,
+    aircraftType: p.aircraft?.type ?? null,
+  }));
 
   const runningEnrollments = allEnrollmentsHere.filter(
     (e) => e.status === 'IN_PROGRESS' || e.status === 'EXAM_SCHEDULED',
@@ -303,6 +338,42 @@ export default async function FlightSchoolDetailPage({ params }: Props) {
               passMarkPercent={PASS_MARK_PERCENT}
             />
           </div>
+
+          {/* Practical-Exam-card (Welle 13E-14b) — direkt nach Theory.
+              Wir filtern allCandidates nochmal pro license-typ damit der
+              picker NUR PIREPs zeigt die für DIESEN license-typ qualifiziert
+              sind (verschiedene mins pro typ). selectedPirep ist der bereits
+              zugewiesene falls vorhanden — kann auch außerhalb der candidates
+              sein wenn der pilot einen alten flug zugewiesen hat (wir suchen
+              dann den vollen PIREP nicht zusätzlich; Fallback ist aber dass
+              er üblicherweise in den letzten 30 ist). */}
+          {(() => {
+            const minTime = getMinFlightTimeForLicense(e.licenseType);
+            const candidatesForThisLicense = allCandidates.filter(
+              (c) => (c.flightTimeMin ?? 0) >= minTime,
+            );
+            const selected = e.practicalExamPirepId
+              ? allCandidates.find((c) => c.id === e.practicalExamPirepId) ??
+                null
+              : null;
+            return (
+              <div className="mt-6">
+                <PracticalExamCard
+                  enrollmentId={e.id}
+                  schoolId={school.id}
+                  enrollmentStatus={e.status}
+                  practicalExamPirepId={e.practicalExamPirepId}
+                  practicalExamPassedAt={e.practicalExamPassedAt}
+                  attemptCount={e.practicalExamAttempts}
+                  theoryPassedAt={e.theoryExamPassedAt}
+                  candidates={candidatesForThisLicense}
+                  selectedPirep={selected}
+                  licenseType={e.licenseType}
+                  minFlightTimeMin={minTime}
+                />
+              </div>
+            );
+          })()}
         </section>
       ))}
 

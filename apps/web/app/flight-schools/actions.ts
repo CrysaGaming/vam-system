@@ -14,6 +14,10 @@ import {
   submitTheoryExam,
   getActiveAttempt,
 } from '@vam/db';
+import {
+  markPirepAsPracticalExam,
+  unsetPracticalExamPirep,
+} from '@vam/db';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 
@@ -562,4 +566,76 @@ export async function submitExamAction(
     correctCount: result.correctCount,
     totalCount: result.totalCount,
   };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Practical-Exam: pilot-side mark/unset (Welle 13E-14b)
+// ──────────────────────────────────────────────────────────────────────────
+
+const MarkPracticalSchema = z.object({
+  enrollmentId: z.string().min(1),
+  pirepId: z.string().min(1),
+});
+
+/**
+ * Pilot weist einen approved-PIREP als seinen praktischen Prüfungsflug zu.
+ * Helper validiert ownership + status + flightTimeMin >= license-minimum.
+ *
+ * Server-side ownership-check: enrollment.userId === user.id verhindert
+ * dass ein pilot fremde enrollments manipulieren kann.
+ *
+ * Bei UI: pilot wählt aus seinen approved PIREPs (gefiltert nach minimum-
+ * flightTime client-side für UX). Server validiert nochmal.
+ */
+export async function markPracticalExamPirepAction(
+  input: z.infer<typeof MarkPracticalSchema>,
+) {
+  const parsed = MarkPracticalSchema.parse(input);
+  const user = await requireCareerUser();
+
+  // Ownership-check vor dem helper-call (defense-in-depth).
+  const enrollment = await prisma.flightSchoolEnrollment.findUnique({
+    where: { id: parsed.enrollmentId },
+    select: { id: true, userId: true, schoolId: true },
+  });
+  if (!enrollment) throw new Error('Enrollment nicht gefunden.');
+  if (enrollment.userId !== user.id) throw new Error('forbidden');
+
+  await markPirepAsPracticalExam({
+    enrollmentId: parsed.enrollmentId,
+    pirepId: parsed.pirepId,
+  });
+
+  revalidatePath(`/flight-schools/${enrollment.schoolId}`);
+  revalidatePath('/licenses');
+}
+
+const UnsetPracticalSchema = z.object({
+  enrollmentId: z.string().min(1),
+});
+
+/**
+ * Pilot zieht den als prüfungsflug zugewiesenen PIREP zurück. Erlaubt
+ * solange der instructor noch nicht reviewed hat (status=EXAM_SCHEDULED).
+ *
+ * Use-case: pilot hat versehentlich falschen PIREP markiert oder will
+ * stattdessen einen neueren/besseren flug einreichen.
+ */
+export async function unsetPracticalExamPirepAction(
+  input: z.infer<typeof UnsetPracticalSchema>,
+) {
+  const parsed = UnsetPracticalSchema.parse(input);
+  const user = await requireCareerUser();
+
+  const enrollment = await prisma.flightSchoolEnrollment.findUnique({
+    where: { id: parsed.enrollmentId },
+    select: { id: true, userId: true, schoolId: true },
+  });
+  if (!enrollment) throw new Error('Enrollment nicht gefunden.');
+  if (enrollment.userId !== user.id) throw new Error('forbidden');
+
+  await unsetPracticalExamPirep(parsed.enrollmentId);
+
+  revalidatePath(`/flight-schools/${enrollment.schoolId}`);
+  revalidatePath('/licenses');
 }

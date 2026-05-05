@@ -141,10 +141,10 @@ export function validatePirepForPracticalExam(
       reason: "Dieser PIREP gehört nicht dir.",
     };
   }
-  // PirepStatus enum-werte: SUBMITTED, APPROVED, REJECTED. Wir vergleichen
-  // case-sensitive auf "APPROVED" weil prisma-enum-strings exakt so
-  // serialisiert werden.
-  if (pirep.status !== "APPROVED") {
+  // PirepStatus enum-werte: Submitted, Approved, Rejected (PascalCase im
+  // schema). Wir vergleichen case-sensitive — prisma-enum-strings werden
+  // genau so serialisiert wie sie im schema deklariert sind.
+  if (pirep.status !== "Approved") {
     return {
       ok: false,
       reason: `PIREP muss approved sein (aktuell: ${pirep.status}).`,
