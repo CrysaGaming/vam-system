@@ -2,11 +2,69 @@
 
 import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
-import { Prisma, prisma, NetworkType } from '@vam/db';
+import { Prisma, prisma, NetworkType, canPilotFlyAircraftStrict } from '@vam/db';
 import { requireUserWithAirline } from '@/lib/auth';
 import { fetchSimBriefOfp } from '@/lib/simbrief/fetchOfp';
 import { fetchSimBriefOfpDirect } from '@/lib/simbrief/fetchOfpDirect';
 import { buildSimBriefDispatchUrl } from '@/lib/simbrief/buildDispatchUrl';
+
+/**
+ * Welle 13E-7 — Career-mode booking-gate.
+ *
+ * Helper, gerufen von allen drei booking-creators (createBooking,
+ * cloneBooking, createBookingFromScheduledFlight). Prüft via
+ * canPilotFlyAircraftStrict ob:
+ *   1. Career-mode aktiv ist (dual-flag user.careerEnabled UND airline.
+ *      careerEnabled). Wenn nicht: noop, return — booking erlaubt.
+ *   2. Wenn enforced: hat der pilot alle required licenses + type-rating
+ *      für den aircraft-type der route? Wenn missing: throw mit klarer
+ *      deutscher error-message + liste der missing-items.
+ *
+ * Routes ohne aircraftTypeIcao (älter / generic) werden nicht geblockt —
+ * der gate gilt nur für routes mit explizitem type-requirement.
+ *
+ * Aufruf-pattern: vor dem prisma.booking.create. Wenn dieser helper
+ * throws, wird der booking nie erstellt → keine zombie-bookings ohne
+ * qualifikation.
+ */
+async function enforceCareerGateForRoute(
+  userId: string,
+  airlineId: string,
+  aircraftTypeIcao: string | null,
+): Promise<void> {
+  if (!aircraftTypeIcao) {
+    // Generic route ohne type-requirement → kein gate. Career-mode-
+    // airlines wollen typischerweise alle routes mit type-requirement
+    // pflegen, aber wir blocken nicht hart.
+    return;
+  }
+
+  const result = await canPilotFlyAircraftStrict({
+    userId,
+    airlineId,
+    aircraftType: aircraftTypeIcao,
+  });
+
+  if (!result.enforced) {
+    // Career-mode aus → booking immer erlaubt.
+    return;
+  }
+
+  if (!result.allowed) {
+    // Pilot hat nicht alle required licenses / type-rating.
+    // Error-message soll dem pilot direkt sagen WAS fehlt — er kann
+    // dann zum airline-admin gehen und nachfragen oder zur flight-
+    // school zur ausbildung.
+    const missingList = result.missing.join(', ');
+    const cat = result.requirements.category;
+    throw new Error(
+      `Career-System: Du hast nicht alle Lizenzen für ${aircraftTypeIcao} ` +
+        `(${cat}). Es fehlen: ${missingList}. ` +
+        `Wende dich an deinen Airline-Admin oder absolviere die nötige ` +
+        `Ausbildung in einer Flight-School.`,
+    );
+  }
+}
 
 const CreateBookingSchema = z.object({
   routeId: z.string().cuid(),
@@ -54,11 +112,17 @@ export async function createBooking(
 
   const route = await prisma.route.findFirst({
     where: { id: routeId, airlineId },
-    select: { id: true },
+    select: { id: true, aircraftTypeIcao: true },
   });
   if (!route) {
     throw new Error('Route not found or not in your airline');
   }
+
+  // Welle 13E-7: Career-mode booking-gate. Bei aktiviertem career-system
+  // (user.careerEnabled UND airline.careerEnabled) muss der pilot die
+  // licenses + type-rating für den route-aircraft-type haben. Helper
+  // throws mit deutscher message wenn was fehlt.
+  await enforceCareerGateForRoute(userId, airlineId, route.aircraftTypeIcao);
 
   const existing = await prisma.booking.findFirst({
     where: {
@@ -423,12 +487,23 @@ export async function cloneBooking(
       airlineId: true,
       routeId: true,
       intendedNetwork: true,
+      route: { select: { aircraftTypeIcao: true } },
     },
   });
 
   if (!source || source.userId !== userId || source.airlineId !== airlineId) {
     throw new Error('Booking not found');
   }
+
+  // Welle 13E-7: Career-gate auch im clone-flow. Eine alte license-
+  // konfiguration (die zum zeitpunkt des original-bookings noch passte)
+  // könnte jetzt expired sein — wir re-checken anhand des aktuellen
+  // license-state.
+  await enforceCareerGateForRoute(
+    userId,
+    airlineId,
+    source.route.aircraftTypeIcao,
+  );
 
   // Same active-booking constraint as createBooking — prevent the user
   // from accumulating multiple in-flight clones. They must cancel/
@@ -545,6 +620,7 @@ export async function createBookingFromScheduledFlight(
       departureTime: true,
       status: true,
       bookingId: true,
+      route: { select: { aircraftTypeIcao: true } },
     },
   });
   if (!slot || slot.airlineId !== airlineId) {
@@ -553,6 +629,15 @@ export async function createBookingFromScheduledFlight(
   if (slot.status !== 'Planned' || slot.bookingId !== null) {
     throw new Error('Dieser slot ist bereits vergeben oder cancelled.');
   }
+
+  // Welle 13E-7: Career-gate auch im scheduled-flight-flow. Wenn pilot
+  // den slot beansprucht aber nicht qualifiziert ist, wird der claim
+  // gar nicht erst versucht — kein zombie-state im transaction-rollback.
+  await enforceCareerGateForRoute(
+    userId,
+    airlineId,
+    slot.route.aircraftTypeIcao,
+  );
 
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
