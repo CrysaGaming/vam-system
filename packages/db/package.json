@@ -3,10 +3,22 @@
     "version": "1.0.0",
     "description": "",
     "type": "module",
-    "main": "src/index.ts",
-    "types": "src/index.ts",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "default": "./dist/index.js"
+        }
+    },
+    "files": [
+        "dist",
+        "prisma"
+    ],
     "scripts": {
         "dev": "prisma dev",
+        "build": "tsc",
+        "build:watch": "tsc --watch --preserveWatchOutput",
         "migrate": "prisma migrate dev",
         "generate": "prisma generate",
         "seed": "tsx prisma/seed.ts",

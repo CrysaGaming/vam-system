@@ -3,14 +3,19 @@
     "compilerOptions": {
         "module": "NodeNext",
         "moduleResolution": "NodeNext",
-        "noEmit": true,
-        "allowImportingTsExtensions": false,
+        "outDir": "./dist",
+        "rootDir": "./src",
+        "declaration": true,
+        "declarationMap": true,
+        "sourceMap": true,
         "resolveJsonModule": true
     },
     "include": [
-        "src/**/*",
-        "prisma/seed.ts",
-        "prisma/aircraft-types.ts",
-        "prisma.config.ts"
+        "src/**/*"
+    ],
+    "exclude": [
+        "dist",
+        "node_modules",
+        "prisma"
     ]
 }
