@@ -66,6 +66,11 @@ export function AirlineSettingsForm({ initial }: Props) {
     // hardcoded false (sonst würde re-saven der form ohne änderung den
     // toggle versehentlich abschalten).
     const economyEnabled = formData.get('economyEnabled') === 'on';
+    // Welle 13E-4: Career-flag. Selbes pattern wie economy. Direkt-
+    // checkbox, opt-in. Form-checkbox ist additive — bei legacy-airlines
+    // ist das field default false und sie sehen den toggle nur wenn sie
+    // ihn aktiv anklicken.
+    const careerEnabled = formData.get('careerEnabled') === 'on';
 
     startTransition(async () => {
       try {
@@ -82,6 +87,7 @@ export function AirlineSettingsForm({ initial }: Props) {
           secondaryColor,
           publicVisible,
           economyEnabled,
+          careerEnabled,
         });
         setSaved(true);
         setIcaoUnlocked(false); // re-lock after save so next edit needs unlock again
@@ -371,6 +377,53 @@ export function AirlineSettingsForm({ initial }: Props) {
                 <em className="not-italic text-gray-400 dark:text-gray-500">
                   Deaktivieren stoppt nur künftige Buchungen — bestehende
                   Wallets und Transaktionen bleiben als Audit-Trail erhalten.
+                </em>
+              </span>
+            </label>
+          </div>
+        </div>
+
+        {/* Welle 13E-4: Career-section. Mirror'd Economy-pattern: eigene
+            section unter Economy, visuell getrennt durch border-top.
+            Aktivieren ist airline-weit — der booking-gate (13E-7) prüft
+            beim Aircraft-pick ob der pilot die required licenses für den
+            type hat. Pilots ohne licenses sehen weiter alle aircraft im
+            booking-flow, aber bekommen einen klaren error wenn sie buchen
+            wollen ("Du brauchst eine PPL für die C172"). Disable wirkt
+            nur prospektiv, existing licenses bleiben in DB. */}
+        <div className="pt-4 mt-4 border-t border-gray-200 dark:border-gray-800">
+          <h3 className="text-sm font-semibold mb-3">Career-System (Beta)</h3>
+
+          <div>
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                name="careerEnabled"
+                defaultChecked={initial.careerEnabled}
+                className="mt-0.5"
+              />
+              <span className="text-xs text-gray-500">
+                <strong className="block text-sm text-gray-700 dark:text-gray-300 mb-0.5">
+                  Career-System für diese Airline aktivieren
+                </strong>
+                Schaltet license-basiertes booking-gating frei. Piloten
+                können bestimmte aircraft-types nur buchen wenn sie die
+                passenden Lizenzen haben (z.B. PPL für Cessna 172, ATPL+
+                Type-Rating für Airbus A320). Damit ein Pilot tatsächlich
+                gegated wird, muss er ZUSÄTZLICH seinen persönlichen
+                Career-Toggle im Profil aktivieren.
+                <br />
+                <br />
+                Geeignet für realistic-airlines mit pilot-progression-
+                struktur (Trainee → CPL → ATPL). Nicht empfohlen für
+                Casual-/Roleplay-Airlines wo jeder alles fliegen darf.
+                <br />
+                <br />
+                <em className="not-italic text-gray-400 dark:text-gray-500">
+                  Deaktivieren entfernt nur das gating für künftige
+                  Buchungen — alle vergebenen Lizenzen und Type-Ratings
+                  bleiben in der DB als Audit-Trail erhalten und gelten
+                  bei einer späteren Re-Aktivierung weiter.
                 </em>
               </span>
             </label>

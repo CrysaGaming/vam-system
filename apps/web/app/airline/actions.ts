@@ -93,6 +93,11 @@ export type AirlineSettings = {
   // Kombination mit user.economyEnabled — beide flags müssen true sein
   // damit processFlightEconomy beim PIREP-approval läuft.
   economyEnabled: boolean;
+  // Welle 13E-4: airline-weite career-flag. Required für license-gating
+  // im booking-flow. Kombination mit user.careerEnabled — beide flags
+  // müssen true sein damit canPilotFlyAircraft im booking-gate prüft.
+  // Roleplay-airlines die keinen license-zwang wollen lassen das false.
+  careerEnabled: boolean;
 };
 
 /**
@@ -543,6 +548,13 @@ const AirlineSettingsSchema = z.object({
   // dass das nur bei der ersten enable einen "frischen" wallet-state
   // bedeutet — disable + re-enable behält existing transactions.
   economyEnabled: z.boolean(),
+  // Welle 13E-4: airline-weite career-flag. Default false (additive für
+  // existing airlines). Wird im booking-gate (13E-7) gegen den ge-
+  // wünschten aircraft-type geprüft — wenn true UND user.careerEnabled
+  // true, dann muss canPilotFlyAircraft passieren. Wenn false (default),
+  // ist der booking-flow für die airline genau wie vor 13E. Disable
+  // wirkt nur prospektiv, existing licenses bleiben in DB als audit.
+  careerEnabled: z.boolean(),
 });
 
 /** Read airline settings for the admin's airline. */
@@ -564,6 +576,7 @@ export async function getAirlineSettings(): Promise<AirlineSettings> {
     secondaryColor: a.secondaryColor,
     publicVisible: a.publicVisible,
     economyEnabled: a.economyEnabled,
+    careerEnabled: a.careerEnabled,
   };
 }
 
@@ -618,6 +631,14 @@ export async function updateAirlineSettings(
         // beim ersten approval via getOrCreateWallet (siehe processFlight-
         // Economy in @vam/db).
         economyEnabled: parsed.economyEnabled,
+        // Welle 13E-4: career-flag durchreichen. Selbe semantik wie
+        // economy: Disable wirkt nur prospektiv. Existing PilotLicenses
+        // bleiben erhalten — wenn die airline später wieder career
+        // aktiviert, sind alle alten licenses noch ACTIVE und gelten
+        // weiter. Re-enable triggert KEIN eager license-grant; alle
+        // checks sind passive (canPilotFlyAircraft prüft nur was schon
+        // da ist).
+        careerEnabled: parsed.careerEnabled,
       },
     });
   } catch (e: unknown) {
