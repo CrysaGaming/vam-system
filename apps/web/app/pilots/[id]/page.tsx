@@ -1,6 +1,6 @@
 import { auth } from '@/auth';
 import { redirect, notFound } from 'next/navigation';
-import { prisma, substituteThumbnailDimensions, getUserAwards } from '@vam/db';
+import { prisma, substituteThumbnailDimensions, getUserAwards, getUserEvents } from '@vam/db';
 import Link from 'next/link';
 import { AwardBadge } from '../../awards/award-badge';
 
@@ -125,6 +125,12 @@ export default async function PilotProfile({
   // wäre unnötig negativ. Auf eigenem profil zeigen wir die empty-section
   // mit CTA zu /awards.
   const userAwards = await getUserAwards(pilot.id);
+
+  // Track 1 #7: Events des pilots laden (alle teilnahmen, sortiert nach
+  // event.startsAt desc). Selbe display-strategie wie awards: auf eigenem
+  // profil immer sichtbar (mit empty-CTA zu /events), auf fremden
+  // profilen nur wenn der user mindestens ein event hat.
+  const userEvents = await getUserEvents(pilot.id);
 
   // Beitrittsdauer
   const joinedDays = Math.floor(
@@ -528,6 +534,80 @@ export default async function PilotProfile({
                     className="p-3 bg-gray-50 dark:bg-gray-800/50 border border-dashed border-gray-300 dark:border-gray-700 rounded-lg flex items-center justify-center text-sm text-gray-600 dark:text-gray-400 hover:border-indigo-500 dark:hover:border-indigo-500 hover:text-indigo-600 dark:hover:text-indigo-400 transition"
                   >
                     +{userAwards.length - 8} weitere →
+                  </Link>
+                )}
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* Track 1 #7: Events-section. Symmetrisch zu Awards: auf eigenem
+            profil immer sichtbar (mit empty-CTA), auf fremden nur wenn
+            mindestens ein event teilgenommen wurde. Card-style mit
+            kind-badge, datum, completion-flag. Max 6 events angezeigt,
+            mehr → Link zu /events. */}
+        {(userEvents.length > 0 || isMe) && (
+          <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6 mb-8">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-sm uppercase tracking-wider text-gray-500">
+                Events
+              </h2>
+              <Link
+                href="/events"
+                className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline"
+              >
+                {isMe
+                  ? `Alle ${userEvents.length} ansehen →`
+                  : 'Event-Catalog →'}
+              </Link>
+            </div>
+            {userEvents.length === 0 ? (
+              <p className="text-sm text-gray-500 dark:text-gray-400 italic">
+                Du hast noch an keinem Event teilgenommen.{' '}
+                <Link
+                  href="/events"
+                  className="text-indigo-600 dark:text-indigo-400 hover:underline not-italic"
+                >
+                  Schau dir die aktuellen Events an
+                </Link>{' '}
+                und melde dich an.
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {userEvents.slice(0, 6).map((entry) => (
+                  <Link
+                    key={entry.id}
+                    href={`/events/${entry.event.slug}`}
+                    className="block p-3 bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-800 hover:border-indigo-400 dark:hover:border-indigo-600 rounded-lg transition"
+                  >
+                    <div className="flex items-start justify-between gap-2 mb-1">
+                      <h3 className="font-semibold text-sm leading-tight flex-1">
+                        {entry.event.title}
+                      </h3>
+                      {entry.completed && (
+                        <span
+                          className="shrink-0 text-xs px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200"
+                          title="Abgeschlossen"
+                        >
+                          ✓
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      {new Date(entry.event.startsAt).toLocaleDateString('de-DE', {
+                        year: 'numeric',
+                        month: 'short',
+                        day: 'numeric',
+                      })}
+                    </p>
+                  </Link>
+                ))}
+                {userEvents.length > 6 && (
+                  <Link
+                    href="/events"
+                    className="p-3 bg-gray-50 dark:bg-gray-800/50 border border-dashed border-gray-300 dark:border-gray-700 rounded-lg flex items-center justify-center text-sm text-gray-600 dark:text-gray-400 hover:border-indigo-500 dark:hover:border-indigo-500 hover:text-indigo-600 dark:hover:text-indigo-400 transition"
+                  >
+                    +{userEvents.length - 6} weitere →
                   </Link>
                 )}
               </div>
