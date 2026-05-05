@@ -49,6 +49,12 @@ export type ShellUser = {
   // finance-overview). Ein admin ohne airline (theoretisch möglich für
   // global-admin) hat das automatisch false.
   airlineEconomyEnabled: boolean;
+  // Welle 13E-5: Career-features sind opt-in (analog hasEconomy).
+  // hasCareer ist true wenn user.careerEnabled UND airline.careerEnabled.
+  // Steuert die sichtbarkeit des "Lizenzen"-sidebar-links. Wenn false:
+  // link wird nicht gerendert; /licenses-page selbst hat einen separaten
+  // gating-redirect.
+  hasCareer: boolean;
   // Welle 4: Position-tracking. baseIcao = pilot's hub innerhalb der airline,
   // currentLocationIcao = wo er grade ist. Beide nullable (neuer pilot ohne
   // hub-zuweisung, oder vor erstem flug). Sidebar zeigt einen kompakten
@@ -524,6 +530,16 @@ function Sidebar({ user, pathname }: SidebarProps) {
               funktion. */}
           {user.hasEconomy && (
             <NavLink href="/wallet" pathname={pathname} icon="💰" label="Wallet" />
+          )}
+          {/* Welle 13E-5: Lizenzen-link analog zum Wallet-link gegated.
+              hasCareer=true erfordert user.careerEnabled UND airline.career-
+              Enabled. Sitzt unter Wallet weil career-progression eine
+              persönliche pilot-management-aufgabe ist (selbe kategorie).
+              Pilots ohne aktive licenses sehen die page als "Du hast noch
+              keine Lizenzen"-empty-state mit hinweis auf flight-school
+              enrollments (Welle 13E-12). */}
+          {user.hasCareer && (
+            <NavLink href="/licenses" pathname={pathname} icon="📜" label="Lizenzen" />
           )}
           <NavLink href="/jumpseat" pathname={pathname} icon="🪂" label="Jumpseat" />
           <NavLink href="/live" pathname={pathname} icon="🌐" label="Live" />

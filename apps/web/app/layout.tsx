@@ -54,7 +54,7 @@ export default async function RootLayout({
         // logoUrl mit fetchen für den header-brand-block. Optional auf der
         // airline; wenn null, fällt der BrandLink auf einen ICAO-monogramm
         // zurück.
-        airline: { select: { name: true, icao: true, logoUrl: true, economyEnabled: true } },
+        airline: { select: { name: true, icao: true, logoUrl: true, economyEnabled: true, careerEnabled: true } },
         // rank.name für das header user-info display (vAMSYS-style:
         // pilot-name oben, rank-bezeichnung darunter). Optional FK —
         // user kann ohne rank existieren (z.B. neuer pilot vor zuweisung).
@@ -71,6 +71,10 @@ export default async function RootLayout({
         // Welle 13D: Economy opt-in flag. Gepaart mit airline.economyEnabled
         // (oben im airline-select) ergibt das hasEconomy in shellUser.
         economyEnabled: true,
+        // Welle 13E-5: Career opt-in flag. Gepaart mit airline.careerEnabled
+        // (oben im airline-select) ergibt das hasCareer in shellUser. Steuert
+        // die sichtbarkeit des "Lizenzen"-sidebar-links.
+        careerEnabled: true,
       },
     });
 
@@ -120,6 +124,13 @@ export default async function RootLayout({
           roleName !== null &&
           ['admin', 'airline-admin', 'instructor'].includes(roleName)
         ),
+        // Welle 13E-5: Career ist opt-in BEIDERSEITIG (selbe philosophie
+        // wie hasEconomy). hasCareer=true nur wenn user.careerEnabled UND
+        // airline.careerEnabled. Steuert die sichtbarkeit des "Lizenzen"-
+        // sidebar-links + den booking-gate (13E-7) der canPilotFlyAircraft
+        // bei jeder neuen buchung anwendet. Roleplay-airlines lassen
+        // mindestens einen flag false und hasCareer bleibt false für alle.
+        hasCareer: !!(user.airline && user.careerEnabled && user.airline.careerEnabled),
         // Welle 4: Position-felder direkt aus der user-row durchgereicht.
         // Nullable strings — sidebar-position-block hat alle 5 fallback-cases
         // dokumentiert (siehe Sidebar-component-comment).
