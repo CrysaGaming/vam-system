@@ -64,6 +64,34 @@ export type AwardEarnedPayload = {
   awardIconUrl: string | null;
 };
 
+/**
+ * Track 1 #7 (Events / Flight-Tours, 9.2.8): Payload für
+ * /events/event-published. Triggered wenn admin via /admin/events einen
+ * DRAFT-event auf PUBLISHED setzt.
+ *
+ * Discord-handler postet einen embed in #announcements channel mit
+ * event-titel, beschreibung-snippet, datum + bonus, plus pingt die
+ * @event-notifications-rolle.
+ *
+ * Datums-felder als ISO-strings serialisiert weil JSON-transport
+ * Date-objects nicht sauber rüberbringt — der bot deserialisiert
+ * via new Date(iso).
+ */
+export type EventPublishedPayload = {
+  eventId: string;
+  title: string;
+  slug: string;
+  description: string;
+  kind: "TOUR" | "SINGLE_FLIGHT" | "THEMED" | "GROUP_FLIGHT" | "SEASONAL";
+  coverImageUrl: string | null;
+  bonusReward: number;
+  maxParticipants: number | null;
+  startsAt: string; // ISO
+  endsAt: string | null;
+  airlineName: string | null;
+  createdByName: string | null;
+};
+
 async function post(path: string, body: unknown): Promise<void> {
   if (!BOT_SECRET) {
     console.warn('[bot-events] BOT_EVENTS_SECRET not set, skipping event:', path);
@@ -112,4 +140,8 @@ export async function emitPirepRejected(payload: PirepRejectedPayload): Promise<
 
 export async function emitAwardEarned(payload: AwardEarnedPayload): Promise<void> {
   await post('/events/award-earned', payload);
+}
+
+export async function emitEventPublished(payload: EventPublishedPayload): Promise<void> {
+  await post('/events/event-published', payload);
 }

@@ -6,6 +6,7 @@ import { handleRankUpgraded } from './events/rank-upgraded.js';
 import { handlePirepApproved } from './events/pirep-approved.js';
 import { handlePirepRejected } from './events/pirep-rejected.js';
 import { handleAwardEarned } from './events/award-earned.js';
+import { handleEventPublished } from './events/event-published.js';
 import { getPublicVatsimPilots } from './services/vatsim-tracker.js';
 import { getPublicIvaoPilots } from './services/ivao-tracker.js';
 import { getCachedMetars } from './services/metar-tracker.js';
@@ -86,6 +87,18 @@ export function startHttpServer(client: Client) {
       res.json({ ok: true });
     } catch (err) {
       console.error('Failed to handle award-earned:', err);
+      res.status(500).json({ error: 'failed' });
+    }
+  });
+
+  // Event: Event Published (Track 1 #7) — postet announcement-embed
+  // im #announcements channel mit @event-notifications-rolle ping.
+  app.post('/events/event-published', async (req, res) => {
+    try {
+      await handleEventPublished(client, req.body);
+      res.json({ ok: true });
+    } catch (err) {
+      console.error('Failed to handle event-published:', err);
       res.status(500).json({ error: 'failed' });
     }
   });

@@ -438,6 +438,14 @@ model Airline {
   // trail im SYSTEM-wallet bleibt erhalten via counterpartyWalletId-strings,
   // die referenziert werden aber nicht FK-enforced sind).
   wallets Wallet[] @relation("AirlineWallets")
+
+  // Track 1 #7 (Events / Flight-Tours, 9.2.8): Event-back-relation.
+  // Cascade-delete via Event.airline relation: airline-löschung räumt
+  // events der airline mit auf (deren participants wiederum cascade-
+  // gelöscht werden via EventParticipant.event). VA-wide-events
+  // (airlineId=null) sind hier nicht enthalten — sie haben keinen
+  // airline-owner.
+  events Event[]
 }
 
 model User {
@@ -692,6 +700,25 @@ model User {
   typeRatings             TypeRating[]
   typeRatingsIssued       TypeRating[]             @relation("TypeRatingsIssued")
   flightSchoolEnrollments FlightSchoolEnrollment[]
+
+  // Track 1 #7 (Events / Flight-Tours, 9.2.8): Event-system back-relations.
+  //   eventsCreated         = events die dieser user als admin erstellt
+  //                           hat. Restrict-on-delete (kein cascade) —
+  //                           wenn admin-account gelöscht wird, blockiert
+  //                           das die user-löschung bis events transferred
+  //                           oder deleted sind. Bewusst konservativ weil
+  //                           events historisch wichtig sind (audit-trail).
+  //   eventsParticipated    = signup-records dieses pilots an events.
+  //                           Cascade-delete: pilot-löschung räumt seine
+  //                           signups mit auf (event-row bleibt unberührt).
+  //   eventsCompletedAsAdmin = audit-trail für admin der completion-flag
+  //                            gesetzt hat (siehe EventParticipant.
+  //                            completedById). SetNull beim admin-delete
+  //                            damit completion-records ihre kette nicht
+  //                            verlieren.
+  eventsCreated          Event[]            @relation("EventCreatedBy")
+  eventsParticipated     EventParticipant[] @relation("EventParticipations")
+  eventsCompletedAsAdmin EventParticipant[] @relation("EventParticipantsCompletedBy")
 }
 
 model LiveSession {
@@ -2520,4 +2547,187 @@ model TheoryExamAttempt {
   //   - "alle attempts dieses enrollments" (history-anzeige)
   //   - "running attempt dieses enrollments" (resume nach reload)
   @@index([enrollmentId, submittedAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Track 1 #7 (Events / Flight-Tours, 9.2.8) — Event-System v1
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Welle/Track-1 #7: Was für ein event-typ. Beeinflusst nur display
+/// (icon, badge-color, kategorie-filter) — keine business-logic-divergenz.
+/// Mehr kinds können später additiv hinzugefügt werden ohne migration-
+/// breakage (postgres-enum ALTER ... ADD VALUE).
+enum EventKind {
+  /// Multi-leg tour mit fester reihenfolge (z.B. \"DLH-Tour Europa\":
+  /// FRA→CDG→MAD→FCO→FRA). Legs sind im legs-JSON-array.
+  TOUR
+
+  /// Single-flight event mit fester route (z.B. \"Eröffnung der LH482-Strecke\").
+  /// legs-array hat genau zwei einträge oder ist leer (route ist im
+  /// description-text frei beschrieben).
+  SINGLE_FLIGHT
+
+  /// Themen-event ohne starre route (z.B. \"Cargo-Wochenende\" — fliege
+  /// einen beliebigen cargo-flug während des zeitfensters).
+  THEMED
+
+  /// Group-flight: mehrere piloten fliegen gemeinsam dieselbe strecke.
+  /// V1: nur als kategorie-display. V2 könnte gemeinsame slots/timings
+  /// erzwingen.
+  GROUP_FLIGHT
+
+  /// Saisonal (christmas, summer-break, anniversary etc.). Hauptsächlich
+  /// für UI-filter-tab \"Saison-Events\".
+  SEASONAL
+}
+
+/// Welle/Track-1 #7: Lifecycle eines events. State-machine:
+///   DRAFT → PUBLISHED → IN_PROGRESS → COMPLETED
+///                ↓
+///            CANCELLED  (jederzeit möglich vor COMPLETED)
+///
+/// IN_PROGRESS und COMPLETED werden nicht durch admin-action getriggert
+/// sondern via timestamp-vergleich in queries (startsAt <= now < endsAt
+/// → IN_PROGRESS, now >= endsAt → COMPLETED). Das vermeidet eine cron-
+/// dependency und macht status \"live computed\" — der DB-status bleibt
+/// PUBLISHED bis ein admin manuell auf COMPLETED setzt (z.B. um
+/// nachzügler-completion-flags noch zu vergeben).
+enum EventStatus {
+  /// Admin-WIP. Nicht öffentlich sichtbar. Nur creator + airline-admins
+  /// können den event sehen.
+  DRAFT
+
+  /// Public im event-catalog. Anmeldungen offen. Discord-embed gepostet.
+  PUBLISHED
+
+  /// Admin hat manuell als abgeschlossen markiert (oder zukünftig auch
+  /// ein cron-job nach endsAt). Catalog zeigt event noch im \"Vergangene
+  /// Events\"-tab.
+  COMPLETED
+
+  /// Admin hat abgesagt. Event verschwindet aus public-catalog,
+  /// teilnehmer-records bleiben als audit-trail.
+  CANCELLED
+}
+
+/// Track 1 #7 — Event-Model.
+///
+/// Repräsentiert eine event-veranstaltung der airline (tour, themed-flight,
+/// group-flight etc.). Pilots melden sich via EventParticipant an. Admins
+/// erstellen + verwalten events via /admin/events.
+///
+/// # Scope
+///
+/// airlineId ist NULLABLE — null bedeutet \"VA-wide event\" (sichtbar für
+/// alle airlines auf der instanz). MVP-policy: VA-wide-events können nur
+/// von SYSTEM-admins erstellt werden (gate via permission-check in
+/// actions). Single-airline-instanz nutzt das eh nicht — alle events sind
+/// effektiv airline-scoped.
+///
+/// # Slug
+///
+/// Slug ist UNIQUE GLOBAL (nicht per airline) — vereinfacht URL-routing
+/// (/events/[slug] ohne airline-prefix). Konflikt-handling bei create:
+/// app-layer hängt -2, -3 etc. an wenn slug schon existiert. Slug ist
+/// 1x beim publish festgelegt + danach immutable damit links stabil
+/// bleiben.
+///
+/// # bonusReward
+///
+/// Optionaler zusätzlicher VAM\$-bonus für teilnehmer die das event
+/// completen. Kommt ON TOP von normalen flight-revenues (PIREP-payouts).
+/// Default 0 = kein bonus, event ist nur \"engagement-meta\". Wird beim
+/// markParticipantCompleted-call als REVENUE_EVENT_BONUS-transaction
+/// gutgeschrieben (siehe future-work — MVP schreibt einen generic
+/// REVENUE_PASSENGER mit category \"event-bonus\" weil wir keinen neuen
+/// enum-value für MVP wollen — kann später extrahiert werden).
+///
+/// # legs-Json
+///
+/// Frei-formatiges array für tour-events: [{ icao, label, note? }, ...].
+/// V1 nur display, kein constraint dass piloten genau diese strecken
+/// fliegen müssen. V2 könnte automatic-completion-tracking via
+/// PIREP-matching machen (\"PIREP from EDDF→LFPG ✓\").
+model Event {
+  id          String      @id @default(cuid())
+  airlineId   String?
+  airline     Airline?    @relation(fields: [airlineId], references: [id], onDelete: Cascade)
+
+  title       String
+  slug        String      @unique
+  description String      @db.Text
+  kind        EventKind   @default(THEMED)
+  status      EventStatus @default(DRAFT)
+
+  /// Banner/cover image für event-card + detail-page-header. Optional
+  /// (null = neutraler kind-icon-placeholder im UI).
+  coverImageUrl String?
+
+  /// Optional bonus-VAM\$ für completers ON TOP von flight-revenues.
+  /// Default 0. Decimal(12, 2) konsistent mit anderen money-fields.
+  bonusReward Decimal     @default(0) @db.Decimal(12, 2)
+
+  /// Hard-cap auf teilnehmerzahl. Null = unlimited. Wenn cap erreicht,
+  /// joinEvent wirft \"event-full\". UI zeigt \"15/25 Teilnehmer\" badge.
+  maxParticipants Int?
+
+  /// Event-zeitfenster. startsAt = MUSS, endsAt = optional (für single-
+  /// day-events oder open-ended themed-events). UI rendert basierend
+  /// auf startsAt vs now: future = \"Beginnt in 3 Tagen\", inside-window =
+  /// \"Läuft\", past = \"Beendet\".
+  startsAt DateTime
+  endsAt   DateTime?
+
+  /// Tour-legs als JSON-array: [{ icao, label?, note? }]. Nur für
+  /// kind=TOUR strukturiert genutzt — bei anderen kinds null oder leer.
+  /// V1: rein display, keine PIREP-matching-logic.
+  legs Json?
+
+  createdById String
+  createdBy   User   @relation("EventCreatedBy", fields: [createdById], references: [id])
+
+  participants EventParticipant[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// Häufigste queries:
+  ///  - \"published events meiner airline, sortiert nach startsAt\" (catalog-listing)
+  ///  - \"events meiner airline aller statuses\" (admin-listing)
+  ///  - \"event by slug\" (detail-routing — slug ist eh @unique, kein extra index nötig)
+  @@index([airlineId, status, startsAt])
+  @@index([startsAt])
+}
+
+/// Track 1 #7 — EventParticipant.
+///
+/// Anmeldungs-record. Ein pilot kann sich für ein event ein-mal anmelden
+/// (@@unique([eventId, userId])). Beim leave-action wird der record
+/// hard-gelöscht (kein soft-delete) — verzichtbar weil keine zeitliche
+/// historie der signups gebraucht wird.
+///
+/// completed-flag wird vom admin via markParticipantCompleted gesetzt
+/// (typischerweise nach event-ende manuell). V2 könnte das per PIREP-
+/// matching automatisieren (\"hat dieser pilot die tour-legs alle
+/// geflogen?\").
+model EventParticipant {
+  id      String @id @default(cuid())
+  eventId String
+  event   Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  userId  String
+  user    User   @relation("EventParticipations", fields: [userId], references: [id], onDelete: Cascade)
+
+  joinedAt    DateTime  @default(now())
+  completed   Boolean   @default(false)
+  completedAt DateTime?
+
+  /// Audit-trail wer den completed-flag gesetzt hat (admin-id). Null bei
+  /// auto-completion (V2). SetNull beim admin-delete damit historische
+  /// records ihre kette nicht verlieren.
+  completedById String?
+  completedBy   User?   @relation("EventParticipantsCompletedBy", fields: [completedById], references: [id], onDelete: SetNull)
+
+  @@unique([eventId, userId])
+  @@index([userId])
+  @@index([eventId, completed])
 }

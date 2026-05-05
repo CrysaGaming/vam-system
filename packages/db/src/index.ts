@@ -130,3 +130,15 @@ export * from "./sceneries/index.js";
 // getPirepHeatmapPoints — returnt die approved-PIREP-departure+arrival-
 // counts pro airport als geo-punkte mit weight für die heatmap.
 export * from "./pireps/index.js";
+
+// Track 1 #7 (Events / Flight-Tours, 9.2.8): Event + EventParticipant
+// schema (welle_track1_7_events_and_participants migration). Helpers
+// für public-catalog (/events), event-detail mit signup, admin-CRUD
+// (/admin/events) und profile-display ("Meine Events"). State-machine:
+// DRAFT → PUBLISHED → COMPLETED, mit CANCELLED-side-channel. Bonus-
+// rewards beim per-participant complete-marken werden als REVENUE_PASSENGER
+// mit category="event-bonus" auf user-wallets gebucht (kein separater
+// REVENUE_EVENT_BONUS-enum-value im MVP — siehe schema-comment Event.bonusReward).
+export { EventKind, EventStatus } from "@prisma/client";
+export type { Event, EventParticipant } from "@prisma/client";
+export * from "./events/index.js";
