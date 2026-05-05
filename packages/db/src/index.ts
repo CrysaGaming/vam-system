@@ -100,3 +100,10 @@ export type {
 // canPilotFlyAircraft, grantLicense } from "@vam/db"`. Siehe
 // ./career/index.ts für die einzelnen module.
 export * from "./career/index.js";
+
+// Welle 14A (Twitch-Activation): Live-stream-status-helpers + types.
+// Werden vom bot (services/twitch-eventsub.ts in 14B) bei stream.online/
+// offline events genutzt, und von apps/web (live-badges in 14C) für
+// queries. Re-exports vom ./twitch barrel — consumer importieren via
+// `import { markPilotLive, getLivePilots, countLivePilots } from "@vam/db"`.
+export * from "./twitch/index.js";

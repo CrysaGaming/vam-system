@@ -475,6 +475,31 @@ model User {
   twitchRefreshToken   String?   @db.Text
   twitchTokenExpiresAt DateTime?
 
+  // Welle 14A (Twitch-Activation): Live-stream-status. Werden vom bot
+  // (apps/bot/src/services/twitch-eventsub.ts) bei stream.online und
+  // stream.offline events gesetzt. Foundation für UI-badges
+  // (Profile/Live-Map/Header) und den #livestreams discord-embed.
+  //
+  // twitchIsLive: aktueller status. Bei stream.online → true, bei
+  //   stream.offline → false. Idempotency: doppelte online-events
+  //   posten keinen zweiten discord-embed (siehe markPilotLive-helper:
+  //   skip wenn already live).
+  //
+  // twitchStreamTitle/GameName/ThumbnailUrl: aktueller stream-context.
+  //   stream.online-event-payload enthält nur user-IDs, daher fetcht
+  //   der bot den vollen kontext via Helix /streams API beim go-live.
+  //   Bei stream.offline cleared. Thumbnail-URL ist die {width}x{height}-
+  //   template-form von twitch — UI ersetzt placeholder bei display.
+  //
+  // twitchLastWentLiveAt: persistent für "online seit X"-anzeige + 
+  //   history. Wird bei stream.offline NICHT cleared, damit das
+  //   profile zeigen kann "zuletzt gestern live".
+  twitchIsLive             Boolean   @default(false)
+  twitchStreamTitle        String?
+  twitchStreamGameName     String?
+  twitchStreamThumbnailUrl String?
+  twitchLastWentLiveAt     DateTime?
+
   // SimBrief-Account-Identifier für API-Dispatch. Wenn null, dispatcht User
   // via Browser-Fallback (prefilled URL).
   simBriefUsername String?
