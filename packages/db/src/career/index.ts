@@ -63,3 +63,30 @@ export {
   type CanFlyStrictResult,
   type ShouldEnforceInput,
 } from "./can-fly.js";
+
+// 13E-13: theory-exam helpers (question-bank CRUD + attempt-flow + grading)
+export {
+  PASS_MARK_PERCENT,
+  DEFAULT_EXAM_QUESTION_COUNT,
+  RELEVANT_CATEGORIES_BY_LICENSE,
+  distributeBalanced,
+  gradeAnswers,
+  createTheoryExamQuestion,
+  deactivateTheoryExamQuestion,
+  listTheoryExamQuestions,
+  startTheoryExam,
+  getAttemptWithQuestions,
+  saveAttemptAnswer,
+  submitTheoryExam,
+  getTheoryExamAttempts,
+  getActiveAttempt,
+  hasPassedTheoryExam,
+  type CreateTheoryExamQuestionInput,
+  type ListTheoryExamQuestionsFilters,
+  type StartTheoryExamInput,
+  type StartTheoryExamResult,
+  type AttemptWithQuestions,
+  type SaveAttemptAnswerInput,
+  type SubmitTheoryExamInput,
+  type SubmitTheoryExamResult,
+} from "./theory-exam.js";

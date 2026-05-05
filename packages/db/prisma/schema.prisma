@@ -2337,6 +2337,11 @@ model FlightSchoolEnrollment {
   withdrawnAt     DateTime?
   withdrawnReason String?
 
+  // Welle 13E-13: Theory-exam attempts (1:n). Ein enrollment kann
+  // mehrere attempts haben (retry nach FAILED). Cascade-delete bei
+  // enrollment-delete (was selbst per User-cascade getriggered wird).
+  theoryAttempts TheoryExamAttempt[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -2347,4 +2352,139 @@ model FlightSchoolEnrollment {
   @@index([userId, status])
   @@index([schoolId, status])
   @@index([status])
+}
+
+/// Welle 13E-13: Theorie-prüfung quiz-mechanic.
+///
+/// TheoryExamCategory — kategorisiert die fragen damit wir bei der
+/// random-selection eine balanced verteilung erreichen können (z.B. 5
+/// regulations, 5 weather, 5 aerodynamics, 5 systems statt 20× regulations).
+///
+/// Kategorien orientieren sich an EASA Part-FCL theorie-syllabus:
+///   - REGULATIONS:    Air Law, ICAO/EASA, deutsche LuftVO, ATC-procedures
+///   - WEATHER:        Meteorology, METAR/TAF, weather-fronts, icing
+///   - AERODYNAMICS:   Lift/drag, stall, aircraft-performance, weight&balance
+///   - SYSTEMS:        Aircraft-systems, instruments, engines, propellers
+///   - NAVIGATION:     VFR/IFR-nav, VOR/NDB/GPS, flight-planning, charts
+///   - HUMAN_FACTORS:  Crew Resource Management, physiology, decision-making
+///
+/// Für PPL/SPL nutzen wir typischerweise REGULATIONS+WEATHER+AERODYNAMICS+
+/// SYSTEMS. Für IR/CPL/ATPL kommt NAVIGATION dazu, für ATPL/MCC noch
+/// HUMAN_FACTORS. Die selection-policy filtert per licenseType.
+enum TheoryExamCategory {
+  REGULATIONS
+  WEATHER
+  AERODYNAMICS
+  SYSTEMS
+  NAVIGATION
+  HUMAN_FACTORS
+}
+
+/// TheoryExamQuestion — Multiple-choice frage in der theorie-bank.
+///
+/// Format: 4 antwort-optionen, exact 1 richtig (correctIndex 0-3). Wir
+/// nutzen Strings statt JSON für options weil postgres String[] type-safe
+/// ist und keine application-layer-validation braucht.
+///
+/// Selection-strategy in startTheoryExam:
+///   1. Filter: licenseType == enrollment.licenseType, active=true
+///   2. Group by category, random-pick balanced count pro category
+///   3. Shuffle final list
+///
+/// Wenn nicht genug fragen pro category vorhanden sind: fall back to
+/// "best effort" — wir nehmen alle verfügbaren plus topup von der
+/// gesamten bank. Helper wirft NIE wenn die bank zu klein ist; UI
+/// zeigt im worst-case einen warning.
+///
+/// Difficulty (1-5): future-use für adaptive-quiz (noch nicht implementiert
+/// in 13E-13). Default 2 = "moderate".
+///
+/// Idempotency-policy: keine — questions sind admin-created via seed
+/// oder später admin-UI. Identische question-texts in der bank sind
+/// erlaubt (kann z.B. dieselbe frage mit anderer license-zuordnung sein).
+model TheoryExamQuestion {
+  id           String             @id @default(cuid())
+  licenseType  LicenseType
+  category     TheoryExamCategory
+  questionText String
+  /// 4 antwort-optionen. Exact 4 expected — sonst app-layer-validation-error
+  /// in seed/admin. Bewusst String[] statt fixed columns (option1..option4)
+  /// um zukünftige varianten (z.B. 5 options, true/false) leichter zu
+  /// supporten via app-layer-policy.
+  options      String[]
+  /// 0-indexed pointer auf options[]. Validation: 0 <= correctIndex <
+  /// options.length, durchgesetzt im seed-script + admin-UI.
+  correctIndex Int
+  /// Wird nach answer-submit angezeigt um lerneffekt zu fördern. Optional
+  /// weil seed-questions evtl. ohne erklärung kommen.
+  explanation  String?
+  /// Reserved für adaptive-difficulty in späterer welle. 1=easy, 5=hard.
+  difficulty   Int                @default(2)
+  /// Soft-delete: active=false → frage erscheint nicht mehr in selection.
+  /// Existing attempts behalten ihre questionIds-references.
+  active       Boolean            @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Häufige query: "alle aktiven fragen für PPL".
+  @@index([licenseType, active])
+  @@index([licenseType, category, active])
+}
+
+/// TheoryExamAttempt — Ein einzelner prüfungs-versuch eines pilots.
+///
+/// Lifecycle:
+///   1. startTheoryExam → INSERT mit questionIds[], submittedAt=null
+///   2. UI: pilot beantwortet fragen, optional zwischenspeichern via
+///      saveAnswer (incremental update of answers[])
+///   3. submitTheoryExam → score berechnet, passed gesetzt, submittedAt
+///      gestempelt. Wenn passed=true: enrollment.theoryExamPassedAt+Score
+///      gesetzt + status → EXAM_SCHEDULED (= ready für practical).
+///
+/// Time-limit: nicht erzwungen in 13E-13 (kein server-side timer). Wenn
+/// später gewünscht, würden wir startedAt + max-duration prüfen.
+///
+/// answers[i] korrespondiert zu questionIds[i] same-index. Wert -1 =
+/// "skipped/unanswered" (graded als wrong). Werte 0-3 = gewählte option.
+/// Length-mismatch zwischen arrays = data-integrity-bug, wird in submit
+/// als app-layer-error abgefangen.
+///
+/// Score: 0-100 (% korrekt). Pass-mark in app-layer (PASS_MARK_PERCENT
+/// constant, default 80). Aufnahme-precision: Float weil score = round(
+/// correct/total*100, 1) — nicht ganzzahlig wenn z.B. 17/20 = 85.0%.
+///
+/// Retry-policy: pilot kann beliebig oft retry'en. Jeder neue versuch =
+/// neuer attempt-record. enrollment.theoryExamAttempts inkrementiert
+/// pro submit (egal ob passed oder failed). Kein cooldown im MVP.
+model TheoryExamAttempt {
+  id           String                 @id @default(cuid())
+  enrollmentId String
+  enrollment   FlightSchoolEnrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+
+  startedAt   DateTime  @default(now())
+  submittedAt DateTime?
+
+  /// Question-ids in der reihenfolge wie sie dem pilot angezeigt werden.
+  /// Wird beim start gesetzt + danach immutable (answers-position-stable).
+  questionIds String[]
+
+  /// Pro question-position: gewählter option-index (0-3) oder -1 (skip).
+  /// Bei start: empty []. Wird via saveAnswer inkrementell gefüllt.
+  /// Bei submit: muss length == questionIds.length haben.
+  answers Int[] @default([])
+
+  /// 0-100 (%). NULL solange noch nicht submitted.
+  scorePercent Float?
+
+  /// True wenn scorePercent >= PASS_MARK_PERCENT. NULL solange nicht submitted.
+  passed Boolean?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Häufige queries:
+  //   - "alle attempts dieses enrollments" (history-anzeige)
+  //   - "running attempt dieses enrollments" (resume nach reload)
+  @@index([enrollmentId, submittedAt])
 }
