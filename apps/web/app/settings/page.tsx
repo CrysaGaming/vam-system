@@ -23,6 +23,7 @@ import { SettingsTabs } from './settings-tabs';
 import { AcarsCard } from './acars-card';
 import { getAcarsStatus } from './acars-actions';
 import { EconomyCard } from './economy-card';
+import { CareerCard } from './career-card';
 
 /**
  * Settings page — refactored from a long single-column layout into 4
@@ -74,8 +75,12 @@ export default async function SettingsPage({
       // abhängen. Wenn user.airlineId null, ist airline.economyEnabled
       // ebenfalls null.
       economyEnabled: true,
+      // Welle 13E-3: career-flag analog zu economy. Selber dual-flag-
+      // pattern — User.careerEnabled UND Airline.careerEnabled müssen
+      // beide true sein für aktive license-gates.
+      careerEnabled: true,
       airline: {
-        select: { economyEnabled: true },
+        select: { economyEnabled: true, careerEnabled: true },
       },
     },
   });
@@ -168,6 +173,20 @@ export default async function SettingsPage({
         <EconomyCard
           initialEnabled={user.economyEnabled}
           airlineEconomyEnabled={user.airline?.economyEnabled ?? null}
+          hasAirline={!!user.airline}
+        />
+      </div>
+
+      {/* Welle 13E-3: Career opt-in. Direkt unter EconomyCard im Profil-
+          tab — identisches dual-flag-pattern, sodass user beide opt-ins
+          räumlich nebeneinander sieht. Career ist konzeptionell unabhängig
+          von Economy: ein pilot kann Career ohne Economy haben (license-
+          gates aber kein wallet) oder vice versa (wallet aber keine
+          license-gates). Beide einzeln togglebar. */}
+      <div className="mt-6">
+        <CareerCard
+          initialEnabled={user.careerEnabled}
+          airlineCareerEnabled={user.airline?.careerEnabled ?? null}
           hasAirline={!!user.airline}
         />
       </div>

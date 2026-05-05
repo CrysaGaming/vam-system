@@ -612,3 +612,51 @@ export async function setUserEconomyEnabled(enabled: boolean) {
 
   return { success: true, economyEnabled: enabled };
 }
+
+/**
+ * Welle 13E-3: User-level career opt-in.
+ *
+ * Toggelt User.careerEnabled. Default ist false (alle existing user
+ * additive-migrated). Erst wenn DIESER flag UND airline.careerEnabled
+ * beide true sind, greifen die career-features:
+ *   - Booking-gate (13E-7) blockiert flüge ohne ausreichende lizenzen
+ *   - Auto-rank-promotion (13E-9) prüft license-requirements für nächsten rang
+ *   - PIREP-approval-hook (13E-9) inkrementiert TypeRating.hoursOnType
+ *   - Salary-multiplier per rank (13E-10) skaliert pilot-bezahlung
+ *
+ * Solange einer der beiden flags false ist, sind alle dieser features
+ * stille no-ops — kein UI-impact für nicht-teilnehmer.
+ *
+ * Side-effects beim TOGGLE:
+ *   - Disable: keine retroaktive löschung. Existing licenses + type-
+ *     ratings bleiben in DB (audit-trail). Künftige PIREPs werden nicht
+ *     mehr für rank-progression gewertet. Re-enable wirkt nur prospektiv —
+ *     der pilot ist mit current-licenses + current-rank wieder dabei,
+ *     keine retro-rechnung der missing-flights.
+ *   - Enable: kein license wird hier eager erstellt. User mit careerEnabled=
+ *     true ohne licenses sehen im /licenses-tab eine "noch keine lizenzen"-
+ *     hint und können entweder admin-grants oder flight-school-enrollments
+ *     (13E-12) nutzen.
+ *
+ * Bewusst KEINE prüfung ob airline.careerEnabled hier — der user-toggle
+ * ist orthogonal. Wenn die airline-flag noch off ist, sieht der user
+ * im UI einen hint, aber der toggle selbst ist set-bar.
+ */
+export async function setUserCareerEnabled(enabled: boolean) {
+  const session = await auth();
+  if (!session?.user) throw new Error('Unauthorized');
+
+  await prisma.user.update({
+    where: { id: session.user.id },
+    data: { careerEnabled: enabled },
+  });
+
+  // /licenses page (13E-5) und sidebar-link werden vom layout/AppShell
+  // basierend auf hasCareer gerendert — revalidate damit der toggle
+  // sofort die navigation neu malt.
+  revalidatePath('/settings');
+  revalidatePath('/dashboard');
+  revalidatePath('/licenses');
+
+  return { success: true, careerEnabled: enabled };
+}

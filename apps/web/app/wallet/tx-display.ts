@@ -38,6 +38,11 @@ export const TRANSACTION_TYPE_DISPLAY: Record<
   EXPENSE_GROUND_HANDLING: { label: "Ground-Handling", category: "expense" },
   EXPENSE_CATERING: { label: "Catering", category: "expense" },
   EXPENSE_MAINTENANCE: { label: "Wartung", category: "expense" },
+  // Welle 13E-1: Flight-school payment für training-enrollments. Im
+  // pilot-/wallet als regulärer expense angezeigt; airline-finance sieht
+  // ihn nicht (school-payments laufen vom user-wallet, nicht vom airline-
+  // wallet).
+  EXPENSE_FLIGHT_SCHOOL: { label: "Flugschule", category: "expense" },
   SALARY_PAID: { label: "Gehalt gezahlt", category: "expense" },
   SALARY_RECEIVED: { label: "Gehalt empfangen", category: "revenue" },
   TRANSFER_OUT: { label: "Überweisung raus", category: "transfer" },
@@ -78,6 +83,7 @@ export const TRANSACTION_TYPES_GROUPED: TransactionType[] = [
   "EXPENSE_GROUND_HANDLING",
   "EXPENSE_CATERING",
   "EXPENSE_MAINTENANCE",
+  "EXPENSE_FLIGHT_SCHOOL",
   "SALARY_PAID",
   // Transfer
   "TRANSFER_OUT",
