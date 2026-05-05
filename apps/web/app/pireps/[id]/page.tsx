@@ -1,6 +1,6 @@
 import { auth } from '@/auth';
 import { redirect, notFound } from 'next/navigation';
-import { prisma } from '@vam/db';
+import { prisma, licenseDisplayName } from '@vam/db';
 import Link from 'next/link';
 import { OfpSummary } from '@/components/OfpSummary';
 import { ApprovalActions } from './approval-actions';
@@ -64,6 +64,35 @@ export default async function PirepDetail({
   if (!isOwn && !(isApprover && sameAirline)) {
     redirect('/pireps');
   }
+
+  // Welle 13E-14d: Practical-Exam-link lookup. Wenn dieser PIREP einem
+  // FlightSchoolEnrollment als Prüfungsflug zugewiesen ist, zeigen wir
+  // einen badge oben in der page mit license-typ + status + link.
+  //
+  // findFirst statt findUnique weil practicalExamPirepId KEIN @unique-FK
+  // ist (siehe schema-docstring im FlightSchoolEnrollment-model: STRING
+  // statt FK damit PIREP-cascade-delete den enrollment-record nicht
+  // mitnimmt). Theoretisch könnte ein PIREP mehreren enrollments
+  // zugewiesen sein (multi-license-credit) — wir zeigen aber nur den
+  // ersten match. Bei realer multi-credit-policy könnte das später auf
+  // findMany umgestellt werden.
+  //
+  // Filter: kein status-restriktion. Wenn pirepId match → badge zeigen
+  // (sowohl AWAITING_REVIEW als auch PASSED haben pirepId gesetzt).
+  // Bei FAIL hat der helper pirepId=null gesetzt → kein badge mehr,
+  // historischer link ist verloren (akzeptabel, single-source-of-truth-
+  // pattern).
+  const examEnrollment = await prisma.flightSchoolEnrollment.findFirst({
+    where: { practicalExamPirepId: pirep.id },
+    select: {
+      id: true,
+      schoolId: true,
+      licenseType: true,
+      status: true,
+      practicalExamPassedAt: true,
+      school: { select: { name: true, airportIcao: true } },
+    },
+  });
 
   // Flugzeit formatieren
   const hours = Math.floor((pirep.flightTimeMin ?? 0) / 60);
@@ -160,6 +189,85 @@ export default async function PirepDetail({
                 })}
               </span>
             </p>
+          </div>
+        )}
+
+        {/* Welle 13E-14d: Practical-Exam-Badge.
+            Sichtbar wenn dieser PIREP einem enrollment als Prüfungsflug
+            zugewiesen ist. Zwei states:
+
+              EXAM_SCHEDULED + practicalExamPassedAt=null → wartet auf
+                instructor-review. Amber-styling, zeigt "wartet" hint.
+              PASSED + practicalExamPassedAt set → bestanden, license
+                wurde ausgestellt. Green-styling.
+
+            Link-target ist context-abhängig:
+              - Pilot (isOwn) → /flight-schools/[schoolId] (sieht enrollment-
+                card mit Card-status)
+              - Approver/Instructor → /airline/practical-exams (review-queue;
+                relevant für PASSED-states als history nicht sinnvoll, aber
+                der pilot kann auch hier ne andere review pending haben)
+
+            Wenn der enrollment in einem nicht-erwarteten state ist
+            (FAILED/WITHDRAWN — sollte nie passieren weil pirepId dann
+            null wäre, aber defensive), zeigen wir einen neutralen
+            "war Prüfungsflug"-text ohne styling. */}
+        {examEnrollment && (
+          <div
+            className={`mb-8 px-6 py-4 rounded-lg border ${
+              examEnrollment.practicalExamPassedAt !== null
+                ? 'bg-green-500/5 border-green-500/30'
+                : examEnrollment.status === 'EXAM_SCHEDULED'
+                  ? 'bg-amber-500/5 border-amber-500/30'
+                  : 'bg-gray-500/5 border-gray-500/30'
+            }`}
+          >
+            <div className="flex items-start justify-between gap-3 flex-wrap">
+              <div>
+                <p className="text-sm">
+                  <span className="font-semibold">
+                    {examEnrollment.practicalExamPassedAt !== null
+                      ? '✓ Prüfungsflug bestanden'
+                      : '🎓 Markiert als Prüfungsflug'}
+                  </span>
+                  <span className="text-gray-500 dark:text-gray-400">
+                    {' '}für{' '}
+                  </span>
+                  <span className="font-semibold">
+                    {licenseDisplayName(examEnrollment.licenseType)}
+                  </span>
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  Flugschule {examEnrollment.school.name} (
+                  <span className="font-mono">
+                    {examEnrollment.school.airportIcao}
+                  </span>
+                  )
+                  {examEnrollment.practicalExamPassedAt && (
+                    <>
+                      {' · Bestanden am '}
+                      {new Date(
+                        examEnrollment.practicalExamPassedAt,
+                      ).toLocaleDateString('de-DE')}
+                    </>
+                  )}
+                  {!examEnrollment.practicalExamPassedAt &&
+                    examEnrollment.status === 'EXAM_SCHEDULED' && (
+                      <> · Wartet auf Instructor-Review</>
+                    )}
+                </p>
+              </div>
+              <Link
+                href={
+                  isOwn
+                    ? `/flight-schools/${examEnrollment.schoolId}`
+                    : '/airline/practical-exams'
+                }
+                className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline shrink-0"
+              >
+                {isOwn ? 'Zur Flugschule →' : 'Zur Review-Queue →'}
+              </Link>
+            </div>
           </div>
         )}
 
