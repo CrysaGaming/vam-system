@@ -2,6 +2,7 @@ import {
   prisma,
   markPilotLive,
   markPilotOffline,
+  substituteThumbnailDimensions,
   type LiveStreamContext,
 } from '@vam/db';
 import { env } from '../env.js';
@@ -422,20 +423,28 @@ function onNotification(msg: EventSubMessage): void {
 
   // Welle 14B: DB-writes für stream.online/offline. Fire-and-forget —
   // failures werden in den handlern selbst geloggt, der notification-
-  // dispatch soll nicht blockiert werden. Ordering:
-  //   1. DB-write (markPilotLive/Offline) — quick + idempotent
-  //   2. Discord-mirror (postToBotLogs) — current behavior, läuft
-  //      immer mit. 14D wird das routing für stream.online auf einen
-  //      dedicated #livestreams channel umstellen.
+  // dispatch soll nicht blockiert werden.
+  // Welle 14D: routing umgestellt — stream.online geht NICHT mehr nach
+  // #bot-logs, sondern (innerhalb des handlers, nach successful first-
+  // time-mark) zu #livestreams als rich embed. stream.offline bleibt
+  // console-only — kein discord-noise wenn pilot offline geht (das ist
+  // kein "newsworthy" event und würde den channel mit gegen-posts
+  // überfluten). Andere events (channel.subscribe, .cheer, .gift,
+  // hype_train, channel_points) gehen weiterhin zu #bot-logs für
+  // visibility/debugging.
   if (subType === 'stream.online') {
     void handleStreamOnline(event);
-  } else if (subType === 'stream.offline') {
+    return; // Skip postToBotLogs — handler routes selbst nach #livestreams
+  }
+  if (subType === 'stream.offline') {
     void handleStreamOffline(event);
+    return; // Skip postToBotLogs — offline ist console-only
   }
 
-  // Mirror to discord #bot-logs for visibility during 11D testing.
-  // 14+ will route specific event-types to specific channels (livestreams,
-  // pireps, etc.); for now everything goes to bot-logs.
+  // Mirror to discord #bot-logs für die übrigen event-types (subs,
+  // cheers, gifts, hype-trains, channel-point-redemptions). Diese sind
+  // weiterhin "log-only" in der ursprünglichen 11D-art bis die jeweilige
+  // welle (14F: channel-points → tickets etc.) sie verarbeitet.
   void postToBotLogs(subType, broadcasterUserName, event, subscription?.type);
 }
 
@@ -484,11 +493,14 @@ async function handleStreamOnline(
 
   // VAM-User lookup via twitchUserId — der string-match auf das event-
   // feld. Wir brauchen den User auch für den access-token (für den
-  // Helix-context-fetch).
+  // Helix-context-fetch). Welle 14D: zusätzlich name + airlineId für
+  // den #livestreams-embed (display-name + airline-context).
   const user = await prisma.user.findUnique({
     where: { twitchUserId: broadcasterUserId },
     select: {
       id: true,
+      name: true,
+      airlineId: true,
       twitchUsername: true,
       twitchAccessToken: true,
     },
@@ -533,6 +545,12 @@ async function handleStreamOnline(
       console.info(
         `[twitch-eventsub] markPilotLive: pilot=${user.twitchUsername ?? user.id} title="${context.title ?? '(none)'}" game="${context.gameName ?? '(none)'}"`,
       );
+      // Welle 14D: rich embed nach #livestreams. NUR beim first-time go-
+      // live (idempotency-skip bei twitch-WS-reconnect-duplicates) damit
+      // der channel keine doppel-posts kriegt. Fire-and-forget — embed-
+      // failures sollen den DB-write nicht zurücknehmen oder den event-
+      // dispatch blockieren.
+      void postLivestreamEmbed(user, context);
     }
   } catch (err) {
     console.error(
@@ -841,5 +859,148 @@ function formatEventSummary(
       return `${userName} hat "${(event.reward as { title?: string } | undefined)?.title ?? '<reward>'}" eingelöst bei **${broadcaster}**`;
     default:
       return `\`\`\`json\n${JSON.stringify(event, null, 2).slice(0, 1500)}\n\`\`\``;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Welle 14D: #livestreams rich embed
+// ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Welle 14D: Postet einen rich embed in den dedicated #livestreams discord-
+ * channel wenn ein pilot grade live geht. Ersetzt für stream.online events
+ * den (in 14B noch parallel laufenden) #bot-logs-mirror — siehe
+ * onNotification routing-comment.
+ *
+ * Embed-design:
+ *   - **Title**: stream-title vom streamer (clickable → twitch-URL)
+ *   - **Description**: pilot-name als haupt-zeile, optional airline
+ *   - **Game-field**: inline, falls vorhanden
+ *   - **Large image**: thumbnail in 1280x720 (substituiert via @vam/db
+ *     helper aus der twitch-template-URL). Discord rendert das als
+ *     großes preview-image — der hauptliche blickfang.
+ *   - **Color**: 0x9146ff (twitch purple)
+ *   - **Footer**: airline-name oder "VAM Pilot · Twitch" als context
+ *
+ * Plus content-line **außerhalb** des embeds: "🔴 **{name}** ist live: {URL}"
+ * — das gibt discord eine raw-URL die für mobile-clients besser klickbar
+ * ist und auch für screen-reader sauber den go-live-event ankündigt.
+ *
+ * Idempotency-property: caller (handleStreamOnline) ruft nur bei
+ * !wasAlreadyLive — duplicate stream.online events von twitch retries/
+ * reconnects führen nicht zu mehrfach-posts.
+ *
+ * Fail-mode: alle errors werden geloggt aber NICHT propagiert. Der
+ * DB-write (markPilotLive) ist dann schon durch — der pilot-status
+ * stimmt, nur der discord-post fehlt. Akzeptabel: bei späteren
+ * status-checks (UI, /live page) funktioniert alles, der user hat
+ * nur die discord-notification verpasst.
+ */
+async function postLivestreamEmbed(
+  user: {
+    id: string;
+    name: string | null;
+    airlineId: string | null;
+    twitchUsername: string | null;
+  },
+  context: LiveStreamContext,
+): Promise<void> {
+  if (!discordClient) {
+    console.warn('[twitch-eventsub] postLivestreamEmbed: kein discordClient');
+    return;
+  }
+
+  // Wenn der pilot keinen twitchUsername hat, können wir keinen sinnvollen
+  // link bauen. Sollte praktisch nicht vorkommen weil OAuth den username
+  // immer mit-syncs, aber defensiv: skip silently.
+  if (!user.twitchUsername) {
+    console.warn(
+      `[twitch-eventsub] postLivestreamEmbed: pilot=${user.id} hat keinen twitchUsername, skip`,
+    );
+    return;
+  }
+
+  try {
+    // Airline-name lookup für footer-context. Separater query weil wir
+    // ihn nur beim first-time go-live brauchen — den ständig im handler-
+    // user-fetch zu joinen wäre overhead für die häufigeren duplicate-
+    // events die eh früh skippen.
+    let airlineName: string | null = null;
+    if (user.airlineId) {
+      const airline = await prisma.airline.findUnique({
+        where: { id: user.airlineId },
+        select: { name: true },
+      });
+      airlineName = airline?.name ?? null;
+    }
+
+    const channel = await discordClient.channels.fetch(env.channels.livestreams);
+    if (!channel || !channel.isTextBased()) {
+      console.warn(
+        '[twitch-eventsub] postLivestreamEmbed: livestreams channel nicht text-based oder nicht gefunden',
+      );
+      return;
+    }
+
+    const twitchUrl = `https://twitch.tv/${user.twitchUsername}`;
+    const displayName = user.name ?? user.twitchUsername;
+
+    // Thumbnail substituiert auf 1280x720 — discord rendert embed-images
+    // bis ungefähr 800px breite, größer wird downsampled. 1280x720 ist
+    // ein guter kompromiss: scharf auf hi-DPI displays, aber URL-länge
+    // bleibt unter discord's embed-limit. Twitch CDN cached die varianten
+    // pre-rendered.
+    const thumbnailUrl = substituteThumbnailDimensions(
+      context.thumbnailUrl,
+      1280,
+      720,
+    );
+
+    // Embed-title fallback chain: stream-title → "Streamt live" generic.
+    // Twitch erlaubt empty titles — manche streamer löschen das vor
+    // dem go-live um es später zu setzen.
+    const embedTitle =
+      context.title?.trim() ?? `${displayName} streamt grade live`;
+
+    const fields: Array<{ name: string; value: string; inline: boolean }> = [];
+    if (context.gameName) {
+      fields.push({ name: 'Spielt', value: context.gameName, inline: true });
+    }
+
+    await (channel as TextChannel).send({
+      // Plain content-line vor dem embed: macht den go-live im channel-
+      // sidebar/notification-preview sichtbar (manche discord-clients
+      // zeigen embed-titles in notifications nicht). Plus die raw-URL
+      // wird automatisch zu einem zweiten link-preview wenn discord's
+      // embed-rendering mal hakt.
+      content: `🔴 **${displayName}** ist live: ${twitchUrl}`,
+      embeds: [
+        {
+          color: 0x9146ff, // Twitch purple
+          title: embedTitle,
+          url: twitchUrl,
+          description: airlineName
+            ? `Pilot bei **${airlineName}**`
+            : 'VAM Pilot',
+          fields: fields.length > 0 ? fields : undefined,
+          image: thumbnailUrl ? { url: thumbnailUrl } : undefined,
+          timestamp: new Date().toISOString(),
+          footer: {
+            text: airlineName
+              ? `${airlineName} · Twitch`
+              : 'VAM · Twitch',
+          },
+        },
+      ],
+    });
+
+    console.info(
+      `[twitch-eventsub] postLivestreamEmbed posted: pilot=${user.twitchUsername} airline=${airlineName ?? '<none>'} title="${embedTitle}"`,
+    );
+  } catch (err) {
+    console.warn(
+      `[twitch-eventsub] postLivestreamEmbed failed for pilot=${user.twitchUsername ?? user.id}:`,
+      err,
+    );
   }
 }
