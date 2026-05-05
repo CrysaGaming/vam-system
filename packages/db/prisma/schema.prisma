@@ -787,6 +787,52 @@ model Rank {
   order          Int
   createdAt      DateTime @default(now())
 
+  /// Welle 13E-8: Career-System integration.
+  ///
+  /// Required licenses für rank-eligibility. Wenn career-mode aktiv und
+  /// requiredLicenses nicht-leer ist, kann ein pilot DIESEN rank nur
+  /// erreichen wenn ALLE darin gelisteten licenses status=ACTIVE hat.
+  /// Reine flight-hour-thresholds (minFlightHours) reichen dann NICHT
+  /// alleine aus.
+  ///
+  /// Default empty-array für additive migration: alle existing ranks
+  /// behalten ihre hours-only-promotion-policy bis der admin licenses
+  /// als requirement einträgt.
+  ///
+  /// Reihenfolge irrelevant — wir checken unordered (jeder license-type
+  /// muss vorhanden sein, aber egal in welcher reihenfolge).
+  ///
+  /// Beispiele:
+  ///   - "First Officer (Narrowbody)": [ATPL, MULTI_ENGINE_RATING,
+  ///     INSTRUMENT_RATING, MCC]
+  ///   - "Captain (Widebody)": [ATPL, MULTI_ENGINE_RATING,
+  ///     INSTRUMENT_RATING, MCC] + zusätzlich command-time-thresholds
+  ///     die wir noch nicht modellieren
+  ///   - "Trainee": [] (keine licenses required, nur first PIREP-tracking)
+  requiredLicenses LicenseType[] @default([])
+
+  /// Welle 13E-10: Salary-multiplier für economy-system.
+  ///
+  /// Faktor mit dem das base-salary pro PIREP multipliziert wird wenn
+  /// der pilot diesen rank hat. Default 1.0 (= unchanged), typische
+  /// werte:
+  ///   - Trainee:        0.5  (training-rate)
+  ///   - First Officer:  1.0  (baseline)
+  ///   - Senior FO:      1.25
+  ///   - Captain:        1.5
+  ///   - Senior Captain: 2.0
+  ///
+  /// Decimal(4,2): max 99.99, min 0.01. Sinnvoller bereich: 0.25–3.00.
+  /// Wert wird in calc.ts via `multiplier * baseSalary` angewandt nach
+  /// der bisherigen RANK_PROGRESSION_PER_ORDER-skalierung. 13E-10 macht
+  /// das einbau in calc.ts und ersetzt die order-basierte progression
+  /// durch diese explizite multiplier-policy.
+  ///
+  /// Default 1.0 für additive migration: existing ranks zahlen weiter
+  /// genau wie bisher. Admin kann die multiplier later in der ranks-
+  /// admin-page setzen.
+  salaryMultiplier Decimal @default(1.00) @db.Decimal(4, 2)
+
   users        User[]
   roleMappings DiscordRoleMapping[]
 
