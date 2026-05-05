@@ -211,6 +211,11 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
     weatherRadar: false,
     autoWeather: false,
     clustering: true,
+    // Track 1 #4 (PIREP-Heatmap, 9.2.6): toggle für historische
+    // flight-aktivität als heatmap-layer. Default off — heatmap ist
+    // ein analytisches feature (nicht "wo ist grade was los"), darum
+    // off-by-default sodass die map clean startet.
+    heatmap: false,
   });
 
   const [mapCenter, setMapCenter] = useState<{ lat: number; lng: number } | null>(null);
@@ -236,6 +241,14 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
   // beim filtering (callsigns sind upper-case in beiden networks).
   const [searchQuery, setSearchQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
+
+  // Track 1 #4 (PIREP-Heatmap, 9.2.6): GeoJSON-feature-collection von
+  // approved-PIREP-departure+arrival-counts. Lazy-loaded — nur beim
+  // ersten enable des heatmap-toggles, dann gecached für die gesamte
+  // session-dauer. Heatmap-content ändert sich nur bei neuen approvals
+  // (typisch sub-täglich), refresh-rate ist nicht kritisch.
+  const [heatmapData, setHeatmapData] = useState<GeoJSON.FeatureCollection | null>(null);
+  const [heatmapLoading, setHeatmapLoading] = useState(false);
 
   const selected = useMemo(
     () => sessions.find((s) => s.id === selectedId) ?? null,
@@ -656,6 +669,41 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
       clearInterval(interval);
     };
   }, []);
+
+  // Track 1 #4: Heatmap-data lazy-fetch. Nur wenn heatmap-toggle enabled
+  // wird UND wir noch keine daten haben — danach gecached für die session.
+  // Wenn der user den toggle off-on togglet, kein refetch (cached data
+  // bleibt valid bis page-reload). Trade-off: minimal-staleness vs.
+  // unnötige API-calls bei toggle-spam.
+  useEffect(() => {
+    if (!filters.heatmap) return;
+    if (heatmapData !== null) return; // schon geladen
+    if (heatmapLoading) return; // race-guard
+
+    let cancelled = false;
+    setHeatmapLoading(true);
+
+    (async () => {
+      try {
+        const res = await fetch('/api/live/heatmap');
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data: GeoJSON.FeatureCollection = await res.json();
+        if (!cancelled) {
+          setHeatmapData(data);
+        }
+      } catch (err) {
+        console.error('Failed to fetch PIREP heatmap:', err);
+      } finally {
+        if (!cancelled) {
+          setHeatmapLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [filters.heatmap, heatmapData, heatmapLoading]);
 
   // Trail-Loading bei Session-Click
   const loadTrail = useCallback(async (sessionId: string) => {
@@ -1221,6 +1269,119 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
           <NavigationControl position="top-right" visualizePitch={true} />
           <ScaleControl position="bottom-right" />
 
+          {/* Track 1 #4 (PIREP-Heatmap, 9.2.6): Heatmap-layer unter allen
+              anderen layers (mapbox-stack-order = render-reihenfolge). So
+              werden plane-icons und airports nicht überdeckt — die heatmap
+              ist nur der hintergrund-layer "wo wird viel geflogen".
+              Heatmap fadet ab zoom 9 langsam aus + cluster-circles erscheinen
+              ab da, damit nicht beides gleichzeitig die map dominiert.
+              weight-property bestimmt die heat-intensität pro punkt. */}
+          {filters.heatmap && heatmapData && heatmapData.features.length > 0 && (
+            <Source id="pirep-heatmap-source" type="geojson" data={heatmapData}>
+              <Layer
+                id="pirep-heatmap-layer"
+                type="heatmap"
+                source="pirep-heatmap-source"
+                maxzoom={9}
+                paint={{
+                  // Weight pro feature aus property — flightcounts werden
+                  // auf 0..1 mapped via interpolate (clamped: max-flights ≈ 50
+                  // sind voll-saturated, alles drunter linear interpoliert).
+                  // Wenn die airline später deutlich mehr volume hat, kann
+                  // 50 hochgesetzt werden — aktuell für MVP angenehm.
+                  'heatmap-weight': [
+                    'interpolate',
+                    ['linear'],
+                    ['get', 'weight'],
+                    0, 0,
+                    50, 1,
+                  ],
+                  // Intensität multipliziert die kombinierte heatmap-density.
+                  // Ramp up bei zoom-out (mehr punkte überlappen) für sichtbar-
+                  // keit; ramp down bei zoom-in damit individual-airports
+                  // nicht alleine die ganze map gelb machen.
+                  'heatmap-intensity': [
+                    'interpolate',
+                    ['linear'],
+                    ['zoom'],
+                    0, 1,
+                    9, 3,
+                  ],
+                  // Farb-gradient von transparent (cold) → blau → cyan → grün
+                  // → gelb → orange → rot (hot). Deckt sich farblich nicht mit
+                  // den weather-radar-farben (cyan/blau dort) — heatmap nutzt
+                  // den klassischen heat-spektrum.
+                  'heatmap-color': [
+                    'interpolate',
+                    ['linear'],
+                    ['heatmap-density'],
+                    0, 'rgba(33, 102, 172, 0)',
+                    0.2, 'rgb(103, 169, 207)',
+                    0.4, 'rgb(209, 229, 240)',
+                    0.6, 'rgb(253, 219, 199)',
+                    0.8, 'rgb(239, 138, 98)',
+                    1, 'rgb(178, 24, 43)',
+                  ],
+                  // Radius pro punkt — klein bei zoom-out (sonst riesige blobs),
+                  // größer bei zoom-in damit hubs erkennbar bleiben.
+                  'heatmap-radius': [
+                    'interpolate',
+                    ['linear'],
+                    ['zoom'],
+                    0, 4,
+                    9, 30,
+                  ],
+                  // Fade out bei höheren zooms (smooth übergang zu cluster-
+                  // sicht). Bei zoom 7-9 langsam runter, ab 9 weg.
+                  'heatmap-opacity': [
+                    'interpolate',
+                    ['linear'],
+                    ['zoom'],
+                    7, 0.85,
+                    9, 0,
+                  ],
+                }}
+              />
+              {/* Heatmap → Circle-fallback bei höheren zooms. Mapbox-standard-
+                  pattern: heatmap fadet aus ab zoom 9, circle-layer fadet ein
+                  ab zoom 7 — overlap-zone gibt smoothen übergang. Circle radius
+                  und color skalieren mit weight-property. */}
+              <Layer
+                id="pirep-heatmap-points"
+                type="circle"
+                source="pirep-heatmap-source"
+                minzoom={7}
+                paint={{
+                  'circle-radius': [
+                    'interpolate',
+                    ['linear'],
+                    ['get', 'weight'],
+                    1, 4,
+                    50, 20,
+                  ],
+                  'circle-color': [
+                    'interpolate',
+                    ['linear'],
+                    ['get', 'weight'],
+                    1, 'rgba(103, 169, 207, 0.7)',
+                    10, 'rgba(253, 219, 199, 0.75)',
+                    25, 'rgba(239, 138, 98, 0.8)',
+                    50, 'rgba(178, 24, 43, 0.85)',
+                  ],
+                  'circle-stroke-color': 'white',
+                  'circle-stroke-width': 1,
+                  'circle-opacity': [
+                    'interpolate',
+                    ['linear'],
+                    ['zoom'],
+                    7, 0,
+                    9, 1,
+                  ],
+                }}
+              />
+            </Source>
+          )}
+
           {/* Public Pilots Layer (alle Fremde, GPU-rendered, optional geclustert) */}
           {planeImagesLoaded && publicGeoJson.features.length > 0 && (
             <Source
@@ -1766,6 +1927,18 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
               setFilters((prev) => ({ ...prev, clustering: v }))
             }
             color="#84cc16"
+          />
+          {/* Track 1 #4 (PIREP-Heatmap, 9.2.6): toggle für historische
+              flight-aktivität. Loading-state als hint wenn der erste fetch
+              läuft (sub-sekunde meistens, aber bei großen airlines >100MB
+              sub-paths kann das spürbar werden). */}
+          <FilterToggle
+            label={heatmapLoading ? 'Heatmap (lädt...)' : 'PIREP-Heatmap'}
+            checked={filters.heatmap}
+            onChange={(v) =>
+              setFilters((prev) => ({ ...prev, heatmap: v }))
+            }
+            color="#ef4444"
           />
           <div
             style={{

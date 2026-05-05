@@ -124,3 +124,9 @@ export * from "./awards/index.js";
 // description/image/simulator (schema-erweiterung wäre eigene welle).
 export type { Scenery } from "@prisma/client";
 export * from "./sceneries/index.js";
+
+// Track 1 #4 (PIREP-Heatmap, 9.2.6): Aggregation helper für die
+// mapbox-heatmap-layer auf der live-map. Einzige function:
+// getPirepHeatmapPoints — returnt die approved-PIREP-departure+arrival-
+// counts pro airport als geo-punkte mit weight für die heatmap.
+export * from "./pireps/index.js";
