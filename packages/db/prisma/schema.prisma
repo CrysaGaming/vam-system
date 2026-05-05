@@ -251,12 +251,91 @@ enum TransactionType {
   EXPENSE_GROUND_HANDLING
   EXPENSE_CATERING
   EXPENSE_MAINTENANCE
+  EXPENSE_FLIGHT_SCHOOL
   SALARY_PAID
   SALARY_RECEIVED
   TRANSFER_OUT
   TRANSFER_IN
   ADJUSTMENT_ADMIN
   ECONOMY_RESET
+}
+
+// Welle 13E (Career-System): ICAO-realistic license-hierarchy. Pilot startet
+// als SPL (Student Pilot License), arbeitet sich hoch zu PPL (Private Pilot,
+// VFR/single-engine/day), kann optional NIGHT_RATING + INSTRUMENT_RATING
+// (IR) + MULTI_ENGINE_RATING (ME) draufsetzen, dann CPL (Commercial Pilot
+// License — kann für money fliegen, single-pilot ops). Mit MCC (Multi-Crew
+// Cooperation) + Type Ratings (separate model) ist man qualifiziert für
+// commercial-airline-jobs als FO. ATPL (Airline Transport Pilot License)
+// = captain für commercial-airlines. TRI (Type Rating Instructor) +
+// TRE (Type Rating Examiner) sind ausbildungs-licenses für Senior-Captains.
+//
+// Pilot kann mehrere licenses gleichzeitig haben (eine pro type). Foreign-
+// keys: PilotLicense.@@unique([userId, type]) verhindert doppelte gleicher
+// type. Welche aircraft welche licenses brauchen kommt im aircraft-
+// requirements-mapping (apps/web — kein DB-table sondern lookup-funktion
+// in 13E-7). Beispiel-mapping:
+//   - C172 (GA single-engine) → PPL
+//   - PA34 (GA twin) → PPL + ME
+//   - A320 → CPL + ME + IR + Type Rating A320 + (MCC für FO/ATPL für CAP)
+//   - A35K → ATPL + ME + IR + Type Rating A35K + MCC
+enum LicenseType {
+  SPL // Student Pilot — solo-flight permit, in-training-only
+  PPL // Private Pilot — VFR, single-engine, day, no commercial
+  NIGHT_RATING // Night-flying VFR-extension
+  INSTRUMENT_RATING // IR — IFR-flying
+  MULTI_ENGINE_RATING // ME — multi-engine class rating
+  CPL // Commercial Pilot — can fly for money, single-pilot ops
+  MCC // Multi-Crew Cooperation — required für two-pilot type-ratings
+  ATPL // Airline Transport Pilot — captain für commercial-airlines
+  TRI // Type Rating Instructor — kann andere TR-piloten ausbilden
+  TRE // Type Rating Examiner — kann TR-checks abnehmen
+}
+
+// Welle 13E: License-state für validity-tracking. ACTIVE ist der normal-zustand.
+// EXPIRED triggert wenn expiresAt überschritten und nicht erneuert (medical
+// lapsed, recurrent-training missed). REVOKED ist disciplinary (cheating,
+// dangerous-flying) — admin-action only. SUSPENDED ist temporary-suspension
+// (e.g. ongoing investigation). Status-transitions:
+//   ACTIVE → EXPIRED:    automatisch wenn expiresAt < now() (cron-job 13E-2)
+//   ACTIVE → REVOKED:    admin-action mit reason
+//   ACTIVE → SUSPENDED:  admin-action mit dauer
+//   SUSPENDED → ACTIVE:  admin-action wenn investigation cleared
+//   EXPIRED → ACTIVE:    nach renewal (admin-action oder enrollment-completion)
+//
+// Welle 13E-7 booking-gate prüft canPilotFlyAircraft() = pilot hat ALLE
+// requirements UND alle sind ACTIVE. EXPIRED/REVOKED/SUSPENDED zählen alle
+// als "not valid" für den booking-block.
+enum LicenseStatus {
+  ACTIVE
+  EXPIRED
+  REVOKED
+  SUSPENDED
+}
+
+// Welle 13E (Flight-School Enrollment-Lifecycle): pilot meldet sich an
+// einer flight-school an, durchläuft theory-stunden + practical-stunden
+// + sim-stunden, schreibt theory-exam, schreibt practical-exam (specific
+// PIREP-route mit pass/fail-criteria), bekommt nach beidem-passed die
+// license ausgestellt.
+//
+// Status-transitions:
+//   IN_PROGRESS → EXAM_SCHEDULED:  pilot hat genug stunden, bucht exam-slot
+//   EXAM_SCHEDULED → IN_PROGRESS:  exam abgesagt, zurück ins training
+//   EXAM_SCHEDULED → PASSED:       theory + practical bestanden,
+//                                  PilotLicense wird automatisch erstellt
+//   IN_PROGRESS → FAILED:          3+ exam-fails OR pilot gibt auf
+//   IN_PROGRESS → WITHDRAWN:       pilot canceled enrollment (wallet-
+//                                  refund partial möglich, app-policy)
+//
+// PASSED + WITHDRAWN + FAILED sind terminal-states. Neue enrollment kann
+// erstellt werden für gleiche license (re-train z.B. nach FAILED).
+enum EnrollmentStatus {
+  IN_PROGRESS
+  EXAM_SCHEDULED
+  PASSED
+  FAILED
+  WITHDRAWN
 }
 
 model Airline {
@@ -293,6 +372,20 @@ model Airline {
   // Passenger-Booking-Tabs, Revenue-Reports, etc. Per-airline opt-in
   // damit reine roleplay-airlines kein "money game" UI sehen.
   economyEnabled Boolean @default(false)
+
+  // Welle 13E (Career-System): Career-Foundation-Flag. Analog zu
+  // economyEnabled — per-airline opt-in (default false). Aktiviert wenn
+  // die airline mit license-system, type-rating-restrictions und auto-
+  // rank-progression arbeiten will. Roleplay-airlines die nur "fly for
+  // fun" wollen, lassen das auf false und sehen keine career-features
+  // (kein /licenses-link, keine booking-blocks).
+  //
+  // Beide flags (user.careerEnabled UND airline.careerEnabled) müssen
+  // true sein damit pilot career-features sieht — gleiche dual-gate
+  // logik wie economy. Im hardcore-mode wird hier später ein realismus-
+  // level dazukommen ("relaxed" vs "strict" enforcement, kommt mit
+  // section 4 realism-spectrum).
+  careerEnabled Boolean @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -471,6 +564,23 @@ model User {
   // damit ein pilot economy-features sieht.
   economyEnabled Boolean @default(false)
 
+  // Welle 13E (Career-System): Career-Foundation-Flag. Per-pilot opt-in
+  // (default false) — analog zu economyEnabled. Selbst wenn airline.
+  // careerEnabled=true, kann pilot persönlich auf "non-career mode"
+  // bleiben (kein license-blocking, keine type-rating-checks beim
+  // booken, keine auto-rank-promotion). Beide flags müssen true sein
+  // damit ein pilot career-features sieht (UI: /licenses-page,
+  // sidebar-link "📜 Lizenzen", booking-gate für unlicensed aircraft,
+  // auto-promotion-notifications).
+  //
+  // Bewusst getrennt von economyEnabled weil die concerns orthogonal
+  // sind: ein pilot könnte VAM$ verdienen wollen ohne die license-
+  // rigorosität, oder umgekehrt licenses sammeln ohne wallet-system.
+  // Forward-compat: weitere foundation-flags wie acarsEnabled,
+  // simulatorEnabled könnten später dazukommen wenn opt-in-features
+  // entstehen.
+  careerEnabled Boolean @default(false)
+
   // Welle 6B (commit 6B-2): Employment-Status — ist dieser pilot operativ
   // aktiv? Default ACTIVE für alle (additive migration). Siehe enum-
   // docstring oben für die semantik der drei states. Status-changes
@@ -521,6 +631,34 @@ model User {
   // Cascade-delete: user-löschung räumt wallets+transactions mit (analog
   // zur Airline-relation oben).
   wallets Wallet[] @relation("UserWallets")
+
+  // Welle 13E: Career-System back-relations.
+  //
+  // licenses = die licenses die DIESEM user gehören (PPL, ATPL, etc).
+  //   Cascade-delete: user-löschung räumt seine licenses mit auf. Pro
+  //   user max eine license pro type (siehe @@unique auf PilotLicense).
+  //
+  // licensesIssued = die licenses die dieser user als admin AUSGESTELLT
+  //   hat (audit-trail für /airline/pilots grant-license-action). SetNull
+  //   beim user-delete damit historische licenses ihre kette nicht
+  //   verlieren — admin-id wird einfach null wenn der admin-account
+  //   gelöscht wird, license existiert weiter.
+  //
+  // typeRatings = die type-ratings die dieser user hat (A320, B738, etc).
+  //   Pro user max eines pro aircraftType (siehe @@unique).
+  //
+  // typeRatingsIssued = analog licensesIssued — admin-audit-trail.
+  //
+  // flightSchoolEnrollments = aktive + historische enrollments dieses
+  //   piloten an flight-schools. Cascade-delete: user-löschung räumt
+  //   seine enrollments mit (refunded-status wäre app-layer wenn nötig,
+  //   aber bei user-delete ist das ohnehin moot — das wallet ist auch
+  //   weg).
+  licenses                PilotLicense[]           @relation("UserLicenses")
+  licensesIssued          PilotLicense[]           @relation("LicensesIssued")
+  typeRatings             TypeRating[]
+  typeRatingsIssued       TypeRating[]             @relation("TypeRatingsIssued")
+  flightSchoolEnrollments FlightSchoolEnrollment[]
 }
 
 model LiveSession {
@@ -822,6 +960,11 @@ model Airport {
   // Named relations weil zwei FK-felder auf icao verweisen (from/to).
   jumpseatsFrom JumpseatTransfer[] @relation("JumpseatFrom")
   jumpseatsTo   JumpseatTransfer[] @relation("JumpseatTo")
+
+  // Welle 13E: Flight-Schools-back-relation. Ein airport kann mehrere
+  // flight-schools beherbergen (z.B. EGGD/Bristol hat mehrere training-
+  // organizations). FK auf airportIcao (string), siehe FlightSchool model.
+  flightSchools FlightSchool[]
 
   // Indexes für die /airports filter-UI: type/continent/country erlauben
   // schnelle multi-faceted queries auf 85k entries; scheduledService trennt
@@ -1916,4 +2059,246 @@ model Transaction {
   // Filter "alle expenses dieser airline" — type ist hier sinnvoll
   // weil enum-werte indexed sortier-stabil sind.
   @@index([walletId, type])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Welle 13E: Career-System — Licenses, Type-Ratings, Flight-Schools
+// ─────────────────────────────────────────────────────────────────────────
+
+/// PilotLicense — eine konkrete license-instanz (PPL, ATPL, etc.) die ein
+/// pilot besitzt. Pro user max eine pro type (siehe @@unique([userId, type])).
+///
+/// Lifecycle:
+///   - Issue: admin grant via /airline/pilots/[id] (13E-6) oder enrollment-
+///     completion (13E-13/14 nach exam-pass). Status startet ACTIVE.
+///   - Validity: einige licenses haben expiresAt (z.B. IR = 1 jahr). Andere
+///     sind lifetime (PPL) → expiresAt=null. Cron-job (späterer welle) flippt
+///     status auf EXPIRED wenn expiresAt < now().
+///   - Renewal: admin oder enrollment-completion setzt neuen expiresAt
+///     und status zurück auf ACTIVE.
+///   - Revocation: admin-action setzt status auf REVOKED + reason. License-
+///     row bleibt für audit-trail (kein delete).
+///
+/// certificateNumber: human-readable identifier. Format konvention (app-
+/// layer, kein constraint): "VAM-{TYPE}-{YYYY}-{6-digit-sequence}".
+/// @@unique global damit zwei piloten nicht denselben certificate-number
+/// haben können.
+///
+/// issuingAuthority: string statt enum damit man später regional issuers
+/// addieren kann ohne migration. Canonical values: "EASA", "FAA", "TCCA",
+/// "VAM-Internal". Default beim grant ist "VAM-Internal".
+model PilotLicense {
+  id                String        @id @default(cuid())
+  userId            String
+  user              User          @relation("UserLicenses", fields: [userId], references: [id], onDelete: Cascade)
+  type              LicenseType
+  issuedAt          DateTime
+  expiresAt         DateTime?
+  issuingAuthority  String        @default("VAM-Internal")
+  certificateNumber String        @unique
+  status            LicenseStatus @default(ACTIVE)
+
+  // Audit-trail: wer hat die license ausgestellt? NULL für system-issued
+  // (seed, auto-grant via flight-school-completion). SetNull cascade
+  // damit license-records erhalten bleiben wenn der issuing-admin
+  // gelöscht wird.
+  issuedById String?
+  issuedBy   User?   @relation("LicensesIssued", fields: [issuedById], references: [id], onDelete: SetNull)
+
+  // Optional notes (revocation-reason, suspension-reason, etc).
+  notes String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Pro user max eine license pro type.
+  @@unique([userId, type])
+  // Häufige queries:
+  //   - "alle aktiven licenses dieses users" (canPilotFlyAircraft check)
+  //   - "alle licenses dieses types" (admin-stats)
+  //   - "alle licenses die bald ablaufen" (renewal-reminders)
+  @@index([userId, status])
+  @@index([type])
+  @@index([expiresAt])
+}
+
+/// TypeRating — pilot-qualifikation für einen specific aircraft-type.
+/// Anders als licenses (die generische klassen abdecken — SE, ME, IR), sind
+/// type-ratings spezifisch für ein muster (A320, B738, B748). Pilot braucht
+/// type-rating für jedes commercial-aircraft das er fliegt.
+///
+/// Lifecycle:
+///   - Initial: nach completed type-rating-course + checkride. obtainedAt
+///     ist datum, expiresAt = obtainedAt + 12 monate.
+///   - Recurrent: alle 12 monate sim-check. Bei pass: expiresAt += 12 monate.
+///     Bei fail: expiresAt steht auf altem datum, type-rating wird nach
+///     ablauf invalid (canPilotFlyAircraft returnt false).
+///   - Currency-tracking: hoursOnType + lastFlownAt für regulatory "90-day
+///     recency rule". Wird beim PIREP-approval-flow updated wenn aircraft-
+///     type matcht.
+///
+/// aircraftType: ICAO type-designator-string (A320, B738, B748, A35K).
+/// Bewusst NICHT FK auf AircraftType-table weil pilot-type-ratings auch
+/// für nicht-katalogisierte planes gelten können. Validation app-layer.
+model TypeRating {
+  id           String    @id @default(cuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  aircraftType String // ICAO code: A320, B738, B748, A35K
+  obtainedAt   DateTime
+  expiresAt    DateTime?
+  hoursOnType  Float     @default(0)
+  lastFlownAt  DateTime?
+
+  // Audit-trail: wer hat das type-rating ausgestellt?
+  issuedById String?
+  issuedBy   User?   @relation("TypeRatingsIssued", fields: [issuedById], references: [id], onDelete: SetNull)
+
+  notes String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Pro user max ein type-rating pro aircraft-type.
+  @@unique([userId, aircraftType])
+  @@index([userId])
+  @@index([aircraftType])
+  @@index([expiresAt])
+}
+
+/// FlightSchool — training-organisation an einem airport. NPC-betrieben im
+/// MVP, später (post-13E) auch player-betreibbar. Bietet specific licenses
+/// an, hat eigene fleet von training-aircraft (kommt 13E-11), und pricing.
+///
+/// Pricing-model (Decimal(10,2) = max 10^8 VAM$, mehr als realistisch):
+///   - hourlyRateGround: theory-stunden im klassenraum, billiger.
+///   - hourlyRateAir:    actual flight-hours mit instructor, teurer.
+///   - hourlyRateSim:    simulator-stunden — typisch zwischen ground und
+///                       air. Manche schools haben keinen sim → null setzen.
+///
+/// rating: community-driven 1-5 sterne. Default 4.0. Wird in 13E-12 vom
+/// pilot-side enrollment-flow updated (nach completion fragt UI nach rating).
+/// Im MVP ist das nur display, beeinflusst nicht enrollment-priorität.
+///
+/// offeredLicenses: array von license-types die diese schule anbietet.
+/// Postgres-array (nicht relation-table) weil meist 3-5 typen pro schule
+/// und composite-queries einfach sind.
+///
+/// Soft-delete via active=false. Beim deactivate werden existing in-progress
+/// enrollments NICHT gecanceled — pilot kann sie weiterführen, aber neue
+/// können nicht mehr starten.
+model FlightSchool {
+  id          String  @id @default(cuid())
+  airportIcao String
+  airport     Airport @relation(fields: [airportIcao], references: [icao])
+  name        String
+  rating      Float   @default(4.0)
+
+  // Welche licenses bietet die schule an? Postgres-array von enum-strings.
+  offeredLicenses LicenseType[]
+
+  // Pricing in VAM$. Sim ist optional — manche schools haben keinen sim.
+  hourlyRateGround Decimal  @db.Decimal(10, 2)
+  hourlyRateAir    Decimal  @db.Decimal(10, 2)
+  hourlyRateSim    Decimal? @db.Decimal(10, 2)
+
+  // Optional description für /flight-schools/[id] page (markdown unterstützt).
+  description String?
+
+  // Optional logo/image-URL — analog zu Airline.logoUrl.
+  logoUrl String?
+
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  enrollments FlightSchoolEnrollment[]
+
+  // Häufige queries:
+  //   - "alle schools an airport X" (pilot browse-view)
+  //   - "alle aktiven schools sortiert by rating" (default ranking)
+  @@index([airportIcao])
+  @@index([active, rating])
+}
+
+/// FlightSchoolEnrollment — pilot ist in einem training-program an einer
+/// flight-school. Tracked hours-progress, exam-attempts, costs.
+///
+/// Lifecycle (siehe EnrollmentStatus enum-docstring):
+///   IN_PROGRESS → EXAM_SCHEDULED → PASSED   (happy path)
+///                              ↓
+///                             FAILED  (3+ attempts oder pilot-give-up)
+///   IN_PROGRESS → WITHDRAWN                (pilot canceled)
+///
+/// Hours-tracking: Float weil flight-hours decimal sein können (1.5h, 2.25h).
+/// Welle 13E-12 server-action updates die werte beim "buy hours"-flow.
+///
+/// Exam-tracking:
+///   - theoryExamPassedAt + theoryExamScore: wenn theory-test bestanden.
+///     Score 0-100 (% korrekt), pass-mark 80%. Multiple attempts erlaubt.
+///   - practicalExamPirepId: welcher PIREP war die prüfungs-flug. STRING
+///     statt FK weil PIREPs cascade-delete wenn user gelöscht — wir wollen
+///     enrollment-record erhalten.
+///
+/// Cost-tracking:
+///   - totalCostPaid: kumulativ alle ausgaben (hours, exam-fees, retry-fees).
+///     Wird vom wallet-payment-flow (13E-12) inkrementiert. Bei WITHDRAWN
+///     ggf. partial refund (app-policy, default 50% wenn vor exam, 0% nach).
+///
+/// Resulting license:
+///   - resultingLicenseId: FK zur PilotLicense die nach PASSED ausgestellt
+///     wurde. NULL solange enrollment noch nicht PASSED. Keine relation-
+///     definition hier — wir machen das via separate query in der app-layer
+///     (findById über resultingLicenseId), weil User schon zwei relations
+///     zu PilotLicense hat (UserLicenses, LicensesIssued) und prisma keine
+///     ambigous unnamed relations erlaubt.
+model FlightSchoolEnrollment {
+  id          String       @id @default(cuid())
+  userId      String
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  schoolId    String
+  school      FlightSchool @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  licenseType LicenseType
+
+  enrolledAt DateTime @default(now())
+
+  // Hours-tracking
+  hoursTheory    Float @default(0)
+  hoursPractical Float @default(0)
+  hoursSim       Float @default(0)
+
+  status EnrollmentStatus @default(IN_PROGRESS)
+
+  // Theory-exam tracking
+  theoryExamPassedAt DateTime?
+  theoryExamScore    Float? // 0-100 (%)
+  theoryExamAttempts Int       @default(0)
+
+  // Practical-exam tracking
+  practicalExamScheduledAt DateTime?
+  practicalExamPirepId     String? // STRING (kein FK) — siehe docstring
+  practicalExamPassedAt    DateTime?
+  practicalExamAttempts    Int       @default(0)
+
+  // Cost-tracking. Decimal(12,2) erlaubt bis 10^10 VAM$ — way genug.
+  totalCostPaid Decimal @default(0) @db.Decimal(12, 2)
+
+  // Resulting license (1:1 via @unique). Keine relation-definition — siehe
+  // docstring oben. App-layer macht findUnique(id=resultingLicenseId).
+  resultingLicenseId String? @unique
+
+  // Wenn enrollment WITHDRAWN: wann + grund.
+  withdrawnAt     DateTime?
+  withdrawnReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Häufige queries:
+  //   - "alle aktiven enrollments dieses users" (pilot dashboard)
+  //   - "alle enrollments dieser schule" (admin overview)
+  //   - "alle enrollments im EXAM_SCHEDULED-state" (admin pre-exam-prep)
+  @@index([userId, status])
+  @@index([schoolId, status])
+  @@index([status])
 }
