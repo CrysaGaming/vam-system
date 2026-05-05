@@ -115,3 +115,12 @@ export * from "./twitch/index.js";
 // /admin/awards (create/grant/revoke). Re-exports vom ./awards barrel.
 export type { Award, UserAward } from "@prisma/client";
 export * from "./awards/index.js";
+
+// Track 1 #3 (Sceneries-Catalog UI, 9.2.4): Scenery queries + actions.
+// Scenery model existierte schon im prisma initial-schema mit minimal
+// fields (name, airportIcao, provider, url, free, airlineId). Diese
+// helpers sind das catalog-listing + admin-CRUD (create/update/delete).
+// MVP ohne owned-tracking (UserScenery wäre eigene welle), ohne
+// description/image/simulator (schema-erweiterung wäre eigene welle).
+export type { Scenery } from "@prisma/client";
+export * from "./sceneries/index.js";
