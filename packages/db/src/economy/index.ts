@@ -78,3 +78,18 @@ export {
   type GetUserTransactionsOptions,
   type GetUserTransactionsResult,
 } from "./queries.js";
+
+// 14F: Stream-rewards für streamer-pilots (twitch subs/cheers/gifts +
+// hype-trains). Schreibt REVENUE_STREAM_REWARD-transactions auf das
+// primary user-wallet. Tunable rates via konstanten in stream-rewards.ts.
+export {
+  awardStreamReward,
+  computeReward as computeStreamReward,
+  describeStreamRewardCategory,
+  SUBSCRIBE_REWARDS_BY_TIER,
+  CHEER_REWARD_PER_100_BITS,
+  GIFT_REWARDS_BY_TIER,
+  HYPE_TRAIN_BASE_BONUS,
+  type StreamRewardEvent,
+  type StreamRewardResult,
+} from "./stream-rewards.js";

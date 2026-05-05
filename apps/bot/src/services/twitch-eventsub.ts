@@ -3,7 +3,10 @@ import {
   markPilotLive,
   markPilotOffline,
   substituteThumbnailDimensions,
+  awardStreamReward,
   type LiveStreamContext,
+  type StreamRewardEvent,
+  type StreamRewardResult,
 } from '@vam/db';
 import { env } from '../env.js';
 import { ensureFreshToken, refreshUserToken } from './twitch-oauth.js';
@@ -440,9 +443,15 @@ function onNotification(msg: EventSubMessage): void {
   // time-mark) zu #livestreams als rich embed. stream.offline bleibt
   // console-only — kein discord-noise wenn pilot offline geht (das ist
   // kein "newsworthy" event und würde den channel mit gegen-posts
-  // überfluten). Andere events (channel.subscribe, .cheer, .gift,
-  // hype_train, channel_points) gehen weiterhin zu #bot-logs für
-  // visibility/debugging.
+  // überfluten).
+  // Welle 14F: subs/cheers/gifts → wallet-rewards für streamer-pilots.
+  // Routing: handler selbst macht den DB-write (awardStreamReward) PLUS
+  // einen reward-embed nach #livestreams (visibility für die community).
+  // Skip postToBotLogs damit kein doppelter post.
+  // Welle 14G: hype-train-begin → community-recognition + bonus-reward.
+  // Selbe routing wie 14F (handler macht alles).
+  // Channel-points (10.2.4 future) bleiben weiter log-only in #bot-logs
+  // bis Track 4 ACARS-write-side bereitsteht.
   if (subType === 'stream.online') {
     void handleStreamOnline(event);
     return; // Skip postToBotLogs — handler routes selbst nach #livestreams
@@ -451,11 +460,27 @@ function onNotification(msg: EventSubMessage): void {
     void handleStreamOffline(event);
     return; // Skip postToBotLogs — offline ist console-only
   }
+  if (subType === 'channel.subscribe') {
+    void handleChannelSubscribe(event);
+    return; // Skip postToBotLogs — handler routes selbst nach #livestreams
+  }
+  if (subType === 'channel.cheer') {
+    void handleChannelCheer(event);
+    return;
+  }
+  if (subType === 'channel.subscription.gift') {
+    void handleChannelGift(event);
+    return;
+  }
+  if (subType === 'channel.hype_train.begin') {
+    void handleHypeTrainBegin(event);
+    return;
+  }
 
-  // Mirror to discord #bot-logs für die übrigen event-types (subs,
-  // cheers, gifts, hype-trains, channel-point-redemptions). Diese sind
-  // weiterhin "log-only" in der ursprünglichen 11D-art bis die jeweilige
-  // welle (14F: channel-points → tickets etc.) sie verarbeitet.
+  // Mirror to discord #bot-logs für die übrigen event-types (channel-
+  // points-redemptions). Diese sind weiterhin "log-only" in der
+  // ursprünglichen 11D-art bis ihre jeweilige welle (10.2.4) sie
+  // verarbeitet.
   void postToBotLogs(subType, broadcasterUserName, event, subscription?.type);
 }
 
@@ -1144,6 +1169,415 @@ async function postLivestreamEmbed(
   } catch (err) {
     console.warn(
       `[twitch-eventsub] postLivestreamEmbed failed for pilot=${user.twitchUsername ?? user.id}:`,
+      err,
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Welle 14F+G: stream-reward handlers (subs/cheers/gifts/hype-train)
+// ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Welle 14F+G: shared shape für reward-handler context. Pilot-lookup
+ * passiert am anfang jedes handlers — wir cachen nicht weil events
+ * sehr selten sind (im verhältnis zur uptime des bots) und der lookup
+ * < 5ms kostet. DRY-helper extrahiert es.
+ */
+type RewardPilotContext = {
+  id: string;
+  name: string | null;
+  airlineId: string | null;
+  twitchUsername: string | null;
+};
+
+/**
+ * Lookup helper für stream-reward handlers. Findet den VAM-pilot
+ * anhand des broadcaster_user_id (=twitchUserId). Loggt + returnt null
+ * wenn kein pilot gefunden — kann happen bei race conditions (pilot
+ * unverlinkt zwischen subscription-creation und event-arrival), oder
+ * wenn jemand fremder zur subscription gehört (sollte bei pro-pilot-
+ * subscriptions praktisch nie passieren, aber defensiv).
+ */
+async function lookupRewardPilot(
+  broadcasterUserId: string | undefined,
+  eventLabel: string,
+): Promise<RewardPilotContext | null> {
+  if (!broadcasterUserId) {
+    console.warn(
+      `[twitch-eventsub] ${eventLabel} ohne broadcaster_user_id, skip`,
+    );
+    return null;
+  }
+  const user = await prisma.user.findUnique({
+    where: { twitchUserId: broadcasterUserId },
+    select: {
+      id: true,
+      name: true,
+      airlineId: true,
+      twitchUsername: true,
+    },
+  });
+  if (!user) {
+    console.warn(
+      `[twitch-eventsub] ${eventLabel} broadcaster=${broadcasterUserId} hat keinen matching VAM-user`,
+    );
+    return null;
+  }
+  return user;
+}
+
+/**
+ * Welle 14F: handler für channel.subscribe events.
+ *
+ * Twitch payload-fields:
+ *   - broadcaster_user_id, broadcaster_user_name, broadcaster_user_login
+ *   - user_id, user_name, user_login (subscriber)
+ *   - tier ("1000" | "2000" | "3000" — als string!)
+ *   - is_gift (boolean — true wenn diese sub aus einem gift kam)
+ *
+ * Reward-policy:
+ *   - is_gift=true → SKIP (gift-batch-event handled die zahlung schon)
+ *   - is_gift=false → reward gemäss tier
+ */
+async function handleChannelSubscribe(
+  event: Record<string, unknown>,
+): Promise<void> {
+  const broadcasterUserId = event.broadcaster_user_id as string | undefined;
+  const user = await lookupRewardPilot(broadcasterUserId, 'channel.subscribe');
+  if (!user) return;
+
+  const tier = parseTwitchTier(event.tier as string | undefined);
+  if (!tier) {
+    console.warn(
+      `[twitch-eventsub] channel.subscribe pilot=${user.twitchUsername ?? user.id} unknown tier=${String(event.tier)}, skip`,
+    );
+    return;
+  }
+
+  const subscriberLogin = (event.user_login as string | undefined) ?? null;
+  const isGift = Boolean(event.is_gift);
+
+  const rewardEvent: StreamRewardEvent = {
+    kind: 'twitch-subscribe',
+    tier,
+    subscriberLogin,
+    isGift,
+  };
+
+  try {
+    const result = await awardStreamReward(user.id, rewardEvent);
+    if (result.skipped) {
+      console.info(
+        `[twitch-eventsub] channel.subscribe skipped: pilot=${user.twitchUsername ?? user.id} reason=${result.reason}`,
+      );
+      return;
+    }
+    console.info(
+      `[twitch-eventsub] channel.subscribe reward: pilot=${user.twitchUsername ?? user.id} tier=${tier} amount=${result.amount} VAM$ from=${subscriberLogin ?? '<anonym>'}`,
+    );
+    void postRewardEmbed(user, result, {
+      icon: '⭐',
+      eventLabel: `Tier ${tier} Sub`,
+      sourceLabel: subscriberLogin ?? '<anonym>',
+    });
+  } catch (err) {
+    console.error(
+      `[twitch-eventsub] handleChannelSubscribe failed pilot=${user.twitchUsername ?? user.id}:`,
+      err,
+    );
+  }
+}
+
+/**
+ * Welle 14F: handler für channel.cheer events.
+ *
+ * Twitch payload-fields:
+ *   - broadcaster_user_id (etc.)
+ *   - user_id, user_name, user_login (cheerer — kann anonymous sein,
+ *     dann sind die felder null und is_anonymous=true)
+ *   - is_anonymous (boolean)
+ *   - bits (number — anzahl der bits)
+ *   - message (string — chat-message vom cheerer)
+ */
+async function handleChannelCheer(
+  event: Record<string, unknown>,
+): Promise<void> {
+  const broadcasterUserId = event.broadcaster_user_id as string | undefined;
+  const user = await lookupRewardPilot(broadcasterUserId, 'channel.cheer');
+  if (!user) return;
+
+  const bits =
+    typeof event.bits === 'number' ? event.bits : Number(event.bits ?? 0);
+  if (!Number.isFinite(bits) || bits <= 0) {
+    console.warn(
+      `[twitch-eventsub] channel.cheer pilot=${user.twitchUsername ?? user.id} invalid bits=${String(event.bits)}, skip`,
+    );
+    return;
+  }
+
+  const isAnonymous = Boolean(event.is_anonymous);
+  const cheererLogin = isAnonymous
+    ? null
+    : ((event.user_login as string | undefined) ?? null);
+
+  const rewardEvent: StreamRewardEvent = {
+    kind: 'twitch-cheer',
+    bits,
+    cheererLogin,
+    isAnonymous,
+  };
+
+  try {
+    const result = await awardStreamReward(user.id, rewardEvent);
+    if (result.skipped) {
+      console.info(
+        `[twitch-eventsub] channel.cheer skipped: pilot=${user.twitchUsername ?? user.id} bits=${bits} reason=${result.reason} (< 100 bits → kein reward)`,
+      );
+      return;
+    }
+    console.info(
+      `[twitch-eventsub] channel.cheer reward: pilot=${user.twitchUsername ?? user.id} bits=${bits} amount=${result.amount} VAM$ from=${cheererLogin ?? '<anonym>'}`,
+    );
+    void postRewardEmbed(user, result, {
+      icon: '💎',
+      eventLabel: `${bits} Bits`,
+      sourceLabel: cheererLogin ?? '<anonym>',
+    });
+  } catch (err) {
+    console.error(
+      `[twitch-eventsub] handleChannelCheer failed pilot=${user.twitchUsername ?? user.id}:`,
+      err,
+    );
+  }
+}
+
+/**
+ * Welle 14F: handler für channel.subscription.gift events.
+ *
+ * Twitch payload-fields:
+ *   - broadcaster_user_id (etc.)
+ *   - user_id, user_name, user_login (gifter — null wenn anonymous)
+ *   - is_anonymous (boolean)
+ *   - total (number — anzahl der gegifteten subs in diesem batch)
+ *   - tier ("1000" | "2000" | "3000")
+ *   - cumulative_total (lifetime-count, optional, brauchen wir nicht)
+ */
+async function handleChannelGift(
+  event: Record<string, unknown>,
+): Promise<void> {
+  const broadcasterUserId = event.broadcaster_user_id as string | undefined;
+  const user = await lookupRewardPilot(broadcasterUserId, 'channel.subscription.gift');
+  if (!user) return;
+
+  const tier = parseTwitchTier(event.tier as string | undefined);
+  if (!tier) {
+    console.warn(
+      `[twitch-eventsub] channel.subscription.gift pilot=${user.twitchUsername ?? user.id} unknown tier=${String(event.tier)}, skip`,
+    );
+    return;
+  }
+
+  const total =
+    typeof event.total === 'number' ? event.total : Number(event.total ?? 0);
+  if (!Number.isFinite(total) || total <= 0) {
+    console.warn(
+      `[twitch-eventsub] channel.subscription.gift pilot=${user.twitchUsername ?? user.id} invalid total=${String(event.total)}, skip`,
+    );
+    return;
+  }
+
+  const isAnonymous = Boolean(event.is_anonymous);
+  const gifterLogin = isAnonymous
+    ? null
+    : ((event.user_login as string | undefined) ?? null);
+
+  const rewardEvent: StreamRewardEvent = {
+    kind: 'twitch-gift',
+    total,
+    tier,
+    gifterLogin,
+    isAnonymous,
+  };
+
+  try {
+    const result = await awardStreamReward(user.id, rewardEvent);
+    if (result.skipped) {
+      console.info(
+        `[twitch-eventsub] channel.subscription.gift skipped: pilot=${user.twitchUsername ?? user.id} reason=${result.reason}`,
+      );
+      return;
+    }
+    console.info(
+      `[twitch-eventsub] channel.subscription.gift reward: pilot=${user.twitchUsername ?? user.id} ${total}× tier ${tier} amount=${result.amount} VAM$ from=${gifterLogin ?? '<anonym>'}`,
+    );
+    void postRewardEmbed(user, result, {
+      icon: '🎁',
+      eventLabel: `${total}× Tier ${tier} Gift-Subs`,
+      sourceLabel: gifterLogin ?? '<anonym>',
+    });
+  } catch (err) {
+    console.error(
+      `[twitch-eventsub] handleChannelGift failed pilot=${user.twitchUsername ?? user.id}:`,
+      err,
+    );
+  }
+}
+
+/**
+ * Welle 14G: handler für channel.hype_train.begin events.
+ *
+ * Twitch payload-fields (v2):
+ *   - broadcaster_user_id (etc.)
+ *   - level (number — train level 1-5)
+ *   - total (cumulative points im train)
+ *   - progress (points-progress current level)
+ *   - goal (next-level threshold)
+ *   - top_contributions (array)
+ *   - last_contribution (object)
+ *   - started_at, expires_at
+ *
+ * Reward-policy: pure level × HYPE_TRAIN_BASE_BONUS. Top-contributors
+ * werden NICHT individuell rewarded — das wäre over-coupling auf hype-
+ * train-payload-shape und ist eh schon (in den meisten fällen) durch
+ * die individuellen sub/cheer/gift events handled die den hype-train
+ * ja erst ausgelöst haben. Hype-train-bonus ist die *zusätzliche*
+ * community-recognition obendrauf.
+ */
+async function handleHypeTrainBegin(
+  event: Record<string, unknown>,
+): Promise<void> {
+  const broadcasterUserId = event.broadcaster_user_id as string | undefined;
+  const user = await lookupRewardPilot(broadcasterUserId, 'channel.hype_train.begin');
+  if (!user) return;
+
+  const level =
+    typeof event.level === 'number' ? event.level : Number(event.level ?? 1);
+  const safeLevel = Number.isFinite(level) && level > 0 ? Math.floor(level) : 1;
+
+  const rewardEvent: StreamRewardEvent = {
+    kind: 'twitch-hype-train-begin',
+    level: safeLevel,
+  };
+
+  try {
+    const result = await awardStreamReward(user.id, rewardEvent);
+    if (result.skipped) {
+      console.info(
+        `[twitch-eventsub] channel.hype_train.begin skipped: pilot=${user.twitchUsername ?? user.id} reason=${result.reason}`,
+      );
+      return;
+    }
+    console.info(
+      `[twitch-eventsub] channel.hype_train.begin reward: pilot=${user.twitchUsername ?? user.id} level=${safeLevel} amount=${result.amount} VAM$`,
+    );
+    void postRewardEmbed(user, result, {
+      icon: '🚂',
+      eventLabel: `Hype-Train Level ${safeLevel}`,
+      sourceLabel: 'der community',
+    });
+  } catch (err) {
+    console.error(
+      `[twitch-eventsub] handleHypeTrainBegin failed pilot=${user.twitchUsername ?? user.id}:`,
+      err,
+    );
+  }
+}
+
+/**
+ * Hilfsfunktion: parsed twitch's tier-string ("1000"/"2000"/"3000") in
+ * unsere domain-tier-zahlen (1/2/3). Returnt null bei unbekannten werten.
+ *
+ * Twitch verwendet diese strings weil ihre legacy-API teilweise auch
+ * 4-digit-prefixes für andere produkte hatte — wir mappen das auf saubere
+ * domain-zahlen damit der rest des codes mit `1 | 2 | 3` arbeiten kann.
+ */
+function parseTwitchTier(twitchTier: string | undefined): 1 | 2 | 3 | null {
+  switch (twitchTier) {
+    case '1000':
+      return 1;
+    case '2000':
+      return 2;
+    case '3000':
+      return 3;
+    default:
+      return null;
+  }
+}
+
+/**
+ * Welle 14F+G: postet einen embed nach #livestreams für jeden reward.
+ *
+ * Visibility-rationale: streamer-pilots sollen sehen wenn ihre community
+ * sie unterstützt + der rest der VA sieht es auch (gemeinsamer channel
+ * für stream-events). Kanal-wahl: #livestreams (nicht #bot-logs) weil
+ * das semantisch passt — go-live-events leben da auch.
+ *
+ * Embed-style: kompakter als der go-live-embed (kein thumbnail). Pilot-
+ * name + reward-icon + amount + source. Twitch-purple farbe für
+ * konsistenz.
+ *
+ * Fail-mode: alle errors werden geloggt aber nicht propagiert. Der
+ * wallet-write ist schon durch — embed ist optional.
+ */
+async function postRewardEmbed(
+  user: RewardPilotContext,
+  result: Extract<StreamRewardResult, { skipped: false }>,
+  options: {
+    icon: string;
+    eventLabel: string;
+    sourceLabel: string;
+  },
+): Promise<void> {
+  if (!discordClient) return;
+  if (!user.twitchUsername) return; // siehe postLivestreamEmbed-rationale
+
+  try {
+    const channel = await discordClient.channels.fetch(env.channels.livestreams);
+    if (!channel || !channel.isTextBased()) {
+      console.warn(
+        '[twitch-eventsub] postRewardEmbed: livestreams channel nicht text-based / nicht gefunden',
+      );
+      return;
+    }
+
+    const displayName = user.name ?? user.twitchUsername;
+    const twitchUrl = `https://twitch.tv/${user.twitchUsername}`;
+
+    // Optional airline-name lookup für footer. Cheap-enough query —
+    // events sind nicht hot-path, ein extra read ist ok.
+    let airlineName: string | null = null;
+    if (user.airlineId) {
+      const airline = await prisma.airline.findUnique({
+        where: { id: user.airlineId },
+        select: { name: true },
+      });
+      airlineName = airline?.name ?? null;
+    }
+
+    await (channel as TextChannel).send({
+      embeds: [
+        {
+          color: 0x9146ff, // Twitch purple
+          title: `${options.icon} ${options.eventLabel} für ${displayName}`,
+          url: twitchUrl,
+          description: `**${options.sourceLabel}** → \`+${result.amount} VAM$\``,
+          timestamp: new Date().toISOString(),
+          footer: {
+            text: airlineName
+              ? `${airlineName} · Twitch-Reward`
+              : 'VAM · Twitch-Reward',
+          },
+        },
+      ],
+    });
+
+    console.info(
+      `[twitch-eventsub] postRewardEmbed posted: pilot=${user.twitchUsername} event="${options.eventLabel}" amount=${result.amount}`,
+    );
+  } catch (err) {
+    console.warn(
+      `[twitch-eventsub] postRewardEmbed failed pilot=${user.twitchUsername ?? user.id}:`,
       err,
     );
   }

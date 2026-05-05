@@ -246,6 +246,14 @@ enum TransactionType {
   REVENUE_PASSENGER
   REVENUE_CARGO
   REVENUE_TICKET_TWITCH
+  // Welle 14F: Stream-rewards für streamer-pilots. Subscribers/cheerers/
+  // gifters auf twitch (oder youtube etc.) führen zu wallet-credits beim
+  // streamer. Ein typ für alle stream-quellen — kind (subscribe/cheer/
+  // gift/hype_train) wird per category-string + metadata-JSON differenziert.
+  // Beispiel categories: "twitch-sub-tier1", "twitch-cheer", "twitch-gift",
+  // "twitch-hype-train-l3". Audit-view kann per category-prefix
+  // ("twitch-*", "youtube-*") platform-filter machen ohne weitere enums.
+  REVENUE_STREAM_REWARD
   EXPENSE_FUEL
   EXPENSE_LANDING_FEE
   EXPENSE_GROUND_HANDLING

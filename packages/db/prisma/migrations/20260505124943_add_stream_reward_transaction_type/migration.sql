@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "TransactionType" ADD VALUE 'REVENUE_STREAM_REWARD';

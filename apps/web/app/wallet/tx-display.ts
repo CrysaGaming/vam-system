@@ -33,6 +33,12 @@ export const TRANSACTION_TYPE_DISPLAY: Record<
   REVENUE_PASSENGER: { label: "Passagier-Umsatz", category: "revenue" },
   REVENUE_CARGO: { label: "Fracht-Umsatz", category: "revenue" },
   REVENUE_TICKET_TWITCH: { label: "Twitch-Ticket", category: "revenue" },
+  // Welle 14F: Stream-rewards (twitch subs/cheers/gifts/hype-trains).
+  // Eine generic display-row für alle stream-quellen — die feinere
+  // unterscheidung (subscribe vs cheer vs gift) zeigt die UI über die
+  // category-string in der jeweiligen transaction. Siehe
+  // describeStreamRewardCategory in @vam/db für category→label-mapping.
+  REVENUE_STREAM_REWARD: { label: "Stream-Belohnung", category: "revenue" },
   EXPENSE_FUEL: { label: "Treibstoff", category: "expense" },
   EXPENSE_LANDING_FEE: { label: "Landegebühr", category: "expense" },
   EXPENSE_GROUND_HANDLING: { label: "Ground-Handling", category: "expense" },
@@ -76,6 +82,7 @@ export const TRANSACTION_TYPES_GROUPED: TransactionType[] = [
   "REVENUE_PASSENGER",
   "REVENUE_CARGO",
   "REVENUE_TICKET_TWITCH",
+  "REVENUE_STREAM_REWARD",
   "SALARY_RECEIVED",
   // Expense
   "EXPENSE_FUEL",
