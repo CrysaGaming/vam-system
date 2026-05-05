@@ -1,7 +1,8 @@
 import { auth } from '@/auth';
 import { redirect, notFound } from 'next/navigation';
-import { prisma, substituteThumbnailDimensions } from '@vam/db';
+import { prisma, substituteThumbnailDimensions, getUserAwards } from '@vam/db';
 import Link from 'next/link';
+import { AwardBadge } from '../../awards/award-badge';
 
 export default async function PilotProfile({
   params,
@@ -117,6 +118,13 @@ export default async function PilotProfile({
   );
 
   const topRoutesValid = topRoutes.filter((r): r is NonNullable<typeof r> => r !== null);
+
+  // Track 1 #1: Awards des pilots laden. Sortiert nach awardedAt desc
+  // (neueste zuerst). Bei zero awards rendern wir die section gar nicht
+  // — keine "noch keine awards"-leerstelle auf fremden profilen, das
+  // wäre unnötig negativ. Auf eigenem profil zeigen wir die empty-section
+  // mit CTA zu /awards.
+  const userAwards = await getUserAwards(pilot.id);
 
   // Beitrittsdauer
   const joinedDays = Math.floor(
@@ -469,6 +477,61 @@ export default async function PilotProfile({
                 </div>
               ))}
             </div>
+          </section>
+        )}
+
+        {/* Track 1 #1: Awards-section. Auf eigenem profil immer sichtbar
+            (mit empty-state-CTA wenn keine), auf fremden profilen nur
+            wenn der user awards hat (kein peinlicher "leer"-eindruck
+            beim browsen anderer pilots). 4-col grid auf desktop für
+            kompakten footprint. */}
+        {(userAwards.length > 0 || isMe) && (
+          <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6 mb-8">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-sm uppercase tracking-wider text-gray-500">
+                Awards
+              </h2>
+              <Link
+                href={isMe ? '/awards/personal' : '/awards'}
+                className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline"
+              >
+                {isMe
+                  ? `Alle meine ${userAwards.length} ansehen →`
+                  : 'Award-Catalog →'}
+              </Link>
+            </div>
+            {userAwards.length === 0 ? (
+              <p className="text-sm text-gray-500 dark:text-gray-400 italic">
+                Du hast noch keine Awards erworben.{' '}
+                <Link
+                  href="/awards"
+                  className="text-indigo-600 dark:text-indigo-400 hover:underline not-italic"
+                >
+                  Schau dir den Catalog an
+                </Link>{' '}
+                um zu sehen was möglich ist.
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                {userAwards.slice(0, 8).map((ua) => (
+                  <AwardBadge
+                    key={ua.id}
+                    award={ua.award}
+                    earned={true}
+                    awardedAt={ua.awardedAt}
+                    size="compact"
+                  />
+                ))}
+                {userAwards.length > 8 && (
+                  <Link
+                    href={isMe ? '/awards/personal' : `/awards`}
+                    className="p-3 bg-gray-50 dark:bg-gray-800/50 border border-dashed border-gray-300 dark:border-gray-700 rounded-lg flex items-center justify-center text-sm text-gray-600 dark:text-gray-400 hover:border-indigo-500 dark:hover:border-indigo-500 hover:text-indigo-600 dark:hover:text-indigo-400 transition"
+                  >
+                    +{userAwards.length - 8} weitere →
+                  </Link>
+                )}
+              </div>
+            )}
           </section>
         )}
 

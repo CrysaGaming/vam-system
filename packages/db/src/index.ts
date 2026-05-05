@@ -107,3 +107,11 @@ export * from "./career/index.js";
 // queries. Re-exports vom ./twitch barrel — consumer importieren via
 // `import { markPilotLive, getLivePilots, countLivePilots } from "@vam/db"`.
 export * from "./twitch/index.js";
+
+// Track 1 #1 (Awards UI, 9.2.3): Award/UserAward queries + actions.
+// Award + UserAward models existieren seit dem prisma initial-schema —
+// dies sind die helper-funktionen die das UI in apps/web/app/awards
+// nutzt (catalog, detail, profile-section) plus die admin-actions in
+// /admin/awards (create/grant/revoke). Re-exports vom ./awards barrel.
+export type { Award, UserAward } from "@prisma/client";
+export * from "./awards/index.js";

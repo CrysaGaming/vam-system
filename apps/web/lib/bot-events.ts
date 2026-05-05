@@ -45,6 +45,25 @@ export type PirepRejectedPayload = {
   reason: string;
 };
 
+/**
+ * Track 1 #1 (Awards UI, 9.2.3): Payload für /events/award-earned.
+ * Triggered wenn admin via /admin/awards einen UserAward neu vergibt
+ * (NUR bei first-time grant, nicht bei wasAlreadyEarned-skip — sonst
+ * würden duplicate-vergaben zwei discord-posts verursachen).
+ *
+ * Discord-handler postet einen embed in #awards channel mit pilot-
+ * mention, award-name, beschreibung und icon (falls gesetzt).
+ */
+export type AwardEarnedPayload = {
+  userId: string;
+  pilotName: string;
+  pilotDiscordId: string | null;
+  awardId: string;
+  awardName: string;
+  awardDescription: string | null;
+  awardIconUrl: string | null;
+};
+
 async function post(path: string, body: unknown): Promise<void> {
   if (!BOT_SECRET) {
     console.warn('[bot-events] BOT_EVENTS_SECRET not set, skipping event:', path);
@@ -89,4 +108,8 @@ export async function emitPirepApproved(payload: PirepApprovedPayload): Promise<
 
 export async function emitPirepRejected(payload: PirepRejectedPayload): Promise<void> {
   await post('/events/pirep-rejected', payload);
+}
+
+export async function emitAwardEarned(payload: AwardEarnedPayload): Promise<void> {
+  await post('/events/award-earned', payload);
 }

@@ -5,6 +5,7 @@ import { handlePirepSubmitted } from './events/pirep-submitted.js';
 import { handleRankUpgraded } from './events/rank-upgraded.js';
 import { handlePirepApproved } from './events/pirep-approved.js';
 import { handlePirepRejected } from './events/pirep-rejected.js';
+import { handleAwardEarned } from './events/award-earned.js';
 import { getPublicVatsimPilots } from './services/vatsim-tracker.js';
 import { getPublicIvaoPilots } from './services/ivao-tracker.js';
 import { getCachedMetars } from './services/metar-tracker.js';
@@ -74,6 +75,17 @@ export function startHttpServer(client: Client) {
       res.json({ ok: true });
     } catch (err) {
       console.error('Failed to handle pirep-rejected:', err);
+      res.status(500).json({ error: 'failed' });
+    }
+  });
+
+  // Event: Award Earned (Track 1 #1)
+  app.post('/events/award-earned', async (req, res) => {
+    try {
+      await handleAwardEarned(client, req.body);
+      res.json({ ok: true });
+    } catch (err) {
+      console.error('Failed to handle award-earned:', err);
       res.status(500).json({ error: 'failed' });
     }
   });
