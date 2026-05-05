@@ -1,4 +1,9 @@
-import { prisma } from '@vam/db';
+import {
+  prisma,
+  markPilotLive,
+  markPilotOffline,
+  type LiveStreamContext,
+} from '@vam/db';
 import { env } from '../env.js';
 
 /**
@@ -415,6 +420,19 @@ function onNotification(msg: EventSubMessage): void {
   );
   console.info(`[twitch-eventsub]   event=${JSON.stringify(event)}`);
 
+  // Welle 14B: DB-writes für stream.online/offline. Fire-and-forget —
+  // failures werden in den handlern selbst geloggt, der notification-
+  // dispatch soll nicht blockiert werden. Ordering:
+  //   1. DB-write (markPilotLive/Offline) — quick + idempotent
+  //   2. Discord-mirror (postToBotLogs) — current behavior, läuft
+  //      immer mit. 14D wird das routing für stream.online auf einen
+  //      dedicated #livestreams channel umstellen.
+  if (subType === 'stream.online') {
+    void handleStreamOnline(event);
+  } else if (subType === 'stream.offline') {
+    void handleStreamOffline(event);
+  }
+
   // Mirror to discord #bot-logs for visibility during 11D testing.
   // 14+ will route specific event-types to specific channels (livestreams,
   // pireps, etc.); for now everything goes to bot-logs.
@@ -430,6 +448,227 @@ function onRevocation(msg: EventSubMessage): void {
   // for this pilot. For 11D we just log — the next bot-restart will
   // attempt a fresh subscribe and will fail with the same revoked
   // token, surfacing the issue.
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Welle 14B: stream.online / stream.offline DB-handlers
+// ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Welle 14B: handler für stream.online events. Fetcht zusätzlichen
+ * stream-context (title, game, thumbnail) via Helix /streams API
+ * weil das event-payload selbst nur user-IDs enthält, dann updated
+ * den User-record via markPilotLive helper.
+ *
+ * Idempotenz: markPilotLive returnt wasAlreadyLive=true wenn der user
+ * schon live markiert war. In dem fall skippen wir den (zukünftigen,
+ * 14D) discord-livestreams-embed um spam bei twitch-WS-reconnects zu
+ * vermeiden. 14B selbst postet noch keinen embed (das kommt 14D), wir
+ * loggen nur den dedup-fall.
+ *
+ * Helix-fetch ist best-effort: bei fehlern (token expired, twitch-API
+ * down) loggen wir und markieren den pilot trotzdem als live mit nur
+ * den event-payload-feldern (broadcaster_user_id/name). Default-werte
+ * (title=null, game=null, thumbnail=null) werden vom helper akzeptiert.
+ */
+async function handleStreamOnline(
+  event: Record<string, unknown>,
+): Promise<void> {
+  const broadcasterUserId = event.broadcaster_user_id as string | undefined;
+  if (!broadcasterUserId) {
+    console.warn(
+      '[twitch-eventsub] stream.online event without broadcaster_user_id, skipping DB-write',
+    );
+    return;
+  }
+
+  // VAM-User lookup via twitchUserId — der string-match auf das event-
+  // feld. Wir brauchen den User auch für den access-token (für den
+  // Helix-context-fetch).
+  const user = await prisma.user.findUnique({
+    where: { twitchUserId: broadcasterUserId },
+    select: {
+      id: true,
+      twitchUsername: true,
+      twitchAccessToken: true,
+    },
+  });
+
+  if (!user) {
+    // Kein VAM-user mit diesem twitch-userId. Sollte praktisch nicht
+    // passieren weil wir nur subscriptions für linked-pilots anlegen,
+    // aber wenn ein user disconnected nach subscribe (race), kann der
+    // event noch ankommen. Just-log und skip.
+    console.warn(
+      `[twitch-eventsub] stream.online for twitchUserId=${broadcasterUserId} hat keinen matching VAM-user (disconnected mid-flight?)`,
+    );
+    return;
+  }
+
+  // Helix-fetch best-effort. Token ist required für den Helix-call —
+  // ohne fallen wir auf "nur status" zurück (kein title/game/thumbnail).
+  let context: LiveStreamContext = {
+    title: null,
+    gameName: null,
+    thumbnailUrl: null,
+  };
+
+  if (user.twitchAccessToken && env.twitch.clientId) {
+    const fetched = await fetchStreamHelixContext(
+      broadcasterUserId,
+      user.twitchAccessToken,
+    );
+    if (fetched) {
+      context = fetched;
+    }
+  }
+
+  try {
+    const result = await markPilotLive(user.id, context);
+    if (result.wasAlreadyLive) {
+      console.info(
+        `[twitch-eventsub] stream.online dedup: pilot=${user.twitchUsername ?? user.id} war schon live (twitch retry/duplicate event)`,
+      );
+    } else {
+      console.info(
+        `[twitch-eventsub] markPilotLive: pilot=${user.twitchUsername ?? user.id} title="${context.title ?? '(none)'}" game="${context.gameName ?? '(none)'}"`,
+      );
+    }
+  } catch (err) {
+    console.error(
+      `[twitch-eventsub] markPilotLive failed for pilot=${user.twitchUsername ?? user.id}:`,
+      err,
+    );
+  }
+}
+
+/**
+ * Welle 14B: handler für stream.offline events. Cleared den live-status
+ * via markPilotOffline. Kein Helix-fetch nötig — offline ist self-
+ * contained.
+ *
+ * Idempotenz: wasAlreadyOffline=true → skip log-noise (twitch retry).
+ */
+async function handleStreamOffline(
+  event: Record<string, unknown>,
+): Promise<void> {
+  const broadcasterUserId = event.broadcaster_user_id as string | undefined;
+  if (!broadcasterUserId) {
+    console.warn(
+      '[twitch-eventsub] stream.offline event without broadcaster_user_id, skipping DB-write',
+    );
+    return;
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { twitchUserId: broadcasterUserId },
+    select: { id: true, twitchUsername: true },
+  });
+
+  if (!user) {
+    console.warn(
+      `[twitch-eventsub] stream.offline for twitchUserId=${broadcasterUserId} hat keinen matching VAM-user`,
+    );
+    return;
+  }
+
+  try {
+    const result = await markPilotOffline(user.id);
+    if (result.wasAlreadyOffline) {
+      console.info(
+        `[twitch-eventsub] stream.offline dedup: pilot=${user.twitchUsername ?? user.id} war schon offline (twitch retry/duplicate event)`,
+      );
+    } else {
+      console.info(
+        `[twitch-eventsub] markPilotOffline: pilot=${user.twitchUsername ?? user.id}`,
+      );
+    }
+  } catch (err) {
+    console.error(
+      `[twitch-eventsub] markPilotOffline failed for pilot=${user.twitchUsername ?? user.id}:`,
+      err,
+    );
+  }
+}
+
+/**
+ * Helix /streams?user_id=X fetcher für stream-metadata beim go-live.
+ *
+ * Twitch-API endpoint dokumentation:
+ *   https://dev.twitch.tv/docs/api/reference/#get-streams
+ *
+ * Response-shape:
+ *   {
+ *     data: [{
+ *       id, user_id, user_login, user_name, game_id, game_name,
+ *       type: "live", title, viewer_count, started_at, language,
+ *       thumbnail_url, tag_ids, tags, is_mature
+ *     }]
+ *   }
+ *
+ * Wenn data leer ist (z.B. zwischen stream.online-event und tatsächlicher
+ * stream-aktivierung), returnen wir null. Caller fällt auf empty-context
+ * zurück. Stream-status wird trotzdem korrekt auf live gesetzt — wir
+ * verlieren nur die metadata.
+ *
+ * Auth: nutzt user-access-token (channel:* scopes via OAuth-flow). Auch
+ * möglich wäre app-access-token für public /streams data, aber wir
+ * haben keinen app-token-flow im bot — der user-token ist eh schon da
+ * vom subscribe-bootstrap.
+ */
+async function fetchStreamHelixContext(
+  twitchUserId: string,
+  accessToken: string,
+): Promise<LiveStreamContext | null> {
+  if (!env.twitch.clientId) return null;
+
+  try {
+    const res = await fetch(
+      `${env.twitch.apiBaseUrl}/helix/streams?user_id=${encodeURIComponent(twitchUserId)}`,
+      {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Client-Id': env.twitch.clientId,
+        },
+      },
+    );
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '<unreadable>');
+      console.warn(
+        `[twitch-eventsub] helix /streams failed user_id=${twitchUserId} status=${res.status}: ${errText}`,
+      );
+      return null;
+    }
+
+    const json = (await res.json()) as {
+      data?: Array<{
+        title?: string;
+        game_name?: string;
+        thumbnail_url?: string;
+      }>;
+    };
+    const stream = json.data?.[0];
+    if (!stream) {
+      // Kein stream-record — kann passieren wenn das event kam aber
+      // twitch's /streams API noch nicht synchron ist. Caller fällt
+      // auf empty-context zurück.
+      return null;
+    }
+
+    return {
+      title: stream.title ?? null,
+      gameName: stream.game_name ?? null,
+      thumbnailUrl: stream.thumbnail_url ?? null,
+    };
+  } catch (err) {
+    console.warn(
+      `[twitch-eventsub] helix /streams error user_id=${twitchUserId}:`,
+      err,
+    );
+    return null;
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────
