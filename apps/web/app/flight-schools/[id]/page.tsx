@@ -6,10 +6,12 @@ import {
   getActiveLicenses,
   licenseDisplayName,
   getOrCreateWallet,
+  PASS_MARK_PERCENT,
   type LicenseType,
 } from '@vam/db';
 import { EnrollmentForm } from '../enrollment-form';
 import { EnrollmentManagement } from '../enrollment-management';
+import { TheoryExamCard } from '../theory-exam-card';
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -74,6 +76,22 @@ export default async function FlightSchoolDetailPage({ params }: Props) {
     prisma.flightSchoolEnrollment.findMany({
       where: { userId: user.id, schoolId: id },
       orderBy: { enrolledAt: 'desc' },
+      include: {
+        // Letzte 5 attempts pro enrollment für die TheoryExamCard.
+        // findMany im include unterstützt orderBy + take wie eine top-level
+        // query. Sortiert DESC by startedAt damit die neuesten oben sind.
+        theoryAttempts: {
+          orderBy: { startedAt: 'desc' },
+          take: 5,
+          select: {
+            id: true,
+            startedAt: true,
+            submittedAt: true,
+            scorePercent: true,
+            passed: true,
+          },
+        },
+      },
     }),
     getActiveLicenses(user.id),
     getOrCreateWallet({ ownerType: 'USER', ownerUserId: user.id }),
@@ -266,6 +284,25 @@ export default async function FlightSchoolDetailPage({ params }: Props) {
             }
             walletBalance={walletBalance}
           />
+
+          {/* Theory-Exam-section pro running enrollment (Welle 13E-13c).
+              Aktive sind active-attempt + recent-attempts vom enrollment-
+              include. Active = der erste attempt mit submittedAt=null.
+              recentAttempts werden direkt durchgereicht. */}
+          <div className="mt-6">
+            <TheoryExamCard
+              enrollmentId={e.id}
+              schoolId={school.id}
+              theoryExamPassedAt={e.theoryExamPassedAt}
+              theoryExamScore={e.theoryExamScore}
+              attemptCount={e.theoryExamAttempts}
+              activeAttemptId={
+                e.theoryAttempts.find((a) => a.submittedAt === null)?.id ?? null
+              }
+              recentAttempts={e.theoryAttempts}
+              passMarkPercent={PASS_MARK_PERCENT}
+            />
+          </div>
         </section>
       ))}
 

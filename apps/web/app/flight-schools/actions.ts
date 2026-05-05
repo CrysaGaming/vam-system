@@ -8,6 +8,12 @@ import {
   getOrCreateWallet,
   getSystemWallet,
 } from '@vam/db';
+import {
+  startTheoryExam,
+  saveAttemptAnswer,
+  submitTheoryExam,
+  getActiveAttempt,
+} from '@vam/db';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 
@@ -373,4 +379,187 @@ export async function withdrawEnrollment(input: z.infer<typeof WithdrawSchema>) 
   revalidatePath('/flight-schools');
   revalidatePath(`/flight-schools/${enrollment.schoolId}`);
   revalidatePath('/licenses');
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Theory-Exam: start / save-answer / submit (Welle 13E-13c)
+// ──────────────────────────────────────────────────────────────────────────
+
+/**
+ * Auth-helper für exam-actions: validiert career-mode UND ownership der
+ * referenzierten attempt/enrollment. Verhindert dass ein pilot einen
+ * fremden attempt manipuliert (param-tampering).
+ *
+ * Rückgabe enthält die schoolId damit caller revalidatePath für die
+ * detail-page machen kann (nicht persisted in attempt selbst — würde
+ * eine zusätzliche query erfordern, die wir hier ohnehin schon machen).
+ */
+async function requireExamOwnership(attemptId: string) {
+  const user = await requireCareerUser();
+  const attempt = await prisma.theoryExamAttempt.findUnique({
+    where: { id: attemptId },
+    select: {
+      id: true,
+      submittedAt: true,
+      enrollment: {
+        select: { id: true, userId: true, schoolId: true, status: true },
+      },
+    },
+  });
+  if (!attempt) {
+    throw new Error('Prüfungs-Versuch nicht gefunden.');
+  }
+  if (attempt.enrollment.userId !== user.id) {
+    throw new Error('forbidden');
+  }
+  return { user, attempt };
+}
+
+const StartExamSchema = z.object({
+  enrollmentId: z.string().min(1),
+});
+
+/**
+ * Pilot startet einen theorie-prüfungs-versuch. Gibt die attempt-id zurück
+ * — caller (UI) navigiert dann zu /flight-schools/[schoolId]/exam/[attemptId].
+ *
+ * Validierung:
+ *   - enrollment gehört dem user
+ *   - enrollment.status ist IN_PROGRESS oder EXAM_SCHEDULED (sonst macht
+ *     ein neuer attempt keinen sinn — bei PASSED/FAILED/WITHDRAWN ist
+ *     das training abgeschlossen)
+ *   - kein concurrent active-attempt (siehe startTheoryExam-helper)
+ *
+ * Bewusst KEIN cost. Theory-attempts sind \"frei\" — der pilot hat ja
+ * schon stunden gekauft die das paper-prüfungs-fee abdecken. Wenn später
+ * eine retry-fee gewünscht ist, käme das hier rein (z.B. recordTransaction
+ * mit EXPENSE_FLIGHT_SCHOOL für 50 VAM$ pro retry).
+ */
+export async function startExamAction(input: z.infer<typeof StartExamSchema>) {
+  const parsed = StartExamSchema.parse(input);
+  const user = await requireCareerUser();
+
+  const enrollment = await prisma.flightSchoolEnrollment.findUnique({
+    where: { id: parsed.enrollmentId },
+    select: { id: true, userId: true, schoolId: true, status: true },
+  });
+  if (!enrollment) {
+    throw new Error('Enrollment nicht gefunden.');
+  }
+  if (enrollment.userId !== user.id) {
+    throw new Error('forbidden');
+  }
+
+  // startTheoryExam-helper macht den status-check + concurrent-attempt-
+  // check selbst. Wir fangen die error-messages hier ab und übersetzen
+  // sie in user-facing texte falls nötig.
+  let result;
+  try {
+    result = await startTheoryExam({ enrollmentId: parsed.enrollmentId });
+  } catch (e) {
+    if (e instanceof Error) {
+      if (e.message.includes('active attempt')) {
+        // Edge-case: race oder UI-bug. Wir laden den active attempt und
+        // returnen DESSEN id statt zu fehlen — der pilot landet einfach
+        // im laufenden quiz. Saubereres UX als hard-error.
+        const active = await getActiveAttempt(parsed.enrollmentId);
+        if (active) {
+          return { attemptId: active.id, schoolId: enrollment.schoolId, bankTooSmall: false };
+        }
+      }
+      if (e.message.includes('no active questions')) {
+        throw new Error(
+          'Diese Schule hat noch keine Theorie-Fragen für deine Lizenz hinterlegt. ' +
+            'Wende dich an einen Admin.',
+        );
+      }
+    }
+    throw e;
+  }
+
+  revalidatePath(`/flight-schools/${enrollment.schoolId}`);
+  return {
+    attemptId: result.attempt.id,
+    schoolId: enrollment.schoolId,
+    bankTooSmall: result.bankTooSmall,
+  };
+}
+
+const SaveAnswerSchema = z.object({
+  attemptId: z.string().min(1),
+  questionIndex: z.coerce.number().int().min(0),
+  // -1 = clear/skip, 0..3 = gewählte option
+  answerIndex: z.coerce.number().int().min(-1).max(10),
+});
+
+/**
+ * Speichert eine antwort für eine question-position im laufenden attempt.
+ * Idempotent — wiederholte calls mit selber position überschreiben.
+ *
+ * Bewusst kein revalidatePath: die UI macht selbst client-side state-
+ * updates und braucht kein full-page-refresh nach jeder antwort. Das
+ * würde sonst nach jedem klick die ganze frage neu laden und das quiz
+ * unbenutzbar machen.
+ */
+export async function saveExamAnswerAction(
+  input: z.infer<typeof SaveAnswerSchema>,
+) {
+  const parsed = SaveAnswerSchema.parse(input);
+  const { attempt } = await requireExamOwnership(parsed.attemptId);
+  if (attempt.submittedAt !== null) {
+    throw new Error('Prüfung bereits abgegeben — keine Änderungen mehr möglich.');
+  }
+
+  await saveAttemptAnswer({
+    attemptId: parsed.attemptId,
+    questionIndex: parsed.questionIndex,
+    answerIndex: parsed.answerIndex,
+  });
+}
+
+const SubmitExamSchema = z.object({
+  attemptId: z.string().min(1),
+  // Final-answers-array vom client. Length muss zu attempt.questionIds
+  // passen — sonst error im helper. -1 = skipped/wrong, 0-3 = option.
+  finalAnswers: z.array(z.number().int().min(-1).max(10)),
+});
+
+export interface SubmitExamActionResult {
+  scorePercent: number;
+  passed: boolean;
+  correctCount: number;
+  totalCount: number;
+}
+
+/**
+ * Pilot reicht den fertig beantworteten attempt ein. submitTheoryExam
+ * berechnet score, persistiert + bei pass: setzt enrollment.theoryExam-
+ * PassedAt+Score und ggf. status → EXAM_SCHEDULED.
+ *
+ * Returns die wichtigsten ergebnis-zahlen damit die UI eine result-
+ * card direkt rendern kann ohne reload.
+ */
+export async function submitExamAction(
+  input: z.infer<typeof SubmitExamSchema>,
+): Promise<SubmitExamActionResult> {
+  const parsed = SubmitExamSchema.parse(input);
+  const { attempt } = await requireExamOwnership(parsed.attemptId);
+  if (attempt.submittedAt !== null) {
+    throw new Error('Prüfung bereits abgegeben.');
+  }
+
+  const result = await submitTheoryExam({
+    attemptId: parsed.attemptId,
+    finalAnswers: parsed.finalAnswers,
+  });
+
+  revalidatePath(`/flight-schools/${attempt.enrollment.schoolId}`);
+  revalidatePath('/licenses');
+
+  return {
+    scorePercent: result.scorePercent,
+    passed: result.passed,
+    correctCount: result.correctCount,
+    totalCount: result.totalCount,
+  };
 }
