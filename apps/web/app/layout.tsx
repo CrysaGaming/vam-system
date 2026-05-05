@@ -131,6 +131,18 @@ export default async function RootLayout({
         // bei jeder neuen buchung anwendet. Roleplay-airlines lassen
         // mindestens einen flag false und hasCareer bleibt false für alle.
         hasCareer: !!(user.airline && user.careerEnabled && user.airline.careerEnabled),
+        // Welle 13E-14c: airlineCareerEnabled ist getrennt von hasCareer
+        // (selbe trennung wie airlineEconomyEnabled vs hasEconomy). Steuert
+        // den "Praktische Prüfungen"-link im Admin-section. Bedingung:
+        // airline.careerEnabled UND canManageAirline. Ein admin/instructor
+        // mit eigener career-toggle off kann trotzdem die airline-side
+        // reviews machen (das ist ein instructor-tool, kein pilot-progress).
+        airlineCareerEnabled: !!(
+          user.airline &&
+          user.airline.careerEnabled &&
+          roleName !== null &&
+          ['admin', 'airline-admin', 'instructor'].includes(roleName)
+        ),
         // Welle 4: Position-felder direkt aus der user-row durchgereicht.
         // Nullable strings — sidebar-position-block hat alle 5 fallback-cases
         // dokumentiert (siehe Sidebar-component-comment).

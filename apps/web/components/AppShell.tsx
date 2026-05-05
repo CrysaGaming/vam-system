@@ -55,6 +55,14 @@ export type ShellUser = {
   // link wird nicht gerendert; /licenses-page selbst hat einen separaten
   // gating-redirect.
   hasCareer: boolean;
+  // Welle 13E-14c: Separater flag nur für die airline-seite des career-
+  // opt-ins (analog airlineEconomyEnabled). Steuert die sichtbarkeit des
+  // "Praktische Prüfungen"-links im Admin-section. Bedingung: airline.
+  // careerEnabled UND canManageAirline. Bewusst getrennt von hasCareer
+  // weil ein admin der seine PERSÖNLICHE career-toggle off hat trotzdem
+  // die airline-side reviews machen können muss — das sind getrennte
+  // concerns (privater pilot-progress vs. instructor-tool für die airline).
+  airlineCareerEnabled: boolean;
   // Welle 4: Position-tracking. baseIcao = pilot's hub innerhalb der airline,
   // currentLocationIcao = wo er grade ist. Beide nullable (neuer pilot ohne
   // hub-zuweisung, oder vor erstem flug). Sidebar zeigt einen kompakten
@@ -613,6 +621,16 @@ function Sidebar({ user, pathname }: SidebarProps) {
           <NavSection title="Admin">
             {user.isApprover && (
               <NavLink href="/pireps/pending" pathname={pathname} icon="📋" label="PIREPs zur Prüfung" />
+            )}
+            {/* Welle 13E-14c: Praktische-Prüfungs-review für instructors.
+                Sichtbar wenn isApprover (instructor + admin haben das) UND
+                airline hat career aktiviert. Sitzt direkt unter "PIREPs zur
+                Prüfung" weil's konzeptionell selbe kategorie ist (instructor-
+                review-aufgabe), nur eine ebene tiefer (PIREP wird hier als
+                exam-PIREP markiert vom pilot, instructor reviewed nochmal
+                im career-context). */}
+            {user.isApprover && user.airlineCareerEnabled && (
+              <NavLink href="/airline/practical-exams" pathname={pathname} icon="🎓" label="Praktische Prüfungen" />
             )}
             {user.isAdmin && (
               <>
