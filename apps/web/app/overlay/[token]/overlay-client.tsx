@@ -99,6 +99,30 @@ export type OverlayBranding = {
   accentColor: string | null;
 };
 
+/**
+ * Track 1 #8 Phase 5 — Wetter-block für eine einzelne station.
+ * Mirror der server-side OverlayWeather (apps/web/app/api/overlay/
+ * [token]/data/route.ts). Slim selection des bot's METAR-cache;
+ * alle felder nullable damit das UI null-tolerant rendern kann.
+ */
+export type OverlayWeather = {
+  icao: string;
+  raw: string;
+  flightCategory: 'VFR' | 'MVFR' | 'IFR' | 'LIFR' | null;
+  wind: {
+    direction: number | null;
+    speed: number;
+    gust: number | null;
+  } | null;
+  visibility: string | null;
+  weather: string[];
+  cloudCeilingFt: number | null;
+  temperature: number | null;
+  dewpoint: number | null;
+  qnhHpa: number | null;
+  fetchedAt: string;
+};
+
 type OverlayData =
   | {
       active: true;
@@ -142,6 +166,15 @@ type OverlayData =
         distanceKm: number | null;
         etaMinutes: number | null;
         etaFormatted: string | null;
+      };
+      // Track 1 #8 Phase 5: METAR für departure + arrival aus dem bot's
+      // cache. Beide einträge können null sein — UI rendert die weather-
+      // section nur wenn mindestens einer gesetzt ist. Optional auf dem
+      // type-level damit ältere server-versionen ohne diesen block
+      // backward-compatible bleiben (kein hard-fail beim parsing).
+      weather?: {
+        departure: OverlayWeather | null;
+        arrival: OverlayWeather | null;
       };
       timestamp: string;
     }
@@ -713,6 +746,26 @@ function CardLayout({
             </div>
           </div>
         )}
+
+        {/* Weather (Track 1 #8 Phase 5).
+            Departure + arrival METAR-badges, eine zeile pro station.
+            Section nur wenn mindestens ein METAR verfügbar — section-
+            chrome (border-top + padding) wird bei beiden null
+            unterdrückt damit kein leerer streifen unter der card sitzt. */}
+        {data.weather && (data.weather.departure || data.weather.arrival) && (
+          <div
+            style={{
+              padding: '10px 16px',
+              borderTop: '1px solid rgba(255, 255, 255, 0.06)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '6px',
+            }}
+          >
+            {data.weather.departure && <WeatherBadge weather={data.weather.departure} />}
+            {data.weather.arrival && <WeatherBadge weather={data.weather.arrival} />}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1091,6 +1144,27 @@ function CockpitLayout({
           />
         </div>
 
+        {/* Weather (Track 1 #8 Phase 5).
+            METAR-row für departure + arrival. Sitzt zwischen meta-row
+            und footer damit der visuelle flow IAS→engines→weather→ETA
+            natürlich ist (was der pilot in dieser reihenfolge konsultiert).
+            Kein border-top wenn beide null — section verschwindet
+            silently statt einen leeren streifen zu hinterlassen. */}
+        {data.weather && (data.weather.departure || data.weather.arrival) && (
+          <div
+            style={{
+              padding: '8px 14px',
+              borderTop: '1px solid rgba(0, 200, 220, 0.08)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '5px',
+            }}
+          >
+            {data.weather.departure && <WeatherBadge weather={data.weather.departure} />}
+            {data.weather.arrival && <WeatherBadge weather={data.weather.arrival} />}
+          </div>
+        )}
+
         {/* Footer: distance + ETA + flight time */}
         <div
           style={{
@@ -1316,6 +1390,108 @@ function MetaLine({ label, value }: { label: string; value: string }) {
     <div style={{ display: 'flex', justifyContent: 'space-between', gap: '6px' }}>
       <span style={{ opacity: 0.5, fontSize: '9px', letterSpacing: '0.1em' }}>{label}</span>
       <span style={{ fontWeight: 700 }}>{value}</span>
+    </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────
+// WEATHER (Track 1 #8 Phase 5)
+// ────────────────────────────────────────────────────────────
+
+/**
+ * flightCategory → color mapping, ICAO definitions:
+ *   VFR  ≥ 5sm vis, ceiling ≥ 3000ft AGL  → green
+ *   MVFR 3-5sm OR 1000-3000ft ceiling     → blue
+ *   IFR  1-3sm OR 500-1000ft ceiling      → red
+ *   LIFR < 1sm OR < 500ft ceiling         → magenta
+ */
+function flightCategoryColor(
+  cat: 'VFR' | 'MVFR' | 'IFR' | 'LIFR' | null,
+): { bg: string; fg: string } {
+  switch (cat) {
+    case 'VFR':
+      return { bg: 'rgba(34, 197, 94, 0.25)', fg: '#34D399' };
+    case 'MVFR':
+      return { bg: 'rgba(59, 130, 246, 0.25)', fg: '#60A5FA' };
+    case 'IFR':
+      return { bg: 'rgba(220, 38, 38, 0.25)', fg: '#F87171' };
+    case 'LIFR':
+      return { bg: 'rgba(168, 85, 247, 0.3)', fg: '#C084FC' };
+    default:
+      return { bg: 'rgba(148, 163, 184, 0.18)', fg: '#94A3B8' };
+  }
+}
+
+/**
+ * Track 1 #8 Phase 5 — Compact weather-badge für eine station.
+ *
+ * Layout: ICAO + flight-category-pill + wind + temp/QNH inline. Eine
+ * zeile, monospace, kompakt genug für card/cockpit-layouts. Bei
+ * fehlenden decoded-feldern werden die jeweiligen segmente weggelassen
+ * (silent), kein "—"-clutter.
+ *
+ * Bewusst verzichtet auf:
+ *   - Cloud-ceiling-display: zu detailliert für eine OBS-überlay-line.
+ *     Bei IFR/LIFR siehts man eh am category-color, mehr braucht der
+ *     viewer nicht.
+ *   - Visibility-zahl: redundant zur category. CAVOK könnte wir zeigen
+ *     aber das gibt weniger info als VFR direkt.
+ *   - Weather-phenomena als emoji: hatten wir kurz erwogen (☔ für
+ *     RA, ⚡ für TS) aber emoji-fonts sind unzuverlässig in OBS-
+ *     browser-sources cross-OS. Stattdessen text-codes wenn welche
+ *     da sind.
+ */
+function WeatherBadge({ weather }: { weather: OverlayWeather }) {
+  const catColor = flightCategoryColor(weather.flightCategory);
+  const windText = weather.wind
+    ? weather.wind.direction === null
+      ? `VRB ${weather.wind.speed}kt${weather.wind.gust ? `G${weather.wind.gust}` : ''}`
+      : `${String(weather.wind.direction).padStart(3, '0')}°/${weather.wind.speed}${weather.wind.gust ? `G${weather.wind.gust}` : ''}kt`
+    : null;
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px',
+        fontSize: '11px',
+        fontFamily: 'monospace',
+        opacity: 0.92,
+        flexWrap: 'wrap',
+      }}
+    >
+      <span style={{ fontWeight: 700, opacity: 0.85 }}>{weather.icao}</span>
+      {weather.flightCategory && (
+        <span
+          style={{
+            padding: '1px 6px',
+            background: catColor.bg,
+            color: catColor.fg,
+            borderRadius: '3px',
+            fontSize: '9px',
+            fontWeight: 800,
+            letterSpacing: '0.06em',
+          }}
+        >
+          {weather.flightCategory}
+        </span>
+      )}
+      {windText && <span style={{ opacity: 0.85 }}>{windText}</span>}
+      {weather.weather.length > 0 && (
+        <span style={{ color: '#FBBF24', fontWeight: 700 }}>
+          {weather.weather.join(' ')}
+        </span>
+      )}
+      {weather.temperature !== null && (
+        <span style={{ opacity: 0.75 }}>
+          {weather.temperature >= 0 ? '+' : ''}
+          {weather.temperature}°C
+        </span>
+      )}
+      {weather.qnhHpa !== null && (
+        <span style={{ opacity: 0.75 }}>Q{weather.qnhHpa}</span>
+      )}
     </div>
   );
 }

@@ -43,6 +43,7 @@ import {
   recordAuthFail,
   RATE_LIMITS,
 } from '@/lib/rate-limit';
+import { fetchMetarsForIcaos } from '@/lib/metars/fetch-from-bot';
 
 // ────────────────────────────────────────────────────────────
 // RESPONSE TYPES
@@ -106,6 +107,36 @@ type OverlayTelemetry = {
   landingRateFpm: number | null;
 };
 
+/**
+ * Track 1 #8 Phase 5 — Wetter-block für eine einzelne station.
+ *
+ * Reduzierte selection des bot's METAR-cache shape: nur die felder
+ * die ein streamer-overlay realistisch zeigen will. Vollständiges
+ * decoded payload (mit cloud-types CB/TCU, variable-wind-arcs etc.)
+ * wäre over-the-top für eine bar/card-anzeige.
+ *
+ * Alle felder nullable — VATSIM's METAR-server liefert manchmal
+ * unvollständige decodes, und der bot's parser gibt graceful nulls
+ * statt zu crashen. UI muss null-tolerant sein.
+ */
+type OverlayWeather = {
+  icao: string;
+  raw: string; // raw METAR-string für nerds: "EDDF 121420Z 27015KT ..."
+  flightCategory: 'VFR' | 'MVFR' | 'IFR' | 'LIFR' | null;
+  wind: {
+    direction: number | null; // null = variable
+    speed: number; // knots
+    gust: number | null;
+  } | null;
+  visibility: string | null; // "10000", "CAVOK", "9999", "1/2SM"
+  weather: string[]; // ["RA", "FG", "TS"] — phenomena codes
+  cloudCeilingFt: number | null; // erste BKN/OVC schicht in ft AGL, sonst null
+  temperature: number | null; // °C
+  dewpoint: number | null; // °C
+  qnhHpa: number | null;
+  fetchedAt: string;
+};
+
 type OverlayActiveResponse = {
   active: true;
   user: OverlayUser;
@@ -151,6 +182,21 @@ type OverlayActiveResponse = {
     distanceKm: number | null;
     etaMinutes: number | null;
     etaFormatted: string | null;
+  };
+  /**
+   * Track 1 #8 Phase 5: Wetter für departure + arrival. Beide einträge
+   * können null sein:
+   *   - departure null wenn flightPlan.departure null/leer ODER bot den
+   *     METAR nicht im cache hat (unbekannte station, VATSIM down)
+   *   - analog für arrival
+   *   - Beide null = bot ist down ODER keine flight-plan-info → UI rendert
+   *     weather-section nicht
+   * Wetter wird best-effort gefetched — bot-failures crashen den endpoint
+   * NICHT, sondern resulten in null-blocks und das overlay rendert weiter.
+   */
+  weather: {
+    departure: OverlayWeather | null;
+    arrival: OverlayWeather | null;
   };
   timestamp: string;
 };
@@ -232,6 +278,50 @@ function getClientIp(req: NextRequest): string {
  */
 function isValidTokenFormat(token: string): boolean {
   return /^[0-9a-f]{32}$/i.test(token);
+}
+
+/**
+ * Track 1 #8 Phase 5 — Reduziert eine bot-CachedMetar zu einer slim
+ * OverlayWeather. Returns null wenn raw-METAR fehlt (unwahrscheinlich
+ * aber defensive).
+ *
+ * cloudCeilingFt: erste BKN/OVC schicht (broken/overcast = "ceiling"
+ * laut ICAO definition). FEW/SCT zählen nicht — die werden im UI
+ * nur als sky-condition-text gezeigt wenn überhaupt.
+ */
+function reduceMetarForOverlay(
+  cached: import('@/lib/metars/fetch-from-bot').CachedMetar,
+): OverlayWeather | null {
+  if (!cached.raw) return null;
+  const decoded = cached.decoded;
+
+  let cloudCeilingFt: number | null = null;
+  if (decoded?.clouds) {
+    const ceiling = decoded.clouds.find(
+      (c) => c.coverage === 'BKN' || c.coverage === 'OVC',
+    );
+    if (ceiling) cloudCeilingFt = ceiling.base;
+  }
+
+  return {
+    icao: cached.icao,
+    raw: cached.raw,
+    flightCategory: decoded?.flightCategory ?? null,
+    wind: decoded?.wind
+      ? {
+          direction: decoded.wind.direction,
+          speed: decoded.wind.speed,
+          gust: decoded.wind.gust,
+        }
+      : null,
+    visibility: decoded?.visibility ?? null,
+    weather: decoded?.weather ?? [],
+    cloudCeilingFt,
+    temperature: decoded?.temperature ?? null,
+    dewpoint: decoded?.dewpoint ?? null,
+    qnhHpa: decoded?.pressure?.qnhHpa ?? null,
+    fetchedAt: cached.fetchedAt,
+  };
 }
 
 // ────────────────────────────────────────────────────────────
@@ -394,6 +484,38 @@ export async function GET(
     }
   }
 
+  // ─── 9a. Weather (Track 1 #8 Phase 5, best-effort) ─────────
+  // Wir holen METARs für departure + arrival aus dem bot's METAR-cache.
+  // fetchMetarsForIcaos ist defensiv: bei bot-down kommt ein leeres
+  // dict zurück (kein throw), wir mappen dann beide auf null.
+  // Skip ganz wenn weder departure noch arrival ICAO bekannt — kein
+  // grund den bot ohne lookup-keys anzufragen.
+  const weatherIcaos: string[] = [];
+  if (session.departureIcao) weatherIcaos.push(session.departureIcao);
+  if (session.arrivalIcao) weatherIcaos.push(session.arrivalIcao);
+
+  const weatherCache =
+    weatherIcaos.length > 0
+      ? await fetchMetarsForIcaos(weatherIcaos)
+      : {};
+
+  const weather = {
+    departure: session.departureIcao
+      ? (weatherCache[session.departureIcao.toUpperCase()]
+          ? reduceMetarForOverlay(
+              weatherCache[session.departureIcao.toUpperCase()],
+            )
+          : null)
+      : null,
+    arrival: session.arrivalIcao
+      ? (weatherCache[session.arrivalIcao.toUpperCase()]
+          ? reduceMetarForOverlay(
+              weatherCache[session.arrivalIcao.toUpperCase()],
+            )
+          : null)
+      : null,
+  };
+
   // ─── 9. Response ───────────────────────────────────────────
   const response: OverlayActiveResponse = {
     active: true,
@@ -463,6 +585,7 @@ export async function GET(
       etaFormatted:
         etaMinutes !== null ? formatDuration(etaMinutes) : null,
     },
+    weather,
     timestamp: new Date().toISOString(),
   };
 
