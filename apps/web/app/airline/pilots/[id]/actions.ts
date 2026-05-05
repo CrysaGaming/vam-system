@@ -92,7 +92,7 @@ const GrantLicenseSchema = z.object({
 /**
  * Grant a license to a pilot. Idempotent-failure: wenn user bereits eine
  * license dieses typs hat, kommt P2002 (composite-unique constraint
- * userId+type). Caller sollte das vorher prüfen oder den error catchen.
+ * userId+type). Wir fangen den ab und werfen einen friendly error.
  *
  * Certificate-number wird auto-generiert. Audit-trail via issuedById = actor.
  */
@@ -296,10 +296,12 @@ const RevokeTypeRatingSchema = z.object({
 });
 
 /**
- * Type-ratings haben kein status-feld (anders als PilotLicense) — die
- * @vam/db helper macht hard-delete. Wir loggen den reason in der server-
- * console für audit-trail. Wenn später ein dediziertes audit-log kommt,
- * kommt der reason dort rein.
+ * Type-rating revoke ist ein HARD-DELETE — anders als PilotLicense (welche
+ * status-feld haben) kennen type-ratings nur "exists/not-exists". Daher
+ * hat die @vam/db-helper auch keinen revokedBy/reason im record selbst.
+ * Wir schreiben den reason ins console-log als audit-trail-placeholder bis
+ * eine dedizierte audit-table existiert (siehe revokeTypeRating-docstring
+ * in @vam/db).
  */
 export async function adminRevokeTypeRating(
   input: z.infer<typeof RevokeTypeRatingSchema>,
@@ -315,12 +317,10 @@ export async function adminRevokeTypeRating(
     throw new Error('forbidden');
   }
 
-  // Audit-log placeholder — type-ratings sind hard-delete in der db-API,
-  // also gibt's keinen on-row-trail. Wenn audit-table kommt, einfach hier
-  // einen eintrag schreiben statt console.log.
+  // Audit-log VOR dem delete — sonst ist der context weg.
   console.log(
     `[airline-admin] ${actor.name} revoked type-rating ${rating.aircraftType} ` +
-      `from user ${parsed.userId}. Reason: ${parsed.reason}`,
+      `(id=${parsed.ratingId}) from user ${parsed.userId}: ${parsed.reason}`,
   );
 
   await revokeTypeRating(parsed.ratingId);
@@ -332,10 +332,11 @@ export async function adminRevokeTypeRating(
 const ExtendTypeRatingSchema = z.object({
   ratingId: z.string().min(1),
   userId: z.string().min(1),
-  // Optional: explicit new expiry date. Wenn weggelassen: helper rechnet
-  // 12 monate ab altem expiresAt (oder ab now wenn already-expired).
+  // Optional: explizites neues expiry-datum. Wenn weggelassen: extendType-
+  // Rating fügt 12 monate ab altem expiresAt hinzu (oder ab now wenn
+  // already-expired). HTML datetime-local liefert "YYYY-MM-DDTHH:mm".
   newExpiresAt: z.string().optional().nullable(),
-  notesAppend: z.string().trim().max(200).optional().nullable(),
+  notes: z.string().trim().max(500).optional().nullable(),
 });
 
 export async function adminExtendTypeRating(
@@ -361,7 +362,7 @@ export async function adminExtendTypeRating(
     id: parsed.ratingId,
     issuedById: actor.id,
     newExpiresAt,
-    notesAppend: parsed.notesAppend ?? undefined,
+    notesAppend: parsed.notes ?? undefined,
   });
 
   revalidatePath(`/airline/pilots/${parsed.userId}`);

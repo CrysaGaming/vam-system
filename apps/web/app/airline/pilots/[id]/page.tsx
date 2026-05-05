@@ -9,44 +9,41 @@ import {
   type LicenseStatus,
 } from '@vam/db';
 import Link from 'next/link';
-import { LicenseGrantForm, LicenseRowActions } from './license-management';
-import {
-  TypeRatingGrantForm,
-  TypeRatingRowActions,
-} from './type-rating-management';
+import { LicenseGrantForm } from './license-grant-form';
+import { LicenseActions, TypeRatingActions } from './license-actions';
+
+interface PageProps {
+  params: Promise<{ id: string }>;
+}
+
+const AIRLINE_MANAGER_ROLES = ['admin', 'airline-admin', 'instructor'];
 
 /**
- * Welle 13E-6 — Pilot-detail-page für admins.
+ * Welle 13E-6 — Pilot detail page für admin license-management.
  *
- * Erste detail-page unter /airline/pilots/[id]. Im MVP ausschließlich
- * für license + type-rating management. Forward-compatible: spätere
- * Wellen können hier weitere admin-tools hinzufügen (per-pilot-history,
- * performance-analyse, manuelle PIREP-corrections, etc).
+ * Routen:
+ *   GET /airline/pilots/[id]
  *
- * Auth-gate: AIRLINE_MANAGER_ROLES (admin | airline-admin | instructor).
- * Plus: target-user muss member der actor-airline sein. Spiegelt die
- * scope-policy in actions.ts requireSameAirline().
+ * Auth-gate: AIRLINE_MANAGER_ROLES + target-pilot muss in derselben airline
+ * sein wie der actor (multi-tenant-isolation).
  *
- * Zeigt:
- *   - Pilot-header: avatar, name, role, rank, email, joined-date
- *   - Lizenzen-section: liste aller licenses mit row-actions, plus
- *     grant-form unten
- *   - Type-Ratings-section: liste aller type-ratings mit row-actions,
- *     plus grant-form unten
+ * Sections:
+ *   - Pilot-info-block: avatar, name, rank, role, hours
+ *   - Grant-form: combined license + type-rating grant (client-component)
+ *   - Active licenses: liste mit per-row revoke/suspend buttons
+ *   - Type ratings: liste mit per-row extend/remove buttons
+ *   - Inactive licenses: REVOKED/EXPIRED/SUSPENDED audit-trail mit
+ *     reinstate-buttons
  *
- * Out-of-scope:
- *   - Career-flag-toggle (admin kann nicht direkt im pilot-namen den
- *     career-toggle setzen — das ist user-self-service, ähnlich wie
- *     bei economy)
- *   - Historie der grant/revoke-actions (audit-log-tabelle existiert
- *     noch nicht; kommt später)
+ * Out-of-scope für 13E-6:
+ *   - Bulk-grant (mehrere licenses gleichzeitig vergeben)
+ *   - License-history-timeline view
+ *   - Performance-stats des pilots (gibt's auf /airline/pilots schon)
+ *   - Booking-history (kommt mit 13E-7 booking-gate eventuell)
  */
-export default async function PilotDetailPage({
-  params,
-}: {
-  // Next.js 16: params ist jetzt ein Promise wie searchParams.
-  params: Promise<{ id: string }>;
-}) {
+export default async function PilotDetailPage({ params }: PageProps) {
+  const { id: targetUserId } = await params;
+
   const session = await auth();
   if (!session?.user) redirect('/');
 
@@ -55,63 +52,70 @@ export default async function PilotDetailPage({
     include: { role: true },
   });
 
-  const allowedRoles = ['admin', 'airline-admin', 'instructor'];
   if (
     !actor?.role ||
-    !allowedRoles.includes(actor.role.name) ||
+    !AIRLINE_MANAGER_ROLES.includes(actor.role.name) ||
     !actor.airlineId
   ) {
     redirect('/dashboard');
   }
 
-  const { id: pilotId } = await params;
-
-  const pilot = await prisma.user.findUnique({
-    where: { id: pilotId },
+  // Target-pilot lookup mit multi-tenant-scope. Wenn target nicht in actor's
+  // airline ist, returnen wir 404 statt 403 — wir wollen nicht leaken dass
+  // der pilot in einer anderen airline existiert.
+  const target = await prisma.user.findUnique({
+    where: { id: targetUserId },
     include: {
       role: { select: { name: true } },
       rank: { select: { name: true } },
-      airline: { select: { name: true, icao: true, careerEnabled: true } },
+      airline: { select: { id: true, name: true, careerEnabled: true } },
     },
   });
 
-  // Scope-check: pilot existiert UND ist in derselben airline wie der actor.
-  // Wenn nicht: 404 (statt 403 — wir leaken nicht ob die ID generell
-  // existiert).
-  if (!pilot || pilot.airlineId !== actor.airlineId) {
+  if (!target || target.airlineId !== actor.airlineId) {
     notFound();
   }
 
-  // Parallele queries für licenses + type-ratings.
-  const [licenses, typeRatings] = await Promise.all([
-    getUserLicenses(pilotId),
-    getUserTypeRatings(pilotId),
+  // Career-flag-info: airline kann career-toggle off haben, dann sind die
+  // licenses zwar persistent aber haben keinen booking-effect. Wir zeigen
+  // einen banner damit admin den status sieht.
+  const careerActive = target.airline?.careerEnabled === true;
+
+  // Parallele queries für licenses + type-ratings
+  const [allLicenses, typeRatings] = await Promise.all([
+    getUserLicenses(targetUserId),
+    getUserTypeRatings(targetUserId),
   ]);
 
-  const active = licenses.filter((l) => l.status === 'ACTIVE');
-  const inactive = licenses.filter((l) => l.status !== 'ACTIVE');
+  const active = allLicenses.filter((l) => l.status === 'ACTIVE');
+  const inactive = allLicenses.filter((l) => l.status !== 'ACTIVE');
+
+  const existingLicenseTypes = allLicenses
+    .filter((l) => l.status === 'ACTIVE' || l.status === 'SUSPENDED')
+    .map((l) => l.type);
+  const existingTypeRatings = typeRatings.map((tr) => tr.aircraftType);
 
   return (
     <main className="px-6 py-8 sm:px-10 lg:px-12 max-w-6xl mx-auto">
-      {/* Breadcrumb back to personnel-list */}
-      <nav className="mb-4 text-sm">
+      {/* Breadcrumb-back-link */}
+      <nav className="mb-4">
         <Link
           href="/airline/pilots"
-          className="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition"
+          className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition"
         >
-          ← Zurück zur Personnel-Übersicht
+          ← Personal-Übersicht
         </Link>
       </nav>
 
-      {/* Pilot-header card */}
-      <div className="mb-6 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6">
+      {/* Pilot-info-block */}
+      <header className="mb-6 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-5">
         <div className="flex items-start gap-4">
-          {pilot.image ? (
+          {target.image ? (
             <picture>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={pilot.image}
-                alt={pilot.name ?? 'Pilot avatar'}
+                src={target.image}
+                alt={target.name ?? 'Avatar'}
                 className="w-16 h-16 rounded-full border border-gray-300 dark:border-gray-700 shrink-0"
               />
             </picture>
@@ -119,153 +123,171 @@ export default async function PilotDetailPage({
             <div className="w-16 h-16 rounded-full bg-gray-200 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 shrink-0" />
           )}
           <div className="min-w-0 flex-1">
-            <h1 className="text-2xl font-bold mb-1 truncate">
-              {pilot.name ?? 'Unbenannter Pilot'}
+            <h1 className="text-xl font-bold mb-1 truncate">
+              {target.name ?? 'Pilot'}
             </h1>
-            <p className="text-sm text-gray-500 dark:text-gray-400 truncate">
-              {pilot.email}
-            </p>
-            <div className="flex flex-wrap gap-2 mt-2 text-xs">
-              {pilot.rank && (
-                <span className="px-2 py-0.5 rounded bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 font-semibold">
-                  {pilot.rank.name}
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-600 dark:text-gray-400">
+              {target.email && (
+                <span className="font-mono text-xs">{target.email}</span>
+              )}
+              {target.rank?.name && (
+                <span>
+                  <span className="text-gray-500">Rang:</span> {target.rank.name}
                 </span>
               )}
-              {pilot.role && (
-                <span className="px-2 py-0.5 rounded bg-purple-500/15 text-purple-700 dark:text-purple-300 font-semibold">
-                  {pilot.role.name}
+              {target.role?.name && (
+                <span>
+                  <span className="text-gray-500">Rolle:</span> {target.role.name}
                 </span>
               )}
-              <span className="px-2 py-0.5 rounded bg-gray-200 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
-                {pilot.totalFlightHours.toFixed(1)}h • {pilot.totalFlights} Flüge
+              <span>
+                <span className="text-gray-500">Stunden:</span>{' '}
+                {target.totalFlightHours.toFixed(1)} h
+              </span>
+              <span>
+                <span className="text-gray-500">Flüge:</span> {target.totalFlights}
               </span>
             </div>
           </div>
         </div>
-      </div>
+      </header>
 
-      {/* Career-flag warning — wenn admin licenses vergibt aber career-system
-          ist auf airline-ebene noch nicht aktiviert, ist das unwirksam. */}
-      {!pilot.airline?.careerEnabled && (
+      {/* Career-flag-banner: wenn airline.careerEnabled false ist, ist
+          das management hier theoretisch unwirksam (booking-gate prüft
+          den flag). Wir warnen statt zu blockieren — admin kann licenses
+          vor der aktivierung schon vergeben. */}
+      {!careerActive && (
         <div className="mb-6 px-4 py-3 rounded-lg border bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-300 text-sm">
-          ⚠️ Career-System ist auf Airline-Ebene <strong>nicht aktiviert</strong>.
-          Vergebene Lizenzen werden gespeichert aber nicht im booking-flow
-          geprüft (canPilotFlyAircraft). Aktiviere das Career-System in den{' '}
-          <Link href="/airline" className="underline font-semibold">
-            Airline-Einstellungen
-          </Link>
-          .
+          <p className="font-semibold mb-1">⚠️ Career-System für diese Airline deaktiviert</p>
+          <p className="text-xs">
+            Vergebene Lizenzen bleiben persistent in der DB, aber der booking-gate
+            (Welle 13E-7) prüft sie nicht. Admin kann{' '}
+            <Link href="/airline" className="underline hover:no-underline">
+              das Career-System in den Airline-Einstellungen aktivieren
+            </Link>
+            .
+          </p>
         </div>
       )}
 
-      {/* Lizenzen-section. Active-licenses werden als full-width cards
-          gerendert weil pro license auch action-buttons sichtbar sein
-          müssen (suspend/revoke). Inactive-licenses werden gedimmt unten
-          gelistet als audit-trail. */}
-      <section className="mb-8">
-        <header className="mb-3">
-          <h2 className="text-lg font-semibold">Lizenzen</h2>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-            Verwalte die PilotLicenses dieses Piloten. Vergeben, suspendieren,
-            widerrufen oder reaktivieren.
-          </p>
-        </header>
+      {/* 2-column grid: grant-form left, current state right. md+ side-by-
+          side; mobile stacked. */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+        <div className="md:col-span-1">
+          <LicenseGrantForm
+            userId={targetUserId}
+            existingLicenseTypes={existingLicenseTypes}
+            existingTypeRatings={existingTypeRatings}
+          />
+        </div>
 
-        {active.length === 0 && inactive.length === 0 ? (
-          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4 italic">
-            Pilot hat noch keine Lizenzen.
-          </p>
-        ) : (
-          <div className="space-y-3 mb-4">
-            {active.map((lic) => (
-              <LicenseRowDisplay key={lic.id} license={lic} userId={pilotId} />
-            ))}
-            {inactive.length > 0 && (
-              <>
-                <p className="text-xs uppercase tracking-wider text-gray-500 mt-4 mb-2">
-                  Audit-Trail (inaktiv)
-                </p>
+        <div className="md:col-span-2 space-y-6">
+          <Section title="Aktive Lizenzen" subtitle="Status: ACTIVE">
+            {active.length === 0 ? (
+              <EmptyState text="Keine aktiven Lizenzen — über das Formular links neue vergeben." />
+            ) : (
+              <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg divide-y divide-gray-200 dark:divide-gray-800">
+                {active.map((lic) => (
+                  <LicenseRow key={lic.id} license={lic} userId={targetUserId} />
+                ))}
+              </div>
+            )}
+          </Section>
+
+          <Section title="Type Ratings" subtitle="Aircraft-spezifische Qualifikationen">
+            {typeRatings.length === 0 ? (
+              <EmptyState text="Keine Type-Ratings — über das Formular links neue vergeben." />
+            ) : (
+              <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg divide-y divide-gray-200 dark:divide-gray-800">
+                {typeRatings.map((tr) => (
+                  <TypeRatingRow key={tr.id} rating={tr} userId={targetUserId} />
+                ))}
+              </div>
+            )}
+          </Section>
+
+          {inactive.length > 0 && (
+            <Section
+              title="Inaktive Lizenzen"
+              subtitle="Audit-trail: REVOKED, EXPIRED, SUSPENDED"
+            >
+              <div className="bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-800 rounded-lg divide-y divide-gray-200 dark:divide-gray-800">
                 {inactive.map((lic) => (
-                  <LicenseRowDisplay
+                  <LicenseRow
                     key={lic.id}
                     license={lic}
-                    userId={pilotId}
+                    userId={targetUserId}
                     dimmed
                   />
                 ))}
-              </>
-            )}
-          </div>
-        )}
-
-        <LicenseGrantForm userId={pilotId} />
-      </section>
-
-      {/* Type-Ratings-section. Selbe layout-philosophie wie licenses, aber
-          ohne dimmed-section weil type-ratings hard-deleted sind (kein
-          audit-trail im record). */}
-      <section className="mb-8">
-        <header className="mb-3">
-          <h2 className="text-lg font-semibold">Type Ratings</h2>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-            Aircraft-spezifische qualifikationen mit recurrent-checks (12
-            monate) und hours-on-type tracking.
-          </p>
-        </header>
-
-        {typeRatings.length === 0 ? (
-          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4 italic">
-            Pilot hat noch keine Type-Ratings.
-          </p>
-        ) : (
-          <div className="space-y-3 mb-4">
-            {typeRatings.map((tr) => (
-              <TypeRatingRowDisplay
-                key={tr.id}
-                rating={tr}
-                userId={pilotId}
-              />
-            ))}
-          </div>
-        )}
-
-        <TypeRatingGrantForm userId={pilotId} />
-      </section>
+              </div>
+            </Section>
+          )}
+        </div>
+      </div>
     </main>
   );
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Server-rendered display rows (with embedded client-action buttons)
+// Sub-components
 // ─────────────────────────────────────────────────────────────────────────
 
-interface LicenseRowProps {
-  license: {
-    id: string;
-    type: LicenseType;
-    status: LicenseStatus;
-    certificateNumber: string;
-    issuedAt: Date;
-    expiresAt: Date | null;
-    notes: string | null;
-  };
-  userId: string;
-  dimmed?: boolean;
+function Section({
+  title,
+  subtitle,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section>
+      <div className="mb-2">
+        <h2 className="text-base font-semibold">{title}</h2>
+        {subtitle && (
+          <p className="text-xs text-gray-500 dark:text-gray-400">{subtitle}</p>
+        )}
+      </div>
+      {children}
+    </section>
+  );
 }
 
-function LicenseRowDisplay({ license, userId, dimmed = false }: LicenseRowProps) {
+function EmptyState({ text }: { text: string }) {
   return (
-    <div
-      className={`bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-4 ${
-        dimmed ? 'opacity-60' : ''
-      }`}
-    >
+    <div className="bg-white dark:bg-gray-900 border border-dashed border-gray-300 dark:border-gray-700 rounded-lg p-5 text-center">
+      <p className="text-xs text-gray-500 dark:text-gray-400">{text}</p>
+    </div>
+  );
+}
+
+interface LicenseRowData {
+  id: string;
+  type: LicenseType;
+  status: LicenseStatus;
+  certificateNumber: string;
+  issuedAt: Date;
+  expiresAt: Date | null;
+  notes: string | null;
+}
+
+function LicenseRow({
+  license,
+  userId,
+  dimmed = false,
+}: {
+  license: LicenseRowData;
+  userId: string;
+  dimmed?: boolean;
+}) {
+  return (
+    <div className={`p-4 ${dimmed ? 'opacity-60' : ''}`}>
       <div className="flex items-start justify-between gap-3 mb-2">
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-2 mb-1 flex-wrap">
-            <h3 className="text-base font-semibold">
-              {licenseDisplayName(license.type)}
-            </h3>
+            <h3 className="text-sm font-semibold">{licenseDisplayName(license.type)}</h3>
             <StatusBadge status={license.status} />
           </div>
           <p className="text-xs text-gray-500 dark:text-gray-400 font-mono">
@@ -275,19 +297,19 @@ function LicenseRowDisplay({ license, userId, dimmed = false }: LicenseRowProps)
         <div className="text-xs text-gray-500 dark:text-gray-400 text-right shrink-0">
           <p>Ausgestellt: {formatDate(license.issuedAt)}</p>
           {license.expiresAt ? (
-            <p className="mt-0.5">Gültig bis: {formatDate(license.expiresAt)}</p>
+            <p className="mt-0.5">Bis: {formatDate(license.expiresAt)}</p>
           ) : (
-            <p className="mt-0.5 italic">Lifetime</p>
+            <p className="mt-0.5 italic">Kein Ablauf</p>
           )}
         </div>
       </div>
-      {license.notes && (
-        <p className="my-2 pt-2 border-t border-gray-200 dark:border-gray-800 text-xs text-gray-500 dark:text-gray-500 whitespace-pre-line font-mono">
-          {license.notes}
-        </p>
-      )}
-      <div className="pt-2 border-t border-gray-200 dark:border-gray-800">
-        <LicenseRowActions
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        {license.notes && (
+          <p className="flex-1 min-w-0 text-xs text-gray-500 dark:text-gray-500 whitespace-pre-line font-mono leading-relaxed">
+            {license.notes}
+          </p>
+        )}
+        <LicenseActions
           licenseId={license.id}
           userId={userId}
           status={license.status}
@@ -297,67 +319,64 @@ function LicenseRowDisplay({ license, userId, dimmed = false }: LicenseRowProps)
   );
 }
 
-interface TypeRatingDisplayProps {
-  rating: {
-    id: string;
-    aircraftType: string;
-    obtainedAt: Date;
-    expiresAt: Date | null;
-    hoursOnType: number;
-    lastFlownAt: Date | null;
-  };
-  userId: string;
+interface TypeRatingRowData {
+  id: string;
+  aircraftType: string;
+  obtainedAt: Date;
+  expiresAt: Date | null;
+  hoursOnType: number;
+  lastFlownAt: Date | null;
+  notes: string | null;
 }
 
-function TypeRatingRowDisplay({ rating, userId }: TypeRatingDisplayProps) {
-  const isExpired = rating.expiresAt && rating.expiresAt < new Date();
-  const cutoff = new Date(Date.now() - 90 * 86_400_000);
-  const recencyExpired = rating.lastFlownAt && rating.lastFlownAt < cutoff;
+function TypeRatingRow({
+  rating,
+  userId,
+}: {
+  rating: TypeRatingRowData;
+  userId: string;
+}) {
+  const isExpired = !!rating.expiresAt && rating.expiresAt < new Date();
 
   return (
-    <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-4">
+    <div className="p-4">
       <div className="flex items-start justify-between gap-3 mb-2">
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-2 mb-1 flex-wrap">
-            <h3 className="text-base font-semibold font-mono">
-              {rating.aircraftType}
-            </h3>
+            <h3 className="text-sm font-semibold font-mono">{rating.aircraftType}</h3>
             {isExpired && (
               <span className="px-2 py-0.5 text-[10px] uppercase tracking-wider rounded bg-red-500/15 text-red-700 dark:text-red-300 font-semibold">
                 Expired
               </span>
             )}
-            {!isExpired && recencyExpired && (
-              <span className="px-2 py-0.5 text-[10px] uppercase tracking-wider rounded bg-amber-500/15 text-amber-700 dark:text-amber-300 font-semibold">
-                Recency lapsed
-              </span>
-            )}
           </div>
           <p className="text-xs text-gray-500 dark:text-gray-400">
-            <span className="font-semibold">
-              {rating.hoursOnType.toFixed(1)} h
-            </span>{' '}
-            auf type
+            <span className="font-semibold">{rating.hoursOnType.toFixed(1)} h</span> auf type
           </p>
         </div>
         <div className="text-xs text-gray-500 dark:text-gray-400 text-right shrink-0">
           <p>Erworben: {formatDate(rating.obtainedAt)}</p>
           {rating.expiresAt ? (
-            <p className="mt-0.5">
-              Gültig bis: {formatDate(rating.expiresAt)}
-            </p>
+            <p className="mt-0.5">Bis: {formatDate(rating.expiresAt)}</p>
           ) : (
             <p className="mt-0.5 italic">Lifetime</p>
           )}
           {rating.lastFlownAt && (
-            <p className="mt-0.5">
-              Zuletzt geflogen: {formatDate(rating.lastFlownAt)}
-            </p>
+            <p className="mt-0.5">Zuletzt: {formatDate(rating.lastFlownAt)}</p>
           )}
         </div>
       </div>
-      <div className="pt-2 border-t border-gray-200 dark:border-gray-800">
-        <TypeRatingRowActions ratingId={rating.id} userId={userId} />
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        {rating.notes && (
+          <p className="flex-1 min-w-0 text-xs text-gray-500 dark:text-gray-500 whitespace-pre-line font-mono leading-relaxed">
+            {rating.notes}
+          </p>
+        )}
+        <TypeRatingActions
+          ratingId={rating.id}
+          userId={userId}
+          isExpired={isExpired}
+        />
       </div>
     </div>
   );
