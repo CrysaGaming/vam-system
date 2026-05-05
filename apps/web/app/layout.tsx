@@ -107,6 +107,19 @@ export default async function RootLayout({
         // logik im /dashboard und entscheidet ob der "Wallet"-sidebar-
         // link erscheint.
         hasEconomy: !!(user.airline && user.economyEnabled && user.airline.economyEnabled),
+        // Welle 13D-4: airlineEconomyEnabled ist getrennt von hasEconomy
+        // weil die /airline/finance-page einen eigenen flag braucht. Admins
+        // sollen die airline-finanzen sehen können auch wenn ihre eigene
+        // economy off ist (privater wallet ≠ airline-finance-overview).
+        // Bedingung: airline.economyEnabled UND canManageAirline (admin/
+        // airline-admin/instructor) UND user gehört zur airline. Wenn
+        // alle drei zutreffen → "Finanzen"-link in Airline-Admin-section.
+        airlineEconomyEnabled: !!(
+          user.airline &&
+          user.airline.economyEnabled &&
+          roleName !== null &&
+          ['admin', 'airline-admin', 'instructor'].includes(roleName)
+        ),
         // Welle 4: Position-felder direkt aus der user-row durchgereicht.
         // Nullable strings — sidebar-position-block hat alle 5 fallback-cases
         // dokumentiert (siehe Sidebar-component-comment).

@@ -40,6 +40,15 @@ export type ShellUser = {
   // sidebar-links. Wenn false: link wird nicht gerendert, /wallet-page
   // selbst hat einen separaten gating-redirect für direkte URL-aufrufe.
   hasEconomy: boolean;
+  // Welle 13D-4: Separater flag nur für die airline-seite des opt-ins.
+  // Steuert die sichtbarkeit des "Finanzen"-links im Airline-Admin-
+  // sektor. Logik: airline.economyEnabled UND canManageAirline. Bewusst
+  // getrennt von hasEconomy weil ein admin der seine PERSÖNLICHE
+  // economy-toggle off hat trotzdem die airline-finanzen sehen können
+  // muss — das sind getrennte concerns (privater wallet vs. airline-
+  // finance-overview). Ein admin ohne airline (theoretisch möglich für
+  // global-admin) hat das automatisch false.
+  airlineEconomyEnabled: boolean;
   // Welle 4: Position-tracking. baseIcao = pilot's hub innerhalb der airline,
   // currentLocationIcao = wo er grade ist. Beide nullable (neuer pilot ohne
   // hub-zuweisung, oder vor erstem flug). Sidebar zeigt einen kompakten
@@ -545,6 +554,15 @@ function Sidebar({ user, pathname }: SidebarProps) {
         {user.canManageAirline && user.hasAirline && (
           <NavSection title="Airline-Admin">
             <NavLink href="/airline" pathname={pathname} icon="🏢" label="Airline-Verwaltung" exact />
+            {/* Welle 13D-4: Airline-Finanzen. Nur sichtbar wenn die airline
+                economy-toggle ON ist UND der user canManageAirline ist
+                (beide checks zusammengefasst in airlineEconomyEnabled).
+                Sitzt direkt unter Airline-Verwaltung weil's konzeptionell
+                der financial-overview der airline ist und admins als zweite
+                primäre admin-aufgabe nach members-management zugreifen. */}
+            {user.airlineEconomyEnabled && (
+              <NavLink href="/airline/finance" pathname={pathname} icon="💼" label="Finanzen" />
+            )}
             <NavLink href="/airline/hubs" pathname={pathname} icon="📍" label="Hubs" />
             <NavLink href="/airline/aircraft" pathname={pathname} icon="🛩️" label="Aircraft" />
             <NavLink href="/airline/fleet" pathname={pathname} icon="📊" label="Fleet-Übersicht" />

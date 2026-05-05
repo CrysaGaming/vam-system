@@ -329,3 +329,174 @@ export async function getUserTransactions(
 
   return { rows, totalCount };
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// getAirlineWalletExtended
+// ─────────────────────────────────────────────────────────────────────────
+
+export interface AirlineWalletExtended {
+  /** Wallet-id für nachfolgende queries (z.B. tx-list). null wenn !hasWallet. */
+  walletId: string | null;
+  /** Aktueller balance des operating-accounts. 0 wenn kein wallet. */
+  balance: Decimal;
+  /** Credit-limit. Airline-wallets haben normalerweise einen starter-credit. */
+  creditLimit: Decimal | null;
+  /** Sum of inflows in the current calendar month (UTC). */
+  monthRevenue: Decimal;
+  /** Sum of outflows in the current calendar month (UTC). Returned as positive. */
+  monthExpenses: Decimal;
+  /** monthRevenue - monthExpenses. Positive = profitable monat, negative = verlust. */
+  monthNet: Decimal;
+  /** True wenn ein operating-wallet existiert. */
+  hasWallet: boolean;
+  /** Total-tx-count über die wallet-lifetime. */
+  txCount: number;
+}
+
+/**
+ * Erweiterte airline-wallet-stats für die /airline/finance-page.
+ *
+ * Aktuell nur das primary "operating"-wallet (walletType="primary",
+ * ownerType="AIRLINE"). Welle 13 kennt zwar AIRLINE_PAYROLL und
+ * AIRLINE_MAINTENANCE als separate ownerTypes (siehe schema.prisma),
+ * aber die werden vom orchestrator (process-flight.ts) noch nicht
+ * benutzt — alle bookings gehen auf das primary-wallet. Wenn das
+ * später aufgesplittet wird, kommt hier ein separater query/return-
+ * shape für die sub-accounts dazu.
+ *
+ * Permission-aware: caller MUSS sicherstellen dass der user diese
+ * airline sehen darf (admin/airline-admin/instructor + zugehörig zur
+ * airline). Diese funktion enforced kein gating selbst.
+ */
+export async function getAirlineWalletExtended(
+  airlineId: string,
+  options: { db?: DbClient } = {},
+): Promise<AirlineWalletExtended> {
+  const { db = prisma } = options;
+
+  const wallet = await db.wallet.findFirst({
+    where: {
+      ownerType: "AIRLINE",
+      ownerAirlineId: airlineId,
+      walletType: "primary",
+    },
+    select: { id: true, balance: true, creditLimit: true },
+  });
+
+  if (!wallet) {
+    const zero = new Decimal(0);
+    return {
+      walletId: null,
+      balance: zero,
+      creditLimit: null,
+      monthRevenue: zero,
+      monthExpenses: zero,
+      monthNet: zero,
+      hasWallet: false,
+      txCount: 0,
+    };
+  }
+
+  const now = new Date();
+  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+
+  const [revenueAgg, expensesAgg, txCount] = await Promise.all([
+    db.transaction.aggregate({
+      where: {
+        walletId: wallet.id,
+        createdAt: { gte: monthStart },
+        amount: { gt: 0 },
+      },
+      _sum: { amount: true },
+    }),
+    db.transaction.aggregate({
+      where: {
+        walletId: wallet.id,
+        createdAt: { gte: monthStart },
+        amount: { lt: 0 },
+      },
+      _sum: { amount: true },
+    }),
+    db.transaction.count({ where: { walletId: wallet.id } }),
+  ]);
+
+  const monthRevenue = revenueAgg._sum.amount ?? new Decimal(0);
+  const monthExpenses = (expensesAgg._sum.amount ?? new Decimal(0)).abs() as Decimal;
+  const monthNet = monthRevenue.minus(monthExpenses);
+
+  return {
+    walletId: wallet.id,
+    balance: wallet.balance,
+    creditLimit: wallet.creditLimit,
+    monthRevenue,
+    monthExpenses,
+    monthNet,
+    hasWallet: true,
+    txCount,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// getAirlineTransactions
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Paginated tx-list für /airline/finance. Spiegelt getUserTransactions
+ * 1:1 — selber options-shape, selbe semantik, nur dass das wallet-lookup
+ * auf ownerType=AIRLINE statt USER geht. Werden absichtlich getrennt
+ * gehalten (statt einer generic getWalletTransactions(ownerType, ownerId))
+ * weil:
+ *   1. owner-type-spezifisches gating ist klarer am call-site sichtbar
+ *      (page selbst entscheidet ob USER oder AIRLINE)
+ *   2. keine versehentliche cross-context-leakage (admin-page kann nicht
+ *      durch falschen ownerType plötzlich user-tx zeigen)
+ */
+export async function getAirlineTransactions(
+  airlineId: string,
+  options: GetUserTransactionsOptions = {},
+): Promise<GetUserTransactionsResult> {
+  const {
+    skip = 0,
+    take: rawTake = 25,
+    type,
+    fromDate,
+    toDate,
+    db = prisma,
+  } = options;
+  const take = Math.min(Math.max(1, rawTake), 100);
+
+  const wallet = await db.wallet.findFirst({
+    where: {
+      ownerType: "AIRLINE",
+      ownerAirlineId: airlineId,
+      walletType: "primary",
+    },
+    select: { id: true },
+  });
+
+  if (!wallet) {
+    return { rows: [], totalCount: 0 };
+  }
+
+  const where: Prisma.TransactionWhereInput = { walletId: wallet.id };
+  if (type !== undefined) {
+    where.type = Array.isArray(type) ? { in: type } : type;
+  }
+  if (fromDate || toDate) {
+    where.createdAt = {};
+    if (fromDate) where.createdAt.gte = fromDate;
+    if (toDate) where.createdAt.lt = toDate;
+  }
+
+  const [rows, totalCount] = await Promise.all([
+    db.transaction.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      skip,
+      take,
+    }),
+    db.transaction.count({ where }),
+  ]);
+
+  return { rows, totalCount };
+}

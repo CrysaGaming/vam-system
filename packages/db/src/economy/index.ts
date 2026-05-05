@@ -70,8 +70,11 @@ export {
   getUserWalletStats,
   getUserWalletExtended,
   getUserTransactions,
+  getAirlineWalletExtended,
+  getAirlineTransactions,
   type UserWalletStats,
   type UserWalletExtended,
+  type AirlineWalletExtended,
   type GetUserTransactionsOptions,
   type GetUserTransactionsResult,
 } from "./queries.js";
