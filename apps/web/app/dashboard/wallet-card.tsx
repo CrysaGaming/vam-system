@@ -1,4 +1,5 @@
 import { getUserWalletStats, formatVamCurrency, Decimal } from "@vam/db";
+import Link from "next/link";
 
 interface Props {
   userId: string;
@@ -57,9 +58,17 @@ export async function WalletCard({ userId }: Props) {
 
   return (
     <section className="md:col-span-1 bg-white dark:bg-gray-900 rounded-lg p-6 border border-gray-200 dark:border-gray-800">
-      <h2 className="text-sm uppercase tracking-wider text-gray-500 mb-4">
-        Wallet
-      </h2>
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-sm uppercase tracking-wider text-gray-500">
+          Wallet
+        </h2>
+        <Link
+          href="/wallet"
+          className="text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 transition"
+        >
+          Details →
+        </Link>
+      </div>
 
       {hasActivity ? (
         <>

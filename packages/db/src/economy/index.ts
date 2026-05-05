@@ -68,5 +68,10 @@ export {
 // 13D: read-only queries für UI-display.
 export {
   getUserWalletStats,
+  getUserWalletExtended,
+  getUserTransactions,
   type UserWalletStats,
+  type UserWalletExtended,
+  type GetUserTransactionsOptions,
+  type GetUserTransactionsResult,
 } from "./queries.js";

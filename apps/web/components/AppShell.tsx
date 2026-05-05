@@ -34,6 +34,12 @@ export type ShellUser = {
   // Admin (mit aktuell nur Airline-Verwaltung als link).
   canManageAirline: boolean;
   hasAirline: boolean;
+  // Welle 13D: Economy-features sind opt-in. hasEconomy ist true wenn
+  // user.economyEnabled UND airline.economyEnabled — gleiche logik wie
+  // im dashboard/WalletCard. Steuert die sichtbarkeit des "Wallet"-
+  // sidebar-links. Wenn false: link wird nicht gerendert, /wallet-page
+  // selbst hat einen separaten gating-redirect für direkte URL-aufrufe.
+  hasEconomy: boolean;
   // Welle 4: Position-tracking. baseIcao = pilot's hub innerhalb der airline,
   // currentLocationIcao = wo er grade ist. Beide nullable (neuer pilot ohne
   // hub-zuweisung, oder vor erstem flug). Sidebar zeigt einen kompakten
@@ -502,6 +508,14 @@ function Sidebar({ user, pathname }: SidebarProps) {
           <NavLink href="/dashboard" pathname={pathname} icon="🏠" label="Dashboard" exact />
           <NavLink href="/bookings" pathname={pathname} icon="✈️" label="Bookings" />
           <NavLink href="/pireps" pathname={pathname} icon="📋" label="PIREPs" />
+          {/* Welle 13D-3: Wallet-link wird nur gezeigt wenn beide economy-
+              flags ON sind (gating in layout.tsx via hasEconomy). Sitzt in
+              Flying-section weil's eine persönliche pilot-tool ist (selbe
+              kategorie wie PIREPs/Bookings), nicht eine airline-admin-
+              funktion. */}
+          {user.hasEconomy && (
+            <NavLink href="/wallet" pathname={pathname} icon="💰" label="Wallet" />
+          )}
           <NavLink href="/jumpseat" pathname={pathname} icon="🪂" label="Jumpseat" />
           <NavLink href="/live" pathname={pathname} icon="🌐" label="Live" />
         </NavSection>

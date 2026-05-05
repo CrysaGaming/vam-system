@@ -54,7 +54,7 @@ export default async function RootLayout({
         // logoUrl mit fetchen für den header-brand-block. Optional auf der
         // airline; wenn null, fällt der BrandLink auf einen ICAO-monogramm
         // zurück.
-        airline: { select: { name: true, icao: true, logoUrl: true } },
+        airline: { select: { name: true, icao: true, logoUrl: true, economyEnabled: true } },
         // rank.name für das header user-info display (vAMSYS-style:
         // pilot-name oben, rank-bezeichnung darunter). Optional FK —
         // user kann ohne rank existieren (z.B. neuer pilot vor zuweisung).
@@ -68,6 +68,9 @@ export default async function RootLayout({
         // unbekannt".
         baseIcao: true,
         currentLocationIcao: true,
+        // Welle 13D: Economy opt-in flag. Gepaart mit airline.economyEnabled
+        // (oben im airline-select) ergibt das hasEconomy in shellUser.
+        economyEnabled: true,
       },
     });
 
@@ -98,6 +101,12 @@ export default async function RootLayout({
         // (gating zu locker hier vs. backend).
         canManageAirline: roleName !== null && ['admin', 'airline-admin', 'instructor'].includes(roleName),
         hasAirline: !!user.airline,
+        // Welle 13D: Economy ist opt-in BEIDERSEITIG. hasEconomy=true nur
+        // wenn der user ZU EINER AIRLINE GEHÖRT, der user-flag ON ist UND
+        // der airline-flag ON ist. Das spiegelt die WalletCard-gating-
+        // logik im /dashboard und entscheidet ob der "Wallet"-sidebar-
+        // link erscheint.
+        hasEconomy: !!(user.airline && user.economyEnabled && user.airline.economyEnabled),
         // Welle 4: Position-felder direkt aus der user-row durchgereicht.
         // Nullable strings — sidebar-position-block hat alle 5 fallback-cases
         // dokumentiert (siehe Sidebar-component-comment).
