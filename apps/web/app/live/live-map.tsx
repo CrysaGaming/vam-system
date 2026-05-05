@@ -222,10 +222,130 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
   const [airports, setAirports] = useState<AirportWithMetar[]>([]);
   const [selectedAirportIcao, setSelectedAirportIcao] = useState<string | null>(null);
 
+  // Track 1 #2 (Live-Map Search-Bar + Click-Public-Pilots, 9.2.5):
+  // Identification eines public pilots (non-member auf VATSIM/IVAO) ist
+  // (network, cid) — callsign allein nicht eindeutig (mehrere networks
+  // können denselben callsign nutzen, z.B. wenn wer parallel
+  // verbunden ist). cid ist pro-network unique.
+  const [selectedPublicPilot, setSelectedPublicPilot] = useState<{
+    network: 'VATSIM' | 'IVAO';
+    cid: number;
+  } | null>(null);
+
+  // Track 1 #2: Search-bar query + dropdown-open state. Query trim+upper
+  // beim filtering (callsigns sind upper-case in beiden networks).
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchOpen, setSearchOpen] = useState(false);
+
   const selected = useMemo(
     () => sessions.find((s) => s.id === selectedId) ?? null,
     [sessions, selectedId],
   );
+
+  // Track 1 #2: Resolved public pilot from selectedPublicPilot lookup-key.
+  // Gibt null zurück wenn der pilot zwischen click und render verschwunden
+  // ist (VATSIM/IVAO datafeed-update zwischen poll-cycles), oder wenn
+  // selectedPublicPilot null ist.
+  const selectedPublic = useMemo(() => {
+    if (!selectedPublicPilot) return null;
+    const list =
+      selectedPublicPilot.network === 'VATSIM'
+        ? publicPilots.vatsim
+        : publicPilots.ivao;
+    return list.find((p) => p.cid === selectedPublicPilot.cid) ?? null;
+  }, [selectedPublicPilot, publicPilots]);
+
+  // Track 1 #2: Map-navigation helper. Animiert zur ziel-position mit
+  // sinnvollem zoom (8 ist airport-region — sieht den pilot + umgebung
+  // ohne den globus zu stark zu zoomen). 1.5s duration ist langsam genug
+  // dass der user die fly-bewegung als orientierung wahrnimmt.
+  const flyToCoords = useCallback(
+    (longitude: number, latitude: number) => {
+      const map = mapRef.current?.getMap();
+      if (!map) return;
+      map.flyTo({
+        center: [longitude, latitude],
+        zoom: 8,
+        duration: 1500,
+        essential: true,
+      });
+    },
+    [],
+  );
+
+  // Track 1 #2: Mutual-exclusion-helpers für die drei sidebar-quellen
+  // (member session, public pilot, airport). Selektieren von einem
+  // schließt die anderen beiden — sonst gäbe es ein chaotisches "alle
+  // drei sidebars wären offen aber überlappen sich"-rendering. Wir
+  // wählen welche per zustand: ein zustand öffnet, die anderen werden
+  // geclearred.
+  const selectMemberSession = useCallback((id: string) => {
+    setSelectedId(id);
+    setSelectedPublicPilot(null);
+    setSelectedAirportIcao(null);
+  }, []);
+
+  const selectPublicPilot = useCallback(
+    (network: 'VATSIM' | 'IVAO', cid: number) => {
+      setSelectedPublicPilot({ network, cid });
+      setSelectedId(null);
+      setSelectedAirportIcao(null);
+    },
+    [],
+  );
+
+  // Track 1 #2: Search-results — fuzzy callsign-match across alle drei
+  // pilot-quellen (member sessions, public VATSIM, public IVAO). Limit 8
+  // für übersichtlichkeit (über 8 results ist die query zu unspezifisch).
+  // Member sessions kommen zuerst — ein admin/streamer der nach einem
+  // member-callsign sucht erwartet den als top-result.
+  //
+  // Performance: O(n) over ~3500 public pilots ist trivial-quick (<1ms),
+  // kein debounce nötig. Wenn das mal langsam wird, wäre ein simple-
+  // index (Map<callsign, pilot>) die nächste optimierung.
+  type SearchResult =
+    | { kind: 'session'; session: LiveSession }
+    | { kind: 'public'; network: 'VATSIM' | 'IVAO'; pilot: PublicPilot };
+
+  const searchResults = useMemo<SearchResult[]>(() => {
+    const q = searchQuery.trim().toUpperCase();
+    if (q.length < 2) return [];
+    const out: SearchResult[] = [];
+    const MAX = 8;
+
+    // Member sessions zuerst (höhere relevanz für VAM-eingeloggte user).
+    for (const s of sessions) {
+      if (out.length >= MAX) break;
+      if (s.callsign.toUpperCase().includes(q)) {
+        out.push({ kind: 'session', session: s });
+      }
+    }
+    if (out.length >= MAX) return out;
+
+    // Public pilots — skip welche schon als member sessions auftauchen
+    // (vermeidet duplicate-results für member die parallel auf VATSIM
+    // sind). Set-lookup via callsign+network composite-key.
+    const memberKeys = new Set(sessions.map((s) => `${s.network}:${s.callsign}`));
+
+    for (const p of publicPilots.vatsim) {
+      if (out.length >= MAX) break;
+      if (memberKeys.has(`VATSIM:${p.callsign}`)) continue;
+      if (p.callsign.toUpperCase().includes(q)) {
+        out.push({ kind: 'public', network: 'VATSIM', pilot: p });
+      }
+    }
+    if (out.length >= MAX) return out;
+
+    for (const p of publicPilots.ivao) {
+      if (out.length >= MAX) break;
+      if (memberKeys.has(`IVAO:${p.callsign}`)) continue;
+      if (p.callsign.toUpperCase().includes(q)) {
+        out.push({ kind: 'public', network: 'IVAO', pilot: p });
+      }
+    }
+
+    return out;
+  }, [searchQuery, sessions, publicPilots]);
 
   // Member sessions polling
   useEffect(() => {
@@ -847,7 +967,9 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
     [],
   );
 
-  const isOpen = selected !== null;
+  // Track 1 #2: isOpen erweitert um selectedPublic. Sidebar öffnet sich
+  // wenn IRGENDEINES der drei items ausgewählt ist.
+  const anySidebarOpen = selected !== null || selectedPublic !== null || selectedAirportIcao !== null;
 
   return (
     <div
@@ -862,11 +984,11 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
       {/* Sidebar */}
       <aside
         style={{
-          width: isOpen || selectedAirportIcao ? SIDEBAR_WIDTH : 0,
+          width: anySidebarOpen ? SIDEBAR_WIDTH : 0,
           flexShrink: 0,
           transition: 'width 220ms ease',
           backgroundColor: 'rgb(17, 24, 39)',
-          borderRight: isOpen || selectedAirportIcao ? '1px solid rgb(31, 41, 55)' : 'none',
+          borderRight: anySidebarOpen ? '1px solid rgb(31, 41, 55)' : 'none',
           overflow: 'hidden',
         }}
       >
@@ -878,7 +1000,19 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
             airports={airports}
           />
         )}
-        {selectedAirportIcao && !selected && (
+        {/* Track 1 #2: PublicPilotSidebar zeigt reduzierten content (kein
+            real-name, kein avatar, keine stats) für non-member-pilots. Mutual
+            exclusion via state-setter sorgt dafür dass nicht beide gleichzeitig
+            rendern (selectedPublic && !selected wäre redundant — selectMember
+            cleart selectedPublic — aber defensive guard für edge-cases). */}
+        {selectedPublic && !selected && selectedPublicPilot && (
+          <PublicPilotSidebar
+            pilot={selectedPublic}
+            network={selectedPublicPilot.network}
+            onClose={() => setSelectedPublicPilot(null)}
+          />
+        )}
+        {selectedAirportIcao && !selected && !selectedPublic && (
           <AirportSidebar
             airportData={airports.find((a) => a.airport.icao === selectedAirportIcao) ?? null}
             onClose={() => setSelectedAirportIcao(null)}
@@ -1011,10 +1145,67 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
             if (!feature) return;
             const icao = feature.properties?.icao as string;
             if (icao) {
+              // Track 1 #2: mutual exclusion — andere sidebars schließen
               setSelectedAirportIcao(icao);
-              setSelectedId(null); // Pilot-Sidebar schließen falls offen
+              setSelectedId(null);
+              setSelectedPublicPilot(null);
             }
           });
+
+          // Track 1 #2: Click-Handler für public-pilots layer (sowohl
+          // clustered als auch unclustered mode). Beide layer-IDs werden
+          // versucht — die nicht-existierende ID failt silent (mapbox
+          // verträgt das). Click → selectPublicPilot via composite-key.
+          //
+          // Cluster-clicks: wenn der user auf einen cluster klickt
+          // (point_count > 1), zoomen wir rein statt einen einzelnen
+          // pilot zu wählen — das ist mapbox's standard-cluster-UX.
+          const handlePublicPilotClick = (
+            e: mapboxgl.MapMouseEvent & { features?: mapboxgl.MapboxGeoJSONFeature[] },
+          ) => {
+            const feature = e.features?.[0];
+            if (!feature) return;
+            const props = feature.properties ?? {};
+            // Cluster-feature hat point_count, individual hat cid
+            if (props.point_count) {
+              // Mapbox cluster-zoom-helper. Source.getClusterExpansionZoom
+              // gibt den zoom zurück bei dem der cluster sich auflöst.
+              const source = map.getSource('public-pilots-source') as mapboxgl.GeoJSONSource | undefined;
+              if (!source || typeof source.getClusterExpansionZoom !== 'function') return;
+              const clusterId = props.cluster_id;
+              source.getClusterExpansionZoom(clusterId, (err: Error | null | undefined, zoom: number | null | undefined) => {
+                if (err || zoom === undefined || zoom === null) return;
+                if (feature.geometry.type === 'Point') {
+                  const [lng, lat] = feature.geometry.coordinates as [number, number];
+                  map.easeTo({ center: [lng, lat], zoom, duration: 800 });
+                }
+              });
+              return;
+            }
+            const cid = typeof props.cid === 'number' ? props.cid : Number(props.cid);
+            const network = props.network as 'VATSIM' | 'IVAO';
+            if (!Number.isFinite(cid) || (network !== 'VATSIM' && network !== 'IVAO')) return;
+            // Mutual exclusion via state-setter — wir können hier nicht
+            // selectPublicPilot() aufrufen weil onLoad-callback hat den
+            // ref-snapshot der initialen function. Direkt setState's.
+            setSelectedPublicPilot({ network, cid });
+            setSelectedId(null);
+            setSelectedAirportIcao(null);
+          };
+
+          map.on('click', 'public-pilots', handlePublicPilotClick);
+          map.on('click', 'public-pilots-unclustered', handlePublicPilotClick);
+          map.on('click', 'public-clusters', handlePublicPilotClick);
+
+          // Cursor-Hover über public-pilots
+          for (const layer of ['public-pilots', 'public-pilots-unclustered', 'public-clusters']) {
+            map.on('mouseenter', layer, () => {
+              map.getCanvas().style.cursor = 'pointer';
+            });
+            map.on('mouseleave', layer, () => {
+              map.getCanvas().style.cursor = '';
+            });
+          }
 
           // Cursor-Hover über Airport
           map.on('mouseenter', 'airports', () => {
@@ -1167,9 +1358,13 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
               anchor="center"
               onClick={(e) => {
                 e.originalEvent.stopPropagation();
-                setSelectedId(
-                  selectedId === session.id ? null : session.id,
-                );
+                // Track 1 #2: mutual exclusion. Toggle wenn schon selected,
+                // sonst select + clear other sidebar-states.
+                if (selectedId === session.id) {
+                  setSelectedId(null);
+                } else {
+                  selectMemberSession(session.id);
+                }
               }}
             >
               <PlaneIcon
@@ -1181,6 +1376,295 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
             </Marker>
           ))}
         </Map>
+
+        {/* Track 1 #2: Search-bar als overlay top-center auf der map.
+            Suche nach callsign in member sessions + public pilots (VATSIM/IVAO).
+            Click auf result fliegt zur position + öffnet die entsprechende
+            sidebar. Backdrop-blur + dark-glass-look passt zum status-overlay
+            und filter-toolbar. */}
+        <div
+          style={{
+            position: 'absolute',
+            top: '1rem',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            width: '320px',
+            zIndex: 5,
+          }}
+        >
+          <div style={{ position: 'relative' }}>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setSearchOpen(true);
+              }}
+              onFocus={() => {
+                if (searchQuery.length >= 2) setSearchOpen(true);
+              }}
+              onBlur={() => {
+                // Delay um click-on-result zu erlauben (mousedown auf result
+                // fired bevor blur completed). Ohne delay würde der dropdown
+                // sich schließen bevor onClick auf dem result feuert.
+                setTimeout(() => setSearchOpen(false), 150);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  setSearchQuery('');
+                  setSearchOpen(false);
+                  (e.target as HTMLInputElement).blur();
+                } else if (e.key === 'Enter' && searchResults.length > 0) {
+                  // Enter wählt das erste result aus
+                  const first = searchResults[0];
+                  if (first.kind === 'session') {
+                    selectMemberSession(first.session.id);
+                    flyToCoords(
+                      first.session.position.longitude,
+                      first.session.position.latitude,
+                    );
+                  } else {
+                    selectPublicPilot(first.network, first.pilot.cid);
+                    flyToCoords(first.pilot.longitude, first.pilot.latitude);
+                  }
+                  setSearchQuery('');
+                  setSearchOpen(false);
+                  (e.target as HTMLInputElement).blur();
+                }
+              }}
+              placeholder="Callsign suchen (z.B. DLH123)..."
+              style={{
+                width: '100%',
+                padding: '0.55rem 2rem 0.55rem 2rem',
+                backgroundColor: 'rgba(17, 24, 39, 0.92)',
+                color: 'white',
+                border: '1px solid rgba(255, 255, 255, 0.15)',
+                borderRadius: '0.375rem',
+                fontSize: '0.85rem',
+                fontFamily: 'inherit',
+                outline: 'none',
+                backdropFilter: 'blur(8px)',
+              }}
+              aria-label="Pilot-Callsign suchen"
+            />
+            {/* Search-icon links */}
+            <span
+              aria-hidden="true"
+              style={{
+                position: 'absolute',
+                left: '0.6rem',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                color: 'rgb(156, 163, 175)',
+                fontSize: '0.85rem',
+                pointerEvents: 'none',
+              }}
+            >
+              🔍
+            </span>
+            {searchQuery && (
+              <button
+                onClick={() => {
+                  setSearchQuery('');
+                  setSearchOpen(false);
+                }}
+                style={{
+                  position: 'absolute',
+                  right: '0.5rem',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'rgb(156, 163, 175)',
+                  cursor: 'pointer',
+                  fontSize: '1rem',
+                  padding: '0.15rem 0.3rem',
+                  lineHeight: 1,
+                }}
+                aria-label="Suche löschen"
+              >
+                ×
+              </button>
+            )}
+
+            {/* Autocomplete-dropdown mit results */}
+            {searchOpen && searchResults.length > 0 && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 'calc(100% + 4px)',
+                  left: 0,
+                  right: 0,
+                  backgroundColor: 'rgba(17, 24, 39, 0.96)',
+                  border: '1px solid rgba(255, 255, 255, 0.15)',
+                  borderRadius: '0.375rem',
+                  backdropFilter: 'blur(8px)',
+                  maxHeight: '320px',
+                  overflowY: 'auto',
+                  boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.5)',
+                }}
+              >
+                {searchResults.map((r, idx) => {
+                  const isSession = r.kind === 'session';
+                  const callsign = isSession ? r.session.callsign : r.pilot.callsign;
+                  const network = isSession ? r.session.network : r.network;
+                  const aircraft = isSession
+                    ? r.session.aircraft.type
+                    : r.pilot.aircraftType;
+                  const dep = isSession
+                    ? r.session.flightPlan.departure
+                    : r.pilot.departureIcao;
+                  const arr = isSession
+                    ? r.session.flightPlan.arrival
+                    : r.pilot.arrivalIcao;
+                  return (
+                    <button
+                      key={`${r.kind}-${callsign}-${idx}`}
+                      onMouseDown={(e) => {
+                        // mousedown statt onClick damit der handler vor dem
+                        // input-blur feuert (sonst race mit dem setTimeout-blur).
+                        e.preventDefault();
+                        if (isSession) {
+                          selectMemberSession(r.session.id);
+                          flyToCoords(
+                            r.session.position.longitude,
+                            r.session.position.latitude,
+                          );
+                        } else {
+                          selectPublicPilot(r.network, r.pilot.cid);
+                          flyToCoords(r.pilot.longitude, r.pilot.latitude);
+                        }
+                        setSearchQuery('');
+                        setSearchOpen(false);
+                      }}
+                      style={{
+                        display: 'block',
+                        width: '100%',
+                        padding: '0.55rem 0.75rem',
+                        backgroundColor: 'transparent',
+                        border: 'none',
+                        borderBottom:
+                          idx < searchResults.length - 1
+                            ? '1px solid rgba(255, 255, 255, 0.05)'
+                            : 'none',
+                        color: 'white',
+                        textAlign: 'left',
+                        cursor: 'pointer',
+                        fontSize: '0.8rem',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor =
+                          'rgba(255, 255, 255, 0.05)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = 'transparent';
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.5rem',
+                        }}
+                      >
+                        <span
+                          style={{
+                            fontFamily: 'monospace',
+                            fontWeight: 600,
+                            color: isSession ? '#fbbf24' : 'white',
+                          }}
+                        >
+                          {callsign}
+                        </span>
+                        <span
+                          style={{
+                            fontSize: '0.6rem',
+                            padding: '0.05rem 0.35rem',
+                            borderRadius: '0.2rem',
+                            backgroundColor:
+                              network === 'VATSIM'
+                                ? 'rgba(59, 130, 246, 0.2)'
+                                : network === 'IVAO'
+                                  ? 'rgba(16, 185, 129, 0.2)'
+                                  : 'rgba(107, 114, 128, 0.2)',
+                            color:
+                              network === 'VATSIM'
+                                ? '#93c5fd'
+                                : network === 'IVAO'
+                                  ? '#6ee7b7'
+                                  : '#d1d5db',
+                            border: `1px solid ${
+                              network === 'VATSIM'
+                                ? 'rgba(59, 130, 246, 0.4)'
+                                : network === 'IVAO'
+                                  ? 'rgba(16, 185, 129, 0.4)'
+                                  : 'rgba(107, 114, 128, 0.4)'
+                            }`,
+                          }}
+                        >
+                          {network}
+                        </span>
+                        {isSession && (
+                          <span
+                            style={{
+                              fontSize: '0.6rem',
+                              padding: '0.05rem 0.35rem',
+                              borderRadius: '0.2rem',
+                              backgroundColor: 'rgba(249, 115, 22, 0.2)',
+                              color: '#fdba74',
+                              border: '1px solid rgba(249, 115, 22, 0.4)',
+                            }}
+                          >
+                            MEMBER
+                          </span>
+                        )}
+                      </div>
+                      {(aircraft || dep || arr) && (
+                        <div
+                          style={{
+                            marginTop: '0.2rem',
+                            fontSize: '0.7rem',
+                            color: 'rgb(156, 163, 175)',
+                            fontFamily: 'monospace',
+                          }}
+                        >
+                          {aircraft && <span>{aircraft}</span>}
+                          {(dep || arr) && (
+                            <span style={{ marginLeft: aircraft ? '0.5rem' : 0 }}>
+                              {dep ?? '???'} → {arr ?? '???'}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {/* "no results" feedback wenn query lang genug aber 0 hits */}
+            {searchOpen &&
+              searchQuery.trim().length >= 2 &&
+              searchResults.length === 0 && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: 'calc(100% + 4px)',
+                    left: 0,
+                    right: 0,
+                    padding: '0.6rem 0.75rem',
+                    backgroundColor: 'rgba(17, 24, 39, 0.96)',
+                    border: '1px solid rgba(255, 255, 255, 0.15)',
+                    borderRadius: '0.375rem',
+                    backdropFilter: 'blur(8px)',
+                    fontSize: '0.75rem',
+                    color: 'rgb(156, 163, 175)',
+                  }}
+                >
+                  Keine Pilots mit "{searchQuery}" im Callsign gefunden.
+                </div>
+              )}
+          </div>
+        </div>
 
         {/* Filter-Toolbar (top-right unter NavigationControl) */}
         <div
@@ -2270,5 +2754,239 @@ function DataSourceBadge({
       />
       {tier.label}
     </span>
+  );
+}
+/**
+ * Track 1 #2 (Live-Map Search-Bar + Click-Public-Pilots, 9.2.5):
+ * Sidebar für non-member public pilots auf VATSIM/IVAO.
+ *
+ * # Reduzierter content vs. SessionSidebar
+ *
+ * Public pilots haben keine VAM-account-verknüpfung — wir kennen
+ * nur die VATSIM/IVAO-public-data:
+ *   - callsign
+ *   - aircraft type
+ *   - departureIcao / arrivalIcao (aus dem flight-plan, optional)
+ *   - position (lat/lng/altitude/groundSpeed/heading/onGround)
+ *
+ * Was wir NICHT haben (im vergleich zu SessionSidebar):
+ *   - real-name / avatar / rank / pilot-id (kein VAM-account)
+ *   - dataSource (immer "VATSIM_API" oder "IVAO_API" — public feed)
+ *   - twitch-live-status (nur für members getracked)
+ *   - trail (PublicPilot ist ein point-in-time snapshot)
+ *   - distance/ETA (würde airports im scope der component brauchen,
+ *     plus die meisten public pilots haben keine VAT-known airports
+ *     in unserer airports-list — der berechnete ETA wäre meist null)
+ *
+ * # Privacy / Anonymität
+ *
+ * VATSIM/IVAO public-data enthält cid (numeric user-id) der pilots —
+ * wir zeigen das NICHT an. Anonyme darstellung ist intentional:
+ * cids könnten zur user-tracking ausserhalb unserer plattform
+ * missbraucht werden. Callsign reicht für identifikation auf der map.
+ */
+function PublicPilotSidebar({
+  pilot,
+  network,
+  onClose,
+}: {
+  pilot: PublicPilot;
+  network: 'VATSIM' | 'IVAO';
+  onClose: () => void;
+}) {
+  return (
+    <div
+      style={{
+        width: SIDEBAR_WIDTH,
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        color: 'white',
+      }}
+    >
+      <div
+        style={{
+          padding: '1rem',
+          borderBottom: '1px solid rgb(31, 41, 55)',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'flex-start',
+          gap: '0.5rem',
+        }}
+      >
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              marginBottom: '0.25rem',
+              flexWrap: 'wrap',
+            }}
+          >
+            <h2
+              style={{
+                fontSize: '1.5rem',
+                fontWeight: 700,
+                margin: 0,
+                fontFamily: 'monospace',
+              }}
+            >
+              {pilot.callsign}
+            </h2>
+            <NetworkBadge network={network} />
+          </div>
+          <p
+            style={{
+              fontSize: '0.75rem',
+              color: 'rgb(156, 163, 175)',
+              margin: 0,
+              fontStyle: 'italic',
+            }}
+          >
+            Non-Member · Live auf {network}
+          </p>
+        </div>
+        <button
+          onClick={onClose}
+          style={{
+            width: '2rem',
+            height: '2rem',
+            borderRadius: '0.375rem',
+            backgroundColor: 'rgb(31, 41, 55)',
+            border: 'none',
+            color: 'white',
+            cursor: 'pointer',
+            fontSize: '1.25rem',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0,
+            padding: 0,
+            lineHeight: 1,
+          }}
+          aria-label="Schließen"
+        >
+          ×
+        </button>
+      </div>
+
+      <div style={{ flex: 1, overflowY: 'auto', padding: '1rem' }}>
+        {/* Flight Plan (departure/arrival) wenn bekannt */}
+        {(pilot.departureIcao || pilot.arrivalIcao || pilot.aircraftType) && (
+          <section style={{ marginBottom: '1.25rem' }}>
+            <h3
+              style={{
+                fontSize: '0.7rem',
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+                color: 'rgb(107, 114, 128)',
+                marginBottom: '0.5rem',
+              }}
+            >
+              Flight Plan
+            </h3>
+            <div
+              style={{
+                padding: '0.75rem',
+                backgroundColor: 'rgb(31, 41, 55)',
+                borderRadius: '0.375rem',
+              }}
+            >
+              {(pilot.departureIcao || pilot.arrivalIcao) && (
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '0.5rem',
+                    fontFamily: 'monospace',
+                    fontSize: '1.125rem',
+                    fontWeight: 600,
+                  }}
+                >
+                  <span>{pilot.departureIcao ?? '???'}</span>
+                  <span style={{ color: 'rgb(107, 114, 128)' }}>→</span>
+                  <span>{pilot.arrivalIcao ?? '???'}</span>
+                </div>
+              )}
+              {pilot.aircraftType && (
+                <div
+                  style={{
+                    marginTop:
+                      pilot.departureIcao || pilot.arrivalIcao ? '0.5rem' : 0,
+                    fontSize: '0.75rem',
+                    color: 'rgb(156, 163, 175)',
+                  }}
+                >
+                  {pilot.aircraftType}
+                </div>
+              )}
+            </div>
+          </section>
+        )}
+
+        {/* Live position stats (kein transponder/online-time, das ist nicht in PublicPilot) */}
+        <section style={{ marginBottom: '1.25rem' }}>
+          <h3
+            style={{
+              fontSize: '0.7rem',
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em',
+              color: 'rgb(107, 114, 128)',
+              marginBottom: '0.5rem',
+            }}
+          >
+            Live Position
+          </h3>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: '0.5rem',
+            }}
+          >
+            <Stat
+              label="Altitude"
+              value={`${pilot.altitude.toLocaleString()} ft`}
+            />
+            <Stat label="Ground Speed" value={`${pilot.groundSpeed} kt`} />
+            <Stat label="Heading" value={`${pilot.heading}°`} />
+            <Stat
+              label="Status"
+              value={pilot.onGround ? 'On Ground' : 'Airborne'}
+              valueColor={pilot.onGround ? '#fbbf24' : '#34d399'}
+            />
+          </div>
+        </section>
+
+        {/* Coordinates */}
+        <section>
+          <h3
+            style={{
+              fontSize: '0.7rem',
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em',
+              color: 'rgb(107, 114, 128)',
+              marginBottom: '0.5rem',
+            }}
+          >
+            Coordinates
+          </h3>
+          <div
+            style={{
+              padding: '0.5rem 0.75rem',
+              backgroundColor: 'rgb(31, 41, 55)',
+              borderRadius: '0.375rem',
+              fontSize: '0.75rem',
+              fontFamily: 'monospace',
+              color: 'rgb(209, 213, 219)',
+            }}
+          >
+            {pilot.latitude.toFixed(4)}°, {pilot.longitude.toFixed(4)}°
+          </div>
+        </section>
+      </div>
+    </div>
   );
 }
