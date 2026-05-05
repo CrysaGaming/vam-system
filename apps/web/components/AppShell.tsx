@@ -541,6 +541,14 @@ function Sidebar({ user, pathname }: SidebarProps) {
           {user.hasCareer && (
             <NavLink href="/licenses" pathname={pathname} icon="📜" label="Lizenzen" />
           )}
+          {/* Welle 13E-12: Pilot-side flight-school browse. Selbe gating
+              wie Lizenzen — nur sichtbar wenn beide career-toggles ON.
+              Der pilot sieht hier alle aktiven schulen, kann sich
+              einschreiben und hours kaufen. Die page selbst hat den
+              gleichen redirect-fallback bei direkt-aufrufen. */}
+          {user.hasCareer && (
+            <NavLink href="/flight-schools" pathname={pathname} icon="🎓" label="Flugschulen" />
+          )}
           <NavLink href="/jumpseat" pathname={pathname} icon="🪂" label="Jumpseat" />
           <NavLink href="/live" pathname={pathname} icon="🌐" label="Live" />
         </NavSection>
