@@ -82,3 +82,21 @@ export type { Wallet, Transaction } from "@prisma/client";
 // `import { transfer, formatVamCurrency } from "@vam/db"` kriegen ohne
 // subpath-imports. Siehe ./economy/index.ts für die einzelnen module.
 export * from "./economy/index.js";
+
+// Welle 13E (Career-System): License + TypeRating + FlightSchool +
+// FlightSchoolEnrollment enums + types. Enums werden in switch-statements
+// im UI gemappt (status-badges, license-badge-colors), types in queries
+// die licenses/ratings includen.
+export { LicenseType, LicenseStatus, EnrollmentStatus } from "@prisma/client";
+export type {
+  PilotLicense,
+  TypeRating,
+  FlightSchool,
+  FlightSchoolEnrollment,
+} from "@prisma/client";
+
+// Welle 13E (Career-System): license/type-rating/booking-gate helpers.
+// Re-exports vom ./career barrel — consumer importieren via `import {
+// canPilotFlyAircraft, grantLicense } from "@vam/db"`. Siehe
+// ./career/index.ts für die einzelnen module.
+export * from "./career/index.js";
