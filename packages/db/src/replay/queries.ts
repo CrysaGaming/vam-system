@@ -1,0 +1,244 @@
+import type { LiveSessionPosition, LiveSession } from "@prisma/client";
+import { prisma } from "../index.js";
+
+/**
+ * Track 1 #5 (Replay-Mode, 9.2.7) — Read-side queries für PIREP-replay.
+ *
+ * Replays animieren den trail eines abgeschlossenen flugs auf einer
+ * mapbox-map. Die per-frame-positions werden während des fluges in
+ * LiveSessionPosition gespeichert (vom VATSIM/IVAO/ACARS-tracker im
+ * bot). Beim PIREP-replay holen wir die positions der zugehörigen
+ * LiveSession und reichen sie als geo-trail durch.
+ *
+ * # PIREP → LiveSession matching
+ *
+ * Es gibt zwei pfade:
+ *
+ * **Pfad 1 — ACARS-auto-trigger (sauber):**
+ * Wenn der PIREP von einem ACARS-BLOCK_ON-event auto-erstellt wurde,
+ * existiert eine AcarsEvent-row mit triggeredPirepId === pirep.id.
+ * Dieser AcarsEvent hat die session-FK, also haben wir direct den
+ * exakten match. Kein heuristik, kein guessing.
+ *
+ * **Pfad 2 — manueller PIREP (heuristik):**
+ * Bei VATSIM/IVAO oder hand-eingereichten PIREPs gibt es keine
+ * triggering-event. Wir matchen heuristisch:
+ *   - Selber userId
+ *   - departureIcao + arrivalIcao matchen (über Airport-relation)
+ *   - LiveSession.lastUpdatedAt liegt im fenster
+ *     [pirep.submittedAt - 24h, pirep.submittedAt + 1h]
+ * Das ist nicht perfekt — wenn der user mehrere flüge mit derselben
+ * route am selben tag gemacht hat, kriegt er den letzten (meist der
+ * richtige weil PIREP gleich nach landing eingereicht wird). Bei
+ * ambiguity zeigt die UI einen warning ("approximative match").
+ *
+ * # Position-shape
+ *
+ * LiveSessionPosition enthält basics (lat/lng/alt/gs/hdg/onGround) plus
+ * optional ACARS-extensions (altitudeAglFt, indicatedAirspeed, vsi,
+ * pitch, bank, flapsPercent, gearDown, phase). Wir geben alles durch
+ * — die replay-UI kann optionale fields conditional rendern.
+ *
+ * # Performance
+ *
+ * Eine 1h-flug-session mit 1Hz-ACARS-positions hat ~3600 datenpunkte.
+ * Das ist groß genug dass wir es nicht in die initial-page-render
+ * bundeln wollen — der replay-page-loader macht erst einen
+ * has-replay-check (cheap), dann lädt die client-component die
+ * positions via API-route on-mount. Server-side rendering der page
+ * bleibt fast.
+ *
+ * Bei VATSIM/IVAO 30s-polling sind es nur ~120 positions/h — auch
+ * inline tragbar, aber der API-route-pattern bleibt konsistent.
+ */
+
+/**
+ * Vollständige replay-data für eine PIREP. positions ist sortiert nach
+ * recordedAt ascending (chronologisch — anfang fluges zuerst).
+ *
+ * Departure/arrival-coords kommen aus den Airport-relations des PIREPs
+ * (nicht aus den positions) damit wir solide map-anchors haben auch
+ * wenn der trail kurz ist.
+ *
+ * matchType signalisiert dem UI ob der match exact (acars) oder
+ * heuristisch war — bei "heuristic" zeigt die UI einen kleinen warning.
+ */
+export type ReplayData = {
+  available: true;
+  matchType: "acars" | "heuristic";
+  sessionId: string;
+  sessionInfo: {
+    network: LiveSession["network"];
+    callsign: string;
+    aircraftType: string | null;
+    aircraftRegistration: string | null;
+    connectedAt: Date;
+    lastUpdatedAt: Date;
+  };
+  departure: {
+    icao: string;
+    name: string;
+    latitude: number;
+    longitude: number;
+  };
+  arrival: {
+    icao: string;
+    name: string;
+    latitude: number;
+    longitude: number;
+  };
+  positions: LiveSessionPosition[];
+};
+
+export type ReplayDataMissing = {
+  available: false;
+  reason:
+    | "pirep-not-found"
+    | "no-matching-session"
+    | "session-has-no-positions";
+};
+
+export type ReplayDataResult = ReplayData | ReplayDataMissing;
+
+/**
+ * Findet replay-data für einen PIREP. Try acars-link first, fall back
+ * auf heuristic-match. Returns null-shape mit reason wenn nichts
+ * matched ODER die matching session keine positions hat.
+ */
+export async function findReplayDataForPirep(
+  pirepId: string,
+): Promise<ReplayDataResult> {
+  const pirep = await prisma.pirep.findUnique({
+    where: { id: pirepId },
+    include: {
+      departure: {
+        select: { icao: true, name: true, latitude: true, longitude: true },
+      },
+      arrival: {
+        select: { icao: true, name: true, latitude: true, longitude: true },
+      },
+      triggeringEvent: {
+        select: { sessionId: true },
+      },
+    },
+  });
+  if (!pirep) return { available: false, reason: "pirep-not-found" };
+
+  // ─── Pfad 1: ACARS-auto-trigger ─────────────────────────────────
+  let session: LiveSession | null = null;
+  let matchType: ReplayData["matchType"] = "heuristic";
+
+  if (pirep.triggeringEvent) {
+    session = await prisma.liveSession.findUnique({
+      where: { id: pirep.triggeringEvent.sessionId },
+    });
+    if (session) {
+      matchType = "acars";
+    }
+    // Falls die session gelöscht wurde (cascade über AcarsEvent ist
+    // SetNull, also kann der lookup leer kommen), fallen wir auf
+    // heuristic durch.
+  }
+
+  // ─── Pfad 2: heuristic-match ────────────────────────────────────
+  if (!session) {
+    // Zeitfenster: lastUpdatedAt zwischen [submittedAt - 24h, submittedAt + 1h]
+    // Der user reicht meist binnen einer stunde nach landing ein, manchmal
+    // später am selben tag wenn er den batch-flow nutzt. 24h backward gibt
+    // genug spielraum auch für lazy-submitter.
+    const submittedMs = pirep.submittedAt.getTime();
+    const minUpdatedAt = new Date(submittedMs - 24 * 60 * 60 * 1000);
+    const maxUpdatedAt = new Date(submittedMs + 60 * 60 * 1000);
+
+    session = await prisma.liveSession.findFirst({
+      where: {
+        userId: pirep.userId,
+        departureIcao: pirep.departure.icao,
+        arrivalIcao: pirep.arrival.icao,
+        lastUpdatedAt: { gte: minUpdatedAt, lte: maxUpdatedAt },
+      },
+      orderBy: { lastUpdatedAt: "desc" },
+    });
+  }
+
+  if (!session) {
+    return { available: false, reason: "no-matching-session" };
+  }
+
+  // Positions laden (sorted asc by recordedAt)
+  const positions = await prisma.liveSessionPosition.findMany({
+    where: { sessionId: session.id },
+    orderBy: { recordedAt: "asc" },
+  });
+
+  if (positions.length === 0) {
+    return { available: false, reason: "session-has-no-positions" };
+  }
+
+  return {
+    available: true,
+    matchType,
+    sessionId: session.id,
+    sessionInfo: {
+      network: session.network,
+      callsign: session.callsign,
+      aircraftType: session.aircraftType,
+      aircraftRegistration: session.aircraftRegistration,
+      connectedAt: session.connectedAt,
+      lastUpdatedAt: session.lastUpdatedAt,
+    },
+    departure: pirep.departure,
+    arrival: pirep.arrival,
+    positions,
+  };
+}
+
+/**
+ * Cheap-check ob ein PIREP eine replay-data hat, ohne die positions
+ * zu materialisieren. Nutze diesen helper im server-component der
+ * pirep-detail-page um den "Play Flight"-button conditional zu rendern.
+ *
+ * Implementiert als slim-version von findReplayDataForPirep: gleicher
+ * matching-logic, aber ohne positions-fetch — am ende count check ob
+ * positions > 0.
+ */
+export async function hasReplayDataForPirep(pirepId: string): Promise<boolean> {
+  const pirep = await prisma.pirep.findUnique({
+    where: { id: pirepId },
+    select: {
+      userId: true,
+      submittedAt: true,
+      departure: { select: { icao: true } },
+      arrival: { select: { icao: true } },
+      triggeringEvent: { select: { sessionId: true } },
+    },
+  });
+  if (!pirep) return false;
+
+  let sessionId: string | null = pirep.triggeringEvent?.sessionId ?? null;
+
+  if (!sessionId) {
+    const submittedMs = pirep.submittedAt.getTime();
+    const minUpdatedAt = new Date(submittedMs - 24 * 60 * 60 * 1000);
+    const maxUpdatedAt = new Date(submittedMs + 60 * 60 * 1000);
+
+    const session = await prisma.liveSession.findFirst({
+      where: {
+        userId: pirep.userId,
+        departureIcao: pirep.departure.icao,
+        arrivalIcao: pirep.arrival.icao,
+        lastUpdatedAt: { gte: minUpdatedAt, lte: maxUpdatedAt },
+      },
+      orderBy: { lastUpdatedAt: "desc" },
+      select: { id: true },
+    });
+    sessionId = session?.id ?? null;
+  }
+
+  if (!sessionId) return false;
+
+  const count = await prisma.liveSessionPosition.count({
+    where: { sessionId },
+  });
+  return count > 0;
+}

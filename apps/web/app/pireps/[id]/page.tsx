@@ -1,6 +1,6 @@
 import { auth } from '@/auth';
 import { redirect, notFound } from 'next/navigation';
-import { prisma, licenseDisplayName } from '@vam/db';
+import { prisma, licenseDisplayName, hasReplayDataForPirep } from '@vam/db';
 import Link from 'next/link';
 import { OfpSummary } from '@/components/OfpSummary';
 import { ApprovalActions } from './approval-actions';
@@ -82,17 +82,25 @@ export default async function PirepDetail({
   // Bei FAIL hat der helper pirepId=null gesetzt → kein badge mehr,
   // historischer link ist verloren (akzeptabel, single-source-of-truth-
   // pattern).
-  const examEnrollment = await prisma.flightSchoolEnrollment.findFirst({
-    where: { practicalExamPirepId: pirep.id },
-    select: {
-      id: true,
-      schoolId: true,
-      licenseType: true,
-      status: true,
-      practicalExamPassedAt: true,
-      school: { select: { name: true, airportIcao: true } },
-    },
-  });
+  //
+  // Track 1 #5 (Replay-Mode): hasReplayData parallel-fetched für den
+  // "Play Flight"-button-conditional. Cheap-genug check (3 selects + 1
+  // count) — parallel mit examEnrollment damit kein zusätzliches
+  // round-trip-latency.
+  const [examEnrollment, hasReplay] = await Promise.all([
+    prisma.flightSchoolEnrollment.findFirst({
+      where: { practicalExamPirepId: pirep.id },
+      select: {
+        id: true,
+        schoolId: true,
+        licenseType: true,
+        status: true,
+        practicalExamPassedAt: true,
+        school: { select: { name: true, airportIcao: true } },
+      },
+    }),
+    hasReplayDataForPirep(pirep.id),
+  ]);
 
   // Flugzeit formatieren
   const hours = Math.floor((pirep.flightTimeMin ?? 0) / 60);
@@ -146,12 +154,27 @@ export default async function PirepDetail({
               })}
             </p>
           </div>
-          <Link
-            href={isApprover && pirep.status === 'Submitted' ? '/pireps/pending' : '/pireps'}
-            className="px-4 py-2 bg-gray-200 hover:bg-gray-300 dark:bg-gray-800 dark:hover:bg-gray-700 rounded text-sm transition"
-          >
-            ← Zurück
-          </Link>
+          <div className="flex items-center gap-2 shrink-0">
+            {/* Track 1 #5 (Replay-Mode): "Play Flight"-button. Conditional
+                rendered wenn hasReplayDataForPirep === true (server-side
+                check oben). Linkt auf /pireps/[id]/replay wo die map-page
+                den trail rendert. */}
+            {hasReplay && (
+              <Link
+                href={`/pireps/${pirep.id}/replay`}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-sm font-medium transition flex items-center gap-1.5"
+              >
+                <span aria-hidden="true">▶</span>
+                Play Flight
+              </Link>
+            )}
+            <Link
+              href={isApprover && pirep.status === 'Submitted' ? '/pireps/pending' : '/pireps'}
+              className="px-4 py-2 bg-gray-200 hover:bg-gray-300 dark:bg-gray-800 dark:hover:bg-gray-700 rounded text-sm transition"
+            >
+              ← Zurück
+            </Link>
+          </div>
         </header>
 
         {/* Approval Actions (nur für Approver bei Submitted PIREPs) */}

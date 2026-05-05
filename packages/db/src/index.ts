@@ -142,3 +142,10 @@ export * from "./pireps/index.js";
 export { EventKind, EventStatus } from "@prisma/client";
 export type { Event, EventParticipant } from "@prisma/client";
 export * from "./events/index.js";
+
+// Track 1 #5 (Replay-Mode, 9.2.7): PIREP-replay queries. Findet die
+// LiveSession + LiveSessionPosition[] zu einem given PIREP — entweder
+// via AcarsEvent.triggeredPirepId (sauberer pfad für ACARS-PIREPs) oder
+// heuristisch via userId + departure/arrival + zeitfenster (für
+// VATSIM/IVAO/manuelle PIREPs). Read-only, keine actions.
+export * from "./replay/index.js";
