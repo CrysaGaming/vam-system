@@ -1,8 +1,11 @@
 'use client';
 
 import { useState, useTransition } from 'react';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
+import { toast } from 'sonner';
 
-import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -10,6 +13,32 @@ import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 
 import { setSimBriefUsername } from './actions';
+
+/**
+ * Client-side schema. Spiegelt grob die server-side validation in
+ * actions.ts (max 50, allowed-chars-regex), plus erlaubt expliziten
+ * leer-string ('') als valid input weil RHF's defaultValue '' ist.
+ *
+ * Track 3 #11.2.3 v1 demo: erste echte form-migration auf RHF + Zod.
+ * Server validiert NOCHMAL mit eigenem zod-schema (siehe
+ * SetSimBriefUsernameSchema in actions.ts) — client-validation hier
+ * ist NUR für UX, nicht für security.
+ *
+ * Empty-string-handling: zod's regex matched '' (weil pattern endet
+ * mit *), aber wir nutzen .or(z.literal('')) zur deutlicherer absicht.
+ */
+const SimBriefFormSchema = z.object({
+  username: z
+    .string()
+    .trim()
+    .max(50, 'Benutzername zu lang (max. 50 Zeichen)')
+    .regex(
+      /^[a-zA-Z0-9._-]*$/,
+      'Nur Buchstaben, Zahlen, Unterstrich, Bindestrich und Punkt erlaubt',
+    ),
+});
+
+type SimBriefFormData = z.infer<typeof SimBriefFormSchema>;
 
 type Props = {
   initialUsername: string | null;
@@ -37,8 +66,6 @@ type Props = {
   suggestedUsername: string | null;
 };
 
-type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
-
 export function SimBriefCard({
   initialUsername,
   patternZAvailable,
@@ -47,11 +74,24 @@ export function SimBriefCard({
   const [currentUsername, setCurrentUsername] = useState<string | null>(
     initialUsername,
   );
-  const [draft, setDraft] = useState<string>(initialUsername ?? '');
-  const [status, setStatus] = useState<SaveStatus>('idle');
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+    setValue,
+    watch,
+    reset,
+  } = useForm<SimBriefFormData>({
+    resolver: zodResolver(SimBriefFormSchema),
+    defaultValues: { username: initialUsername ?? '' },
+    // onBlur: zod runs nach blur — verhindert error-flash bei jedem
+    // keystroke. onSubmit als fallback wenn user direkt enter drückt.
+    mode: 'onBlur',
+  });
+
+  const draft = watch('username') ?? '';
   const trimmedDraft = draft.trim();
   const hasChanges = trimmedDraft !== (currentUsername ?? '');
   const canSave = hasChanges && trimmedDraft.length > 0;
@@ -70,49 +110,49 @@ export function SimBriefCard({
 
   function applySuggestion() {
     if (suggestedUsername) {
-      setDraft(suggestedUsername.trim());
+      // shouldDirty:true damit canSave (über hasChanges) sofort true
+      // wird; shouldValidate:true damit zod das suggestion-value sofort
+      // checkt (alle erlaubten chars bei Discord-Usernames, sollte
+      // aber der safety-net bleiben).
+      setValue('username', suggestedUsername.trim(), {
+        shouldDirty: true,
+        shouldValidate: true,
+      });
     }
   }
 
-  function handleSave() {
-    setStatus('saving');
-    setErrorMessage(null);
+  const onSave = handleSubmit((data) => {
+    const value = data.username.trim();
     startTransition(async () => {
-      const result = await setSimBriefUsername({ username: trimmedDraft });
+      const result = await setSimBriefUsername({ username: value });
       if (result.success) {
-        setCurrentUsername(trimmedDraft);
-        setStatus('saved');
-        setTimeout(() => setStatus('idle'), 2000);
+        setCurrentUsername(value);
+        // reset mit neuem default — verhindert dass form weiterhin
+        // dirty-flag trägt und canSave ungewollt true bleibt.
+        reset({ username: value });
+        toast.success('SimBrief-Username gespeichert');
       } else {
-        setStatus('error');
-        setErrorMessage(formatError(result.error));
+        toast.error(formatError(result.error));
       }
     });
-  }
+  });
 
   function handleClear() {
-    setStatus('saving');
-    setErrorMessage(null);
     startTransition(async () => {
       const result = await setSimBriefUsername({ username: null });
       if (result.success) {
         setCurrentUsername(null);
-        setDraft('');
-        setStatus('saved');
-        setTimeout(() => setStatus('idle'), 2000);
+        reset({ username: '' });
+        toast.success('SimBrief-Username gelöscht');
       } else {
-        setStatus('error');
-        setErrorMessage(formatError(result.error));
+        toast.error(formatError(result.error));
       }
     });
   }
 
   return (
     <Card className="gap-4 p-6">
-      <div className="flex items-center justify-between">
-        <h3 className="text-lg font-semibold">SimBrief Account</h3>
-        <SaveStatusBadge status={status} />
-      </div>
+      <h3 className="text-lg font-semibold">SimBrief Account</h3>
       <p className="text-sm text-muted-foreground">
         Trage deinen SimBrief-Benutzernamen ein, damit VAM deine generierten
         Flight Plans mit deinen Buchungen verknüpfen kann. Den Benutzernamen
@@ -128,25 +168,22 @@ export function SimBriefCard({
         .
       </p>
 
-      <div className="flex gap-3">
+      <form onSubmit={onSave} className="flex gap-3">
         <Label htmlFor="simbrief-username" className="sr-only">
           SimBrief-Benutzername
         </Label>
         <Input
           id="simbrief-username"
           type="text"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
+          {...register('username')}
           placeholder="z.B. CrysaGaming"
           disabled={isPending}
           maxLength={50}
+          aria-invalid={!!errors.username}
+          aria-describedby={errors.username ? 'simbrief-username-error' : undefined}
           className="flex-1 font-mono"
         />
-        <Button
-          type="button"
-          onClick={handleSave}
-          disabled={!canSave || isPending}
-        >
+        <Button type="submit" disabled={!canSave || isPending || !!errors.username}>
           Speichern
         </Button>
         {canClear && (
@@ -159,17 +196,19 @@ export function SimBriefCard({
             Löschen
           </Button>
         )}
-      </div>
+      </form>
 
-      {errorMessage && (
-        <Alert
-          variant="destructive"
-          className="border-red-500/30 bg-red-500/10"
+      {/* Inline field-error (RHF + zod). Server-errors gehen über sonner-
+          toast; das hier ist nur client-side schema-validation, also
+          immer eine direkt-feedback-quelle nahe am input. */}
+      {errors.username && (
+        <p
+          id="simbrief-username-error"
+          className="text-xs text-destructive"
+          role="alert"
         >
-          <AlertDescription className="text-red-700 dark:text-red-300">
-            {errorMessage}
-          </AlertDescription>
-        </Alert>
+          {errors.username.message}
+        </p>
       )}
 
       {/* Suggestion row — shown only for fresh accounts where Username
@@ -261,21 +300,6 @@ export function SimBriefCard({
       </div>
     </Card>
   );
-}
-
-function SaveStatusBadge({ status }: { status: SaveStatus }) {
-  if (status === 'idle') return null;
-  if (status === 'saving') {
-    return <span className="text-xs text-muted-foreground">Speichern...</span>;
-  }
-  if (status === 'saved') {
-    return (
-      <span className="text-xs text-green-600 dark:text-green-400">
-        ✓ Gespeichert
-      </span>
-    );
-  }
-  return <span className="text-xs text-destructive">✗ Fehler</span>;
 }
 
 function formatError(code: string): string {
