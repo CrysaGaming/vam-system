@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { cn } from '@/lib/utils';
 import type { SimBriefOverlay } from '@/lib/simbrief/overlay';
 
@@ -53,6 +54,7 @@ export function FleetOverlayCard({ initial }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [issues, setIssues] = useState<{ path: string; msg: string }[]>([]);
   const [isPending, startTransition] = useTransition();
+  const [pendingDelete, setPendingDelete] = useState<FleetSummary | null>(null);
 
   const openNew = () => {
     setEditor({ kind: 'new' });
@@ -156,13 +158,6 @@ export function FleetOverlayCard({ initial }: Props) {
   };
 
   const handleDelete = (fleet: FleetSummary) => {
-    if (
-      !confirm(
-        `Fleet-Eintrag "${fleet.type}" mit ${fleet.populatedCount} Override${fleet.populatedCount === 1 ? '' : 's'} löschen?`,
-      )
-    )
-      return;
-
     startTransition(async () => {
       const result = await deleteFleetSimBriefOverlay(fleet.id);
       if (result.success) {
@@ -241,7 +236,7 @@ export function FleetOverlayCard({ initial }: Props) {
                   type="button"
                   variant="ghost"
                   size="sm"
-                  onClick={() => handleDelete(fleet)}
+                  onClick={() => setPendingDelete(fleet)}
                   disabled={isPending}
                   className="text-muted-foreground hover:text-red-600 dark:hover:text-red-400"
                 >
@@ -414,6 +409,24 @@ export function FleetOverlayCard({ initial }: Props) {
           </div>
         </form>
       )}
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDelete(null);
+        }}
+        title="Fleet-Eintrag löschen?"
+        description={
+          pendingDelete
+            ? `"${pendingDelete.type}" mit ${pendingDelete.populatedCount} Override${pendingDelete.populatedCount === 1 ? '' : 's'} wird entfernt. Aircraft-Overrides für diesen Type bleiben unberührt.`
+            : ''
+        }
+        confirmLabel="Löschen"
+        destructive
+        onConfirm={() => {
+          if (pendingDelete) handleDelete(pendingDelete);
+        }}
+      />
     </Card>
   );
 }

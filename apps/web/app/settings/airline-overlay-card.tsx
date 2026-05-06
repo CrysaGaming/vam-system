@@ -7,6 +7,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { cn } from '@/lib/utils';
 import type { SimBriefOverlay } from '@/lib/simbrief/overlay';
 
@@ -30,6 +31,7 @@ export function AirlineOverlayCard({ initial }: Props) {
   const [issues, setIssues] = useState<{ path: string; msg: string }[]>([]);
   const [success, setSuccess] = useState(false);
   const [isPending, startTransition] = useTransition();
+  const [confirmingReset, setConfirmingReset] = useState(false);
 
   const setField = (key: string, value: string) => {
     setValues((prev) => ({ ...prev, [key]: value }));
@@ -75,12 +77,6 @@ export function AirlineOverlayCard({ initial }: Props) {
   };
 
   const handleReset = () => {
-    if (
-      !confirm(
-        'Alle Airline-Overrides löschen? Routen-Overrides (Ebene 4) bleiben unberührt.',
-      )
-    )
-      return;
     setValues(overlayToFormValues({}));
   };
 
@@ -99,10 +95,11 @@ export function AirlineOverlayCard({ initial }: Props) {
   );
 
   return (
-    <form
-      onSubmit={handleSubmit}
-      className="flex flex-col gap-4 rounded-xl border bg-card p-6 text-card-foreground shadow-sm"
-    >
+    <>
+      <form
+        onSubmit={handleSubmit}
+        className="flex flex-col gap-4 rounded-xl border bg-card p-6 text-card-foreground shadow-sm"
+      >
       <div className="flex items-start justify-between">
         <h3 className="text-lg font-semibold">SimBrief Override (Airline)</h3>
         <span className="mt-1 text-xs text-muted-foreground">
@@ -219,7 +216,7 @@ export function AirlineOverlayCard({ initial }: Props) {
           type="button"
           variant="ghost"
           size="sm"
-          onClick={handleReset}
+          onClick={() => setConfirmingReset(true)}
           disabled={isPending || populatedCount === 0}
           className="text-muted-foreground hover:text-red-600 dark:hover:text-red-400"
         >
@@ -232,6 +229,16 @@ export function AirlineOverlayCard({ initial }: Props) {
           {isPending ? 'Speichert…' : 'Speichern'}
         </Button>
       </div>
-    </form>
+      </form>
+      <ConfirmDialog
+        open={confirmingReset}
+        onOpenChange={setConfirmingReset}
+        title="Alle Airline-Overrides löschen?"
+        description="Alle Felder werden zurückgesetzt. Routen-Overrides (Ebene 4) bleiben unberührt."
+        confirmLabel="Löschen"
+        destructive
+        onConfirm={handleReset}
+      />
+    </>
   );
 }

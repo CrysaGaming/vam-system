@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { cn } from '@/lib/utils';
 import type { SimBriefOverlay } from '@/lib/simbrief/overlay';
 
@@ -48,6 +49,7 @@ export function AircraftOverlayCard({ initial }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [issues, setIssues] = useState<{ path: string; msg: string }[]>([]);
   const [isPending, startTransition] = useTransition();
+  const [confirmingClearAll, setConfirmingClearAll] = useState(false);
 
   const editingItem =
     editor !== null ? aircraft.find((a) => a.id === editor.aircraftId) : null;
@@ -73,12 +75,6 @@ export function AircraftOverlayCard({ initial }: Props) {
   };
 
   const handleClearAll = () => {
-    if (
-      !confirm(
-        'Alle Overrides für dieses Aircraft löschen? Das Aircraft selbst bleibt unberührt.',
-      )
-    )
-      return;
     setValues(overlayToFormValues({}));
   };
 
@@ -321,7 +317,7 @@ export function AircraftOverlayCard({ initial }: Props) {
                 type="button"
                 variant="ghost"
                 size="sm"
-                onClick={handleClearAll}
+                onClick={() => setConfirmingClearAll(true)}
                 disabled={isPending || populatedCount === 0}
                 className="text-muted-foreground hover:text-red-600 dark:hover:text-red-400"
               >
@@ -343,6 +339,16 @@ export function AircraftOverlayCard({ initial }: Props) {
           </div>
         </form>
       )}
+
+      <ConfirmDialog
+        open={confirmingClearAll}
+        onOpenChange={setConfirmingClearAll}
+        title="Alle Overrides löschen?"
+        description="Alle Overrides für dieses Aircraft werden zurückgesetzt. Das Aircraft selbst bleibt unberührt."
+        confirmLabel="Löschen"
+        destructive
+        onConfirm={handleClearAll}
+      />
     </Card>
   );
 }

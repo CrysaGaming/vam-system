@@ -5,6 +5,7 @@ import type { NetworkType } from '@vam/db';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { cn } from '@/lib/utils';
 
 import {
@@ -59,6 +60,7 @@ export function AcarsCard({ initial, vatsimLinked, ivaoLinked }: Props) {
 
   const [disconnectPending, startDisconnect] = useTransition();
   const [disconnectError, setDisconnectError] = useState<string | null>(null);
+  const [confirmingDisconnect, setConfirmingDisconnect] = useState(false);
 
   const [optimisticNetwork, setOptimisticNetwork] = useState<NetworkType>(
     status.preferredNetwork,
@@ -91,13 +93,6 @@ export function AcarsCard({ initial, vatsimLinked, ivaoLinked }: Props) {
   }
 
   function handleDisconnect() {
-    if (
-      !window.confirm(
-        'ACARS-Client trennen? Alle aktiven heartbeats vom client schlagen ab sofort fehl. Du kannst dich jederzeit neu pairen.',
-      )
-    ) {
-      return;
-    }
     setDisconnectError(null);
     startDisconnect(async () => {
       try {
@@ -268,7 +263,7 @@ export function AcarsCard({ initial, vatsimLinked, ivaoLinked }: Props) {
           <Button
             type="button"
             variant="outline"
-            onClick={handleDisconnect}
+            onClick={() => setConfirmingDisconnect(true)}
             disabled={disconnectPending}
             className="border-red-500/30 bg-red-500/10 text-red-700 hover:bg-red-500/20 dark:text-red-400"
           >
@@ -343,6 +338,16 @@ export function AcarsCard({ initial, vatsimLinked, ivaoLinked }: Props) {
           </p>
         )}
       </div>
+
+      <ConfirmDialog
+        open={confirmingDisconnect}
+        onOpenChange={setConfirmingDisconnect}
+        title="ACARS-Client trennen?"
+        description="Alle aktiven heartbeats vom client schlagen ab sofort fehl. Du kannst dich jederzeit neu pairen."
+        confirmLabel="Trennen"
+        destructive
+        onConfirm={handleDisconnect}
+      />
     </section>
   );
 }
