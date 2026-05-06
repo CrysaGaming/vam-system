@@ -1,22 +1,43 @@
 import Link from 'next/link';
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { requireAdminPage } from '@/lib/roles';
+import { ActivePilotsCounter } from './_widgets/active-pilots-counter';
 
 /**
- * Server-Admin-Dashboard — Track 3 #11.2.5 Foundation-Slice.
+ * Track 3 #11.2.5 v1-Full Innovation-Items aus
+ * docs/vision/admin-dashboards-vision.md §9. Top-10 mix (S+M+L) wird
+ * inkrementell hier eingebaut. Status pro item:
  *
- * Skelett-Landing für /admin. Vorher war /admin ein 404 weil nur sub-
- * routes (/admin/stats, /admin/pilots, etc.) existierten. Diese page
- * hängt das verzeichnis sichtbar zusammen + reserviert einen
- * placeholder-bereich für die Top-10-Innovation-Items aus
- * docs/vision/admin-dashboards-vision.md Section 9.
+ *   1. ✅ 9.1.13 Active-Pilots-Counter (Live)            [S]
+ *   2. ⏳ 9.1.14 Pilot-Birthday-Calendar                 [S]
+ *   3. ⏳ 9.1.1  PIREP-Heatmaps                          [S]
+ *   4. ⏳ 9.2.10 Realtime-Discord-PIREP-Embed            [M]
+ *   5. ⏳ 9.2.5  Pilot-Ranking-Board mit Filtern         [M]
+ *   6. ⏳ 9.2.15 Bulk-Import-Wizards                     [M]
+ *   7. ⏳ 9.3.5  Awards-Crafting-System                  [L]
+ *   8. ⏳ 9.3.10 Notification-Center (In-App)            [L]
+ *   9. ⏳ 9.3.16 Tour-Calendar mit Saisonalen-Events     [L]
+ *  10. ⏳ 9.3.20 Airport-Detail-Pages mit Live-Stats     [L]
+ */
+
+/**
+ * Page-segment-config: `revalidate = 30` heißt der nächste request
+ * nach 30s+ rendert frische daten (für die live-aktivität-widgets).
+ * Die page bleibt SSR (dynamic auth-gate) aber die DB-queries werden
+ * für 30s gecached. Bei page-visit wird der counter also "fast live"
+ * (max 30s alt). Echtes WebSocket-push ist separates ticket §9.2.1.
+ */
+export const revalidate = 30;
+
+/**
+ * Server-Admin-Dashboard — Track 3 #11.2.5.
  *
  * # Status
  *
- * Skelett. Innovation-items-auswahl ist eigenes Design-Gespräch
- * (~30 vision-options sortieren). Die <TodoSection /> unten ist der
- * platzhalter — sobald entschieden wird welche items rein sollen,
- * werden sie inkrementell gegen die platzhalter-cards getauscht.
+ * Verzeichnis-landing-page (`<DashboardCard>`-grid zu sub-routes) +
+ * incremental ergänzt mit den Top-10-Innovation-Items aus vision-doc
+ * §9 (siehe header-checklist oben). Pro neu gebautem widget wird die
+ * `<InnovationItems />`-section unten erweitert.
  *
  * # Auth
  *
@@ -93,7 +114,7 @@ export default async function AdminDashboardPage() {
           </div>
         </section>
 
-        <TodoSection />
+        <InnovationItems />
       </div>
     </main>
   );
@@ -123,30 +144,23 @@ function DashboardCard({ href, icon, title, description }: DashboardCardProps) {
 }
 
 /**
- * Platzhalter-section für die Top-10-Innovation-Items aus
- * docs/vision/admin-dashboards-vision.md Section 9. Die items selbst
- * werden in einem späteren Design-Gespräch ausgewählt — die ~30 vision-
- * options sortieren ist nicht teil des Foundation-Slice. Diese section
- * existiert damit die platzierung in der dashboard-architektur
- * festgenagelt ist und items inkrementell rein können ohne layout-
- * umbau.
+ * Innovation-Items — Top-10 widgets für /admin (vision-doc §9). Wird
+ * inkrementell befüllt; siehe header-status oben für check-list. Layout
+ * mischt full-width zeilen (für viz-heavy widgets wie heatmaps) mit
+ * grid-zeilen (für stat-cards). Pro neuem widget: imports + ein
+ * `<WidgetX />` einfügen + status-comment im header anpassen.
  */
-function TodoSection() {
+function InnovationItems() {
   return (
-    <section className="rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-700 p-6">
-      <h2 className="text-lg font-semibold mb-2">
-        🚧 Innovation-Items
-        <span className="ml-2 text-xs font-normal text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-          Top-10 — Auswahl pending
+    <section className="space-y-6">
+      <header className="flex items-baseline gap-3 border-b border-gray-200 dark:border-gray-800 pb-2">
+        <h2 className="text-lg font-semibold">Innovation-Items</h2>
+        <span className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+          1 / 10 — Track 3 #11.2.5 v1-Full
         </span>
-      </h2>
-      <p className="text-sm text-gray-500 dark:text-gray-400 max-w-2xl">
-        Platzhalter für die Top-10-Innovation-Items aus
-        {' '}<code className="text-xs">docs/vision/admin-dashboards-vision.md</code> §9.
-        Item-Selection ist ein eigenes Design-Gespräch — wenn entschieden,
-        kommen die widgets hier rein (Live-Settings-Updates, Multi-User-
-        Cursor, Dispatch-AI, Heatmaps, ECAM-Style-Diagnostics, ...).
-      </p>
+      </header>
+
+      <ActivePilotsCounter />
     </section>
   );
 }
