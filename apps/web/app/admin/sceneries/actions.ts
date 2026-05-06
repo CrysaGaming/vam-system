@@ -1,6 +1,5 @@
 'use server';
 
-import { auth } from '@/auth';
 import {
   prisma,
   createScenery as dbCreateScenery,
@@ -12,13 +11,15 @@ import {
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { z } from 'zod';
+import { requireAdmin } from '@/lib/roles';
 
 /**
  * Track 1 #3 (Sceneries-Catalog UI, 9.2.4) — Server actions für admin-
  * side scenery-management. CRUD auf Scenery-rows.
  *
- * Auth-pattern spiegelt /admin/awards/actions.ts: requireAdmin() resolved
- * die session und prüft role.name === 'admin'. Throws auf failure.
+ * Auth-pattern: zentralen `requireAdmin()` aus lib/roles. Throws bei
+ * non-admin. Track 3 #11.2.5 M2: ehemals lokal dupliziert, jetzt
+ * konsolidiert.
  *
  * # Validation
  *
@@ -37,21 +38,6 @@ import { z } from 'zod';
  * (semantisch "feld nicht gesetzt"). Das matched DB-layer erwartung
  * (CreateSceneryInput nutzt explizit `string | null` für optionals).
  */
-
-async function requireAdmin() {
-  const session = await auth();
-  if (!session?.user) throw new Error('unauthorized');
-
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    include: { role: true },
-  });
-
-  if (!user?.role || user.role.name !== 'admin') {
-    throw new Error('forbidden');
-  }
-  return user;
-}
 
 // ─────────────────────────────────────────────────────────────────────
 // Schemas

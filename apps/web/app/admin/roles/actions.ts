@@ -1,9 +1,9 @@
 'use server';
 
-import { auth } from '@/auth';
 import { prisma } from '@vam/db';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
+import { requireAdmin } from '@/lib/roles';
 
 /**
  * Role names that are referenced in code via string-literal checks (e.g.
@@ -18,22 +18,6 @@ import { z } from 'zod';
  * from causing silent auth-bypasses.
  */
 const SYSTEM_ROLE_NAMES = ['admin', 'airline-admin', 'instructor', 'pilot', 'trainee'];
-
-/** Admin-only gate. Returns the admin user, or throws if non-admin. */
-async function requireAdmin() {
-  const session = await auth();
-  if (!session?.user) throw new Error('unauthorized');
-
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    include: { role: true },
-  });
-
-  if (!user?.role || user.role.name !== 'admin') {
-    throw new Error('forbidden');
-  }
-  return user;
-}
 
 const RoleNameSchema = z
   .string()

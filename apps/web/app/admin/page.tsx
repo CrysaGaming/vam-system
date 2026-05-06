@@ -1,8 +1,6 @@
-import { auth } from '@/auth';
-import { redirect } from 'next/navigation';
-import { prisma } from '@vam/db';
 import Link from 'next/link';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { requireAdminPage } from '@/lib/roles';
 
 /**
  * Server-Admin-Dashboard — Track 3 #11.2.5 Foundation-Slice.
@@ -29,17 +27,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
  * admin-only weil das gesamte ressort gemeint ist.
  */
 export default async function AdminDashboardPage() {
-  const session = await auth();
-  if (!session?.user) redirect('/');
-
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    include: { role: true },
-  });
-
-  if (!user?.role || user.role.name !== 'admin') {
-    redirect('/dashboard');
-  }
+  await requireAdminPage();
 
   return (
     <main className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-white p-4 sm:p-6 lg:p-8">

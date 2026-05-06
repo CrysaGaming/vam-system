@@ -13,15 +13,17 @@ import {
 } from '@vam/db';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
+import { requireAdmin } from '@/lib/roles';
 
 /**
  * Track 1 #1 (Awards UI, 9.2.3) — Server actions für admin-side award-
  * management. CRUD auf Award-typen plus grant/revoke auf UserAward-
  * vergaben.
  *
- * Auth-pattern spiegelt /admin/roles/actions.ts: requireAdmin() resolved
- * die session und prüft role.name === 'admin'. Throws auf failure damit
- * die action im UI als next.js error rendert (kein silent fail).
+ * Auth-pattern: zentralen `requireAdmin()` aus lib/roles. Throws bei
+ * non-admin damit die action im UI als next.js error rendert (kein
+ * silent fail). Track 3 #11.2.5 M2: ehemals lokal dupliziert, jetzt
+ * konsolidiert.
  *
  * Form-validation: zod-schemas pro action. Input ist FormData (von
  * server-action <form>'s) oder direct objects (von client components
@@ -29,21 +31,6 @@ import { z } from 'zod';
  * pfade funktionieren — actions nehmen `prevState, formData` für die
  * useFormState-pattern.
  */
-
-async function requireAdmin() {
-  const session = await auth();
-  if (!session?.user) throw new Error('unauthorized');
-
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    include: { role: true },
-  });
-
-  if (!user?.role || user.role.name !== 'admin') {
-    throw new Error('forbidden');
-  }
-  return user;
-}
 
 // ─────────────────────────────────────────────────────────────────────
 // Schemas

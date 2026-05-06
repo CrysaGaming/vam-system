@@ -1,7 +1,6 @@
-import { auth } from '@/auth';
-import { redirect } from 'next/navigation';
 import Link from 'next/link';
-import { prisma, listAwardsWithCounts } from '@vam/db';
+import { listAwardsWithCounts } from '@vam/db';
+import { requireAdminPage } from '@/lib/roles';
 import {
   CreateAwardForm,
   EditAwardForm,
@@ -22,17 +21,7 @@ import {
  * confusing-empty-page-rendering, lieber direkt redirect).
  */
 export default async function AdminAwardsPage() {
-  const session = await auth();
-  if (!session?.user) redirect('/');
-
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    include: { role: true },
-  });
-
-  if (!user?.role || user.role.name !== 'admin') {
-    redirect('/dashboard');
-  }
+  await requireAdminPage();
 
   const awards = await listAwardsWithCounts();
 

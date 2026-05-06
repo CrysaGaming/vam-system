@@ -1,7 +1,7 @@
-import { auth } from '@/auth';
-import { redirect, notFound } from 'next/navigation';
+import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { prisma, getAwardWithRecipients } from '@vam/db';
+import { requireAdminPage } from '@/lib/roles';
 import { GrantRevokeAwardButton } from '../admin-forms';
 
 /**
@@ -25,16 +25,7 @@ export default async function AdminAwardDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const session = await auth();
-  if (!session?.user) redirect('/');
-
-  const adminUser = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    include: { role: true },
-  });
-  if (!adminUser?.role || adminUser.role.name !== 'admin') {
-    redirect('/dashboard');
-  }
+  await requireAdminPage();
 
   const { id } = await params;
   const award = await getAwardWithRecipients(id);
