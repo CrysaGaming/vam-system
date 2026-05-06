@@ -210,6 +210,12 @@ function Header({ user }: { user: ShellUser }) {
       className="sticky top-0 z-30 flex items-center justify-between gap-4 px-6 py-4 sm:px-10 sm:py-6 lg:px-12 lg:py-8 bg-white dark:bg-gray-950 border-b border-gray-200 dark:border-gray-800"
       aria-label="Header"
     >
+      {/* Mobile-only hamburger left of brand. Track 3 #11.2.4 Phase 3:
+          öffnet die sidebar als slide-in drawer. Auf lg+ unsichtbar
+          (lg:hidden) weil dort die sidebar permanent steht. Sitzt VOR
+          dem brand-link, weil das die etablierte konvention für mobile-
+          headers ist (hamburger-links, brand-mitte oder rechts). */}
+      <MobileNavToggle />
       <BrandLink user={user} />
       <div className="flex items-center gap-1 sm:gap-2">
         <LiveStreamCounter count={user.liveStreamCount} />
@@ -217,6 +223,54 @@ function Header({ user }: { user: ShellUser }) {
         <UserDropdown user={user} />
       </div>
     </header>
+  );
+}
+
+/**
+ * Hamburger-button für mobile-nav. Track 3 #11.2.4 Phase 3.
+ *
+ * Liest mobileNavOpen aus useUIStore (state lebt im store damit Sidebar
+ * + Header unabhängig voneinander den state lesen können — kein
+ * prop-drilling durch AppShell). setMobileNavOpen(true) öffnet den
+ * drawer; die sidebar-component selbst rendert den content + backdrop.
+ *
+ * lg:hidden: ab lg-breakpoint (1024px) ist die sidebar permanent
+ * sichtbar, kein hamburger nötig. aria-expanded reflektiert den
+ * drawer-state für screen-reader.
+ *
+ * aria-controls="primary-navigation" zeigt auf die <nav>-id in der
+ * Sidebar — das gibt screen-reader das verständnis dass dieser button
+ * die nav steuert.
+ */
+function MobileNavToggle() {
+  const mobileNavOpen = useUIStore((s) => s.mobileNavOpen);
+  const setMobileNavOpen = useUIStore((s) => s.setMobileNavOpen);
+
+  return (
+    <button
+      type="button"
+      onClick={() => setMobileNavOpen(!mobileNavOpen)}
+      className="lg:hidden flex items-center justify-center w-10 h-10 -ml-2 mr-1 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+      aria-label={mobileNavOpen ? 'Navigation schließen' : 'Navigation öffnen'}
+      aria-expanded={mobileNavOpen}
+      aria-controls="primary-navigation"
+    >
+      {/* Icon-toggle: hamburger wenn closed, X wenn open. Beide SVGs
+          sind die selbe größe (w-6 h-6) damit der button nicht
+          jumpiert wenn der state wechselt. */}
+      {mobileNavOpen ? (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-6 h-6" aria-hidden="true">
+          <line x1="18" y1="6" x2="6" y2="18" />
+          <line x1="6" y1="6" x2="18" y2="18" />
+        </svg>
+      ) : (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-6 h-6" aria-hidden="true">
+          <line x1="3" y1="6" x2="21" y2="6" />
+          <line x1="3" y1="12" x2="21" y2="12" />
+          <line x1="3" y1="18" x2="21" y2="18" />
+        </svg>
+      )}
+    </button>
   );
 }
 
@@ -535,12 +589,16 @@ interface SidebarProps {
 
 /**
  * Sidebar navigation. Rendert als `<nav>` element (HTML5-semantik) mit
- * aria-label="Hauptnavigation". Sitzt links neben dem main-content im
- * inneren flex-row container und bleibt visuell fixed beim scrollen —
- * nicht durch sticky-positioning sondern durch das outer-wrapper-pattern:
- * das AppShell-outer ist h-screen (fix 100vh) mit dem main-bereich als
- * einzigem scrolling element (overflow-y-auto). Sidebar ist innerhalb
- * vom flex-row aber außerhalb des scrollers, also bewegt sich nicht.
+ * aria-label="Hauptnavigation". 
+ *
+ * # Desktop-verhalten (lg+, ≥1024px)
+ *
+ * Sitzt links neben dem main-content im inneren flex-row container und
+ * bleibt visuell fixed beim scrollen — nicht durch sticky-positioning
+ * sondern durch das outer-wrapper-pattern: das AppShell-outer ist h-screen
+ * (fix 100vh) mit dem main-bereich als einzigem scrolling element
+ * (overflow-y-auto). Sidebar ist innerhalb vom flex-row aber außerhalb
+ * des scrollers, also bewegt sich nicht.
  *
  * Vorher (commit 49cae36..897dfda) wurde sticky top-28 versucht, aber
  * das hatte zwei probleme: (1) in flex-children manchmal nicht zuverlässig,
@@ -548,29 +606,134 @@ interface SidebarProps {
  * dem header (z-stacking-issue beim sticky). Das h-screen + overflow
  * pattern ist robuster.
  *
- * Vorher war's `<aside>` — semantisch ungenau weil aside für "side
- * content related to but separate from the main flow" gedacht ist
- * (z.B. werbung, related links). Hier ist's PRIMÄRE navigation, also
- * `<nav>`.
+ * # Mobile-verhalten (<lg, <1024px) — Track 3 #11.2.4 Phase 3
  *
- * Brand-block + user-block USED to live here (pre-2026-05-02). Both have
- * moved to the header — sidebar is now nav-only.
+ * Statt `hidden lg:flex` (was die nav auf mobile KOMPLETT entfernt — vorher
+ * hatten mobile-user keine navigation überhaupt!) rendern wir die sidebar
+ * jetzt als slide-in drawer von links:
+ *
+ *   - mobileNavOpen=false: sidebar ist visuell off-screen (-translate-x-full)
+ *     UND aria-hidden=true UND nicht-fokussierbar. Der drawer ist als DOM
+ *     da aber unsichtbar/unbenutzbar.
+ *   - mobileNavOpen=true: drawer slide-in (transform translate-x-0), backdrop
+ *     erscheint über dem main-content, click auf backdrop oder ESC schließt.
+ *   - Auf lg+: keine drawer-mechanik mehr, sidebar ist permanent visible
+ *     (lg:translate-x-0 lg:static lg:h-auto lg:bg-...) ohne backdrop.
+ *
+ * Auto-close pattern: bei jeder pathname-änderung (= navigation passiert)
+ * wird der drawer geschlossen. So ist das verhalten: tap-link → drawer
+ * schließt + neue page rendert. Standard mobile-nav-UX.
+ *
+ * Body-scroll-lock: wenn drawer auf mobile offen ist, wird body-scroll
+ * disabled damit der user nicht versehentlich die main-content scrollt
+ * während er auf die nav guckt. Auf lg+ irrelevant (keine drawer-mechanik).
+ *
+ * # Vorher war's `<aside>`
+ *
+ * Semantisch ungenau weil aside für "side content related to but separate
+ * from the main flow" gedacht ist (z.B. werbung, related links). Hier
+ * ist's PRIMÄRE navigation, also `<nav>`.
+ *
+ * # Brand-block + user-block
+ *
+ * USED to live here (pre-2026-05-02). Both have moved to the header —
+ * sidebar is now nav-only.
  */
 function Sidebar({ user, pathname }: SidebarProps) {
+  const mobileNavOpen = useUIStore((s) => s.mobileNavOpen);
+  const setMobileNavOpen = useUIStore((s) => s.setMobileNavOpen);
+
+  // Auto-close drawer bei navigation. usePathname-changes treten beim
+  // Link-click auf — nach dem nav-state-change cleart das hier den drawer.
+  // Auf lg+ macht das nichts kaputt weil mobileNavOpen dort sowieso
+  // unbenutzt ist (sidebar ist immer sichtbar).
+  useEffect(() => {
+    if (mobileNavOpen) {
+      setMobileNavOpen(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname]);
+
+  // ESC schließt den drawer. Listener nur attached wenn drawer offen ist
+  // damit kein global-keydown-listener für jede page-render läuft.
+  useEffect(() => {
+    if (!mobileNavOpen) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMobileNavOpen(false);
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [mobileNavOpen, setMobileNavOpen]);
+
+  // Body-scroll-lock auf mobile wenn drawer offen. Auf lg+ kein-op
+  // weil drawer-mechanik dort gar nicht greift, aber wir können das
+  // nicht vom store-state ableiten (wir wissen nicht ob viewport ≥lg
+  // ist ohne JS), darum schalten wir's pauschal zu wenn mobileNavOpen
+  // true ist. Falls der user den hamburger drückt und dann das viewport
+  // resized → next render hat lg-class und alles ok.
+  useEffect(() => {
+    if (mobileNavOpen) {
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = '';
+      };
+    }
+  }, [mobileNavOpen]);
+
   return (
-    <nav
-      className="hidden lg:flex lg:flex-col w-60 shrink-0 h-full overflow-hidden bg-white dark:bg-gray-950 border-r border-gray-200 dark:border-gray-800"
-      aria-label="Hauptnavigation"
-    >
-      {/* Innerer container für nav-sections. flex-1 füllt die volle
-          nav-höhe. Bewusst KEIN overflow-y-auto — die nav darf nicht
-          scrollen. Outer <nav> hat zusätzlich overflow-hidden als
-          defensive guard, damit garantiert kein scroll auch wenn
-          content theoretisch overflowen würde (sonst clippt's einfach).
-          Falls die nav-liste mal länger wird als verfügbare höhe (z.B.
-          mit vielen admin-sections), muss das design umgestellt werden
-          (sections kollabieren oder kleinere icons statt scrolling). */}
-      <div className="flex-1 px-3 py-4 space-y-6">
+    <>
+      {/* Backdrop: nur sichtbar wenn drawer offen UND auf mobile (lg:hidden).
+          aria-hidden weil rein dekorativ — der user-interaktiv-anspruch
+          (close-on-click) ist über onClick, nicht über aria-rolle.
+          Animation: opacity-fade-in damit der drawer nicht abrupt erscheint.
+          z-40: über dem header (z-30) damit der drawer den header überlagert
+          während er offen ist (cleaner mobile-UX). */}
+      {mobileNavOpen && (
+        <div
+          onClick={() => setMobileNavOpen(false)}
+          className="lg:hidden fixed inset-0 z-40 bg-black/50 backdrop-blur-sm transition-opacity"
+          aria-hidden="true"
+        />
+      )}
+
+      <nav
+        id="primary-navigation"
+        className={`
+          fixed lg:static inset-y-0 left-0 z-50 lg:z-auto
+          flex flex-col w-64 lg:w-60 shrink-0 h-full overflow-hidden
+          bg-white dark:bg-gray-950 border-r border-gray-200 dark:border-gray-800
+          transition-transform duration-200 ease-out
+          ${mobileNavOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
+        `}
+        aria-label="Hauptnavigation"
+      >
+        {/* Innerer container für nav-sections. flex-1 füllt die volle
+            nav-höhe. Bewusst KEIN overflow-y-auto — die nav darf nicht
+            scrollen. Outer <nav> hat zusätzlich overflow-hidden als
+            defensive guard, damit garantiert kein scroll auch wenn
+            content theoretisch overflowen würde (sonst clippt's einfach).
+            Falls die nav-liste mal länger wird als verfügbare höhe (z.B.
+            mit vielen admin-sections), muss das design umgestellt werden
+            (sections kollabieren oder kleinere icons statt scrolling).
+
+            Mobile-only: ein close-button-row oben weil im drawer-mode
+            kein hamburger im header sichtbar ist (header ist hinter dem
+            backdrop). lg:hidden damit der button auf desktop weg ist. */}
+        <div className="lg:hidden flex items-center justify-end px-3 py-3 border-b border-gray-200 dark:border-gray-800">
+          <button
+            type="button"
+            onClick={() => setMobileNavOpen(false)}
+            className="flex items-center justify-center w-9 h-9 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+            aria-label="Navigation schließen"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5" aria-hidden="true">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+
+        <div className="flex-1 px-3 py-4 space-y-6 overflow-y-auto lg:overflow-visible">
         <NavSection title="Flying">
           <NavLink href="/dashboard" pathname={pathname} icon="🏠" label="Dashboard" exact />
           <NavLink href="/bookings" pathname={pathname} icon="✈️" label="Bookings" />
@@ -754,7 +917,8 @@ function Sidebar({ user, pathname }: SidebarProps) {
           )}
         </div>
       )}
-    </nav>
+      </nav>
+    </>
   );
 }
 
