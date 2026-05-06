@@ -2013,7 +2013,7 @@ v2-VISION:
   - Settings-Migrations-Pfad
 ```
 
-#### 11.2.6 Theme-System mit CSS-Variables
+#### 11.2.6 Theme-System mit CSS-Variables ✅ v1 done · 🟨 v2 partial
 
 ```
 WAS:
@@ -2027,8 +2027,25 @@ AUFWAND: 1-2 Wochen real
 DEPENDENCIES:
   ✅ shadcn-Migration
 
-v1: Light/Dark/System
-v2: Per-Airline-Branding-Override
+v1: Light/Dark/System ✅ DONE (Phase 1.5, commit 8278b3d)
+v2: Per-Airline-Branding-Override 🟨 PARTIAL (commit e14c802):
+  ✅ AirlineBrandingProvider — server-component injiziert primaryColor
+     als CSS-var-override im <head>. :root + .dark beide overridden,
+     strict #RRGGBB regex gegen CSS-injection, default-fallback via
+     CSS-cascade wenn null/invalid.
+  ✅ layout.tsx fetcht primaryColor + rendert provider.
+
+  ⏳ Follow-up-ticket: 105-files UI-token-migration. Aktuell nutzen
+     viele UI-elements hardcoded `indigo-*` classes statt `primary`-
+     tokens (z.B. dashboard/wallet-card progress-bars, member-table
+     badges, airport-browser highlights). Branding wirkt aktuell nur
+     in AppShell (sidebar-active, logo-fallback, admin-badge) plus
+     in den Skelett-Dashboards. Voller scope-impact erfordert per-
+     file design-entscheidung "brand vs neutral indigo".
+
+  ⏳ v2-stretch: mode-spezifische brand-tones (dark-mode heller),
+     --primary-foreground contrast-aware (für pastell-brand-farben),
+     --secondary-Override (aktuell nur --primary).
 ```
 
 #### 11.2.7 View Transitions API für Page-Changes ✅ v1 done

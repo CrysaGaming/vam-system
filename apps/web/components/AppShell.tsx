@@ -387,7 +387,7 @@ function BrandLink({ user }: { user: ShellUser }) {
         </picture>
       ) : (
         <div
-          className="w-14 h-14 rounded-lg bg-indigo-600 text-white text-sm font-bold flex items-center justify-center shrink-0"
+          className="w-14 h-14 rounded-lg bg-primary text-primary-foreground text-sm font-bold flex items-center justify-center shrink-0"
           aria-hidden="true"
         >
           {monogram}
@@ -546,7 +546,7 @@ function UserDropdown({ user }: { user: ShellUser }) {
               {user.name ?? 'Pilot'}
             </p>
             {user.isAdmin && (
-              <p className="text-xs text-indigo-600 dark:text-indigo-400 mt-0.5">
+              <p className="text-xs text-primary mt-0.5">
                 Admin
               </p>
             )}
@@ -1102,7 +1102,7 @@ function NavLink({ href, pathname, icon, label, exact = false }: NavLinkProps) {
       onClick={onClick}
       className={`flex items-center gap-3 px-3 py-2 rounded text-sm transition ${
         isActive
-          ? 'bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border-l-2 border-indigo-500 dark:border-indigo-400 -ml-0.5 pl-[10px]'
+          ? 'bg-primary/10 text-primary border-l-2 border-primary -ml-0.5 pl-[10px]'
           : 'text-gray-700 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-900 border-l-2 border-transparent -ml-0.5 pl-[10px]'
       }`}
       aria-current={isActive ? 'page' : undefined}
