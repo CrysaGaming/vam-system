@@ -546,6 +546,16 @@ model User {
   image            String?
   totalFlightHours Float    @default(0)
   totalFlights     Int      @default(0)
+
+  // Track 3 #11.2.5 v1-Full Item 2/10 — Pilot-Birthday-Calendar (vision-doc §9.1.14).
+  // Geburtstag des piloten. NULL = nicht gesetzt (default für legacy-users).
+  // Speichert nur monat+tag-relevante teile als ganzes datum (jahr ist auch
+  // OK gesetzt — wird im widget aber ignoriert; wir matchen auf MM-DD).
+  // Privacy: birthdayPublic=false (default) → nur self + admin sehen es,
+  // widget filtert. Pilot setzt das selbst im profile-edit.
+  birthday        DateTime? @db.Date
+  birthdayPublic  Boolean   @default(false)
+
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
