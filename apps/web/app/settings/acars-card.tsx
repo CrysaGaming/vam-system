@@ -2,6 +2,11 @@
 
 import { useEffect, useState, useTransition } from 'react';
 import type { NetworkType } from '@vam/db';
+
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
+
 import {
   requestPairingCode,
   disconnectAcars,
@@ -136,15 +141,15 @@ export function AcarsCard({ initial, vatsimLinked, ivaoLinked }: Props) {
   }, [pairingCode, codeSecondsLeft]);
 
   return (
-    <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6 space-y-6">
+    <section className="flex flex-col gap-6 rounded-xl border bg-card p-6 text-card-foreground shadow-sm">
       <header className="space-y-1">
-        <div className="flex items-center justify-between flex-wrap gap-2">
-          <h2 className="text-sm uppercase tracking-wider text-gray-500">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm uppercase tracking-wider text-muted-foreground">
             ACARS-Client
           </h2>
           <StatusBadge paired={status.paired} isOnline={status.isOnline} />
         </div>
-        <p className="text-sm text-gray-500 dark:text-gray-400">
+        <p className="text-sm text-muted-foreground">
           Eigene Desktop-App liest dein simulator-telemetrie und schickt sie
           an VAM. Foundation für auto-PIREPs, höhere live-tracking-präzision,
           und stream-overlay-quality. Pair-Code in der App eingeben —
@@ -154,19 +159,19 @@ export function AcarsCard({ initial, vatsimLinked, ivaoLinked }: Props) {
 
       {/* ─── Active session info ──────────────────────────────────── */}
       {status.isOnline && status.activeSession && (
-        <div className="bg-green-500/5 border border-green-500/30 rounded p-4 text-sm space-y-2">
-          <div className="flex items-baseline justify-between flex-wrap gap-2">
-            <div className="font-semibold text-green-700 dark:text-green-300 flex items-center gap-2">
-              <span className="inline-block w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+        <div className="space-y-2 rounded border border-green-500/30 bg-green-500/5 p-4 text-sm">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <div className="flex items-center gap-2 font-semibold text-green-700 dark:text-green-300">
+              <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-green-500" />
               Live im flug
             </div>
             {status.activeSession.currentPhase && (
-              <span className="text-xs font-mono uppercase tracking-wider text-green-700 dark:text-green-300">
+              <span className="font-mono text-xs uppercase tracking-wider text-green-700 dark:text-green-300">
                 {status.activeSession.currentPhase}
               </span>
             )}
           </div>
-          <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-700 dark:text-gray-300">
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-foreground">
             {status.activeSession.callsign && (
               <Field
                 label="Callsign"
@@ -210,24 +215,24 @@ export function AcarsCard({ initial, vatsimLinked, ivaoLinked }: Props) {
 
       {/* ─── Last-seen line for paired-but-offline case ───────────── */}
       {status.paired && !status.isOnline && status.lastSeenAt && (
-        <p className="text-xs text-gray-500 dark:text-gray-400">
+        <p className="text-xs text-muted-foreground">
           Zuletzt gesehen: {formatRelativeTime(status.lastSeenAt, now)}
         </p>
       )}
 
       {/* ─── Pairing-code display ─────────────────────────────────── */}
       {pairingCode && (
-        <div className="bg-indigo-500/5 border border-indigo-500/30 rounded p-4 space-y-3">
+        <div className="space-y-3 rounded border border-indigo-500/30 bg-indigo-500/5 p-4">
           <div className="flex items-baseline justify-between gap-3">
             <div className="text-xs uppercase tracking-wider text-indigo-700 dark:text-indigo-300">
               Pair-Code
             </div>
             <CountdownDisplay seconds={codeSecondsLeft} />
           </div>
-          <div className="font-mono text-2xl sm:text-3xl font-bold tracking-[0.2em] text-center py-3 select-all">
+          <div className="select-all py-3 text-center font-mono text-2xl font-bold tracking-[0.2em] sm:text-3xl">
             {pairingCode.code}
           </div>
-          <p className="text-xs text-gray-600 dark:text-gray-400">
+          <p className="text-xs text-muted-foreground">
             In der ACARS-App: <strong>Pair Device</strong> klicken und diesen
             code eingeben. Code bleibt 15 minuten gültig.
           </p>
@@ -240,37 +245,39 @@ export function AcarsCard({ initial, vatsimLinked, ivaoLinked }: Props) {
       {/* ─── Pair / Disconnect actions ─────────────────────────────── */}
       <div className="flex flex-wrap items-center gap-3">
         {!status.paired && !pairingCode && (
-          <button
+          <Button
             type="button"
             onClick={handlePair}
             disabled={pairingPending}
-            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed"
+            className="bg-indigo-600 text-white hover:bg-indigo-700 dark:bg-indigo-600 dark:hover:bg-indigo-700"
           >
             {pairingPending ? 'Generiere…' : 'Pair Device'}
-          </button>
+          </Button>
         )}
         {!status.paired && pairingCode && (
-          <button
+          <Button
             type="button"
+            variant="secondary"
+            size="sm"
             onClick={handlePair}
             disabled={pairingPending}
-            className="px-3 py-2 bg-gray-200 hover:bg-gray-300 dark:bg-gray-800 dark:hover:bg-gray-700 rounded text-xs transition disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {pairingPending ? 'Generiere…' : 'Neuen code generieren'}
-          </button>
+          </Button>
         )}
         {status.paired && (
-          <button
+          <Button
             type="button"
+            variant="outline"
             onClick={handleDisconnect}
             disabled={disconnectPending}
-            className="px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-700 dark:text-red-400 border border-red-500/30 rounded text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed"
+            className="border-red-500/30 bg-red-500/10 text-red-700 hover:bg-red-500/20 dark:text-red-400"
           >
             {disconnectPending ? 'Trenne…' : 'Trennen'}
-          </button>
+          </Button>
         )}
         {status.paired && status.pairedAt && (
-          <span className="text-xs text-gray-500 dark:text-gray-400">
+          <span className="text-xs text-muted-foreground">
             Gepaired am{' '}
             {new Date(status.pairedAt).toLocaleDateString('de-DE', {
               year: 'numeric',
@@ -287,20 +294,21 @@ export function AcarsCard({ initial, vatsimLinked, ivaoLinked }: Props) {
       )}
 
       {/* ─── Preferred network ─────────────────────────────────────── */}
-      <div className="space-y-2 pt-2 border-t border-gray-200 dark:border-gray-800">
+      <div className="space-y-2 border-t border-border pt-2">
         <div className="space-y-1">
-          <h3 className="text-xs uppercase tracking-wider text-gray-500">
+          <h3 className="text-xs uppercase tracking-wider text-muted-foreground">
             Default-Network
           </h3>
-          <p className="text-xs text-gray-500 dark:text-gray-400">
+          <p className="text-xs text-muted-foreground">
             Was die ACARS-App beim verbinden announct. VATSIM/IVAO brauchen
             verknüpften account (siehe Verbindungen-tab).
           </p>
         </div>
         <div
-          className={`inline-flex rounded-md border border-gray-300 dark:border-gray-700 overflow-hidden ${
-            networkPending ? 'opacity-60' : ''
-          }`}
+          className={cn(
+            'inline-flex overflow-hidden rounded-md border border-input',
+            networkPending && 'opacity-60',
+          )}
           role="radiogroup"
           aria-label="Preferred network"
         >
@@ -353,23 +361,32 @@ function StatusBadge({
 }) {
   if (!paired) {
     return (
-      <span className="text-xs px-2 py-0.5 bg-gray-500/15 text-gray-700 dark:text-gray-400 border border-gray-500/30 rounded">
+      <Badge
+        variant="outline"
+        className="border-gray-500/30 bg-gray-500/15 text-gray-700 dark:text-gray-400"
+      >
         Nicht gepaired
-      </span>
+      </Badge>
     );
   }
   if (isOnline) {
     return (
-      <span className="text-xs px-2 py-0.5 bg-green-500/15 text-green-700 dark:text-green-400 border border-green-500/30 rounded inline-flex items-center gap-1.5">
-        <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+      <Badge
+        variant="outline"
+        className="gap-1.5 border-green-500/30 bg-green-500/15 text-green-700 dark:text-green-400"
+      >
+        <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-green-500" />
         Online
-      </span>
+      </Badge>
     );
   }
   return (
-    <span className="text-xs px-2 py-0.5 bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30 rounded">
+    <Badge
+      variant="outline"
+      className="border-amber-500/30 bg-amber-500/15 text-amber-700 dark:text-amber-400"
+    >
       Gepaired · offline
-    </span>
+    </Badge>
   );
 }
 
@@ -379,11 +396,12 @@ function CountdownDisplay({ seconds }: { seconds: number }) {
   const isWarning = seconds < 60;
   return (
     <span
-      className={`font-mono text-xs tabular-nums ${
+      className={cn(
+        'font-mono text-xs tabular-nums',
         isWarning
           ? 'text-red-700 dark:text-red-400'
-          : 'text-indigo-700 dark:text-indigo-300'
-      }`}
+          : 'text-indigo-700 dark:text-indigo-300',
+      )}
     >
       {seconds === 0
         ? 'abgelaufen'
@@ -403,7 +421,7 @@ function Field({
 }) {
   return (
     <div>
-      <div className="text-[10px] uppercase tracking-wider text-gray-500">
+      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
         {label}
       </div>
       <div className={mono ? 'font-mono font-medium' : 'font-medium'}>
@@ -436,9 +454,9 @@ function NetworkButton({
       ? 'bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-500/40'
       : tone === 'emerald'
         ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/40'
-        : 'bg-gray-500/15 text-gray-700 dark:text-gray-300 border-gray-500/40';
+        : 'bg-muted text-foreground border-border';
   const inactiveClasses =
-    'text-gray-500 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800';
+    'text-muted-foreground hover:bg-muted hover:text-foreground';
 
   return (
     <button
@@ -448,9 +466,10 @@ function NetworkButton({
       disabled={disabled}
       title={hint}
       onClick={() => onChange(value)}
-      className={`px-3 py-1.5 text-xs font-medium border-r last:border-r-0 border-gray-300 dark:border-gray-700 transition disabled:cursor-not-allowed ${
-        isActive ? activeClasses : inactiveClasses
-      }`}
+      className={cn(
+        'border-r border-input px-3 py-1.5 text-xs font-medium transition last:border-r-0 disabled:cursor-not-allowed',
+        isActive ? activeClasses : inactiveClasses,
+      )}
     >
       {label}
     </button>
