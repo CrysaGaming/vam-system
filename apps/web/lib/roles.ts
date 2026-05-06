@@ -157,6 +157,36 @@ export async function requireAdminWithAirline() {
   return { user, airlineId: user.airlineId };
 }
 
+/**
+ * Page-gate: redirected wenn nicht authentifiziert, nicht admin, oder
+ * nicht einer airline zugeordnet. Returnt das user-record INKLUSIVE
+ * airline (non-nullable typed).
+ *
+ * Page-pendant zu `requireAdminWithAirline()`. Für admin-pages die
+ * den airline-context fürs rendering brauchen (z.B. catalog-request-
+ * pages die im namen der user-airline submitten). Default-redirect
+ * `/dashboard`, customizable.
+ *
+ * @returns user mit garantiert non-null `user.airline` + `user.role`.
+ */
+export async function requireAdminWithAirlinePage(redirectTo: string = '/dashboard') {
+  const session = await auth();
+  if (!session?.user) redirect('/');
+
+  const user = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    include: { role: true, airline: true },
+  });
+
+  if (!user?.role || user.role.name !== 'admin') {
+    redirect(redirectTo);
+  }
+  if (!user.airline) {
+    redirect(redirectTo);
+  }
+  return user as typeof user & { airline: NonNullable<typeof user.airline> };
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // Airline-Manager-gates (admin | airline-admin | instructor)
 // ─────────────────────────────────────────────────────────────────────

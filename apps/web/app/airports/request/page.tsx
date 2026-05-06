@@ -1,7 +1,6 @@
-import { auth } from '@/auth';
-import { redirect } from 'next/navigation';
 import { prisma } from '@vam/db';
 import Link from 'next/link';
+import { requireAdminWithAirlinePage } from '@/lib/roles';
 import { AirportRequestForm } from './airport-request-form';
 
 /**
@@ -16,21 +15,7 @@ import { AirportRequestForm } from './airport-request-form';
  * the same role currently, see actions.ts for the Phase 2 split plan.
  */
 export default async function AirportRequestPage() {
-  const session = await auth();
-  if (!session?.user) redirect('/');
-
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    include: { role: true, airline: true },
-  });
-  if (!user) redirect('/');
-
-  if (!user.role || user.role.name !== 'admin') {
-    redirect('/airports');
-  }
-  if (!user.airlineId) {
-    redirect('/airports');
-  }
+  const user = await requireAdminWithAirlinePage('/airports');
 
   // List user's own pending requests for context — avoids confusion when
   // re-submitting (duplicate-detection will reject it server-side).

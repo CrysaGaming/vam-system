@@ -1,7 +1,6 @@
-import { auth } from '@/auth';
-import { redirect } from 'next/navigation';
 import { prisma } from '@vam/db';
 import Link from 'next/link';
+import { requireAdminWithAirlinePage } from '@/lib/roles';
 import { AircraftTypeRequestForm } from './aircraft-type-request-form';
 
 /**
@@ -12,21 +11,7 @@ import { AircraftTypeRequestForm } from './aircraft-type-request-form';
  * Gate: requires role='admin' AND airline assignment.
  */
 export default async function AircraftTypeRequestPage() {
-  const session = await auth();
-  if (!session?.user) redirect('/');
-
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    include: { role: true, airline: true },
-  });
-  if (!user) redirect('/');
-
-  if (!user.role || user.role.name !== 'admin') {
-    redirect('/aircraft-types');
-  }
-  if (!user.airlineId) {
-    redirect('/aircraft-types');
-  }
+  const user = await requireAdminWithAirlinePage('/aircraft-types');
 
   const myPendingRequests = await prisma.aircraftTypeRequest.findMany({
     where: {
