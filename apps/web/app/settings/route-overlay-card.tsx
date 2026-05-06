@@ -2,13 +2,21 @@
 
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
+
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { cn } from '@/lib/utils';
+import type { SimBriefOverlay } from '@/lib/simbrief/overlay';
+
 import { updateRouteSimBriefOverlay } from './actions';
 import {
   SECTIONS,
   overlayToFormValues,
   formValuesToOverlay,
 } from './_overlay-fields';
-import type { SimBriefOverlay } from '@/lib/simbrief/overlay';
 
 interface RouteSummary {
   id: string;
@@ -127,15 +135,26 @@ export function RouteOverlayCard({ initial }: Props) {
     (r) => r.populatedCount > 0,
   ).length;
 
+  // Selectstyling-class — siehe Note in aircraft-overlay-card.tsx (selber
+  // pattern: shadcn-Select kommt in eigenem sweep wenn _overlay-fields
+  // sentinel-values bekommt).
+  const selectClass = cn(
+    'flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm',
+    'shadow-xs transition-[color,box-shadow] outline-none',
+    'focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50',
+    'disabled:cursor-not-allowed disabled:opacity-50',
+    'dark:bg-input/30',
+  );
+
   return (
-    <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6">
-      <div className="flex items-start justify-between mb-2">
+    <Card className="gap-4 p-6">
+      <div className="flex items-start justify-between">
         <h3 className="text-lg font-semibold">SimBrief Override (Route)</h3>
-        <span className="text-xs text-gray-500 mt-1">
+        <span className="mt-1 text-xs text-muted-foreground">
           {routesWithOverridesCount} / {routes.length} mit Overrides
         </span>
       </div>
-      <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+      <p className="text-sm text-muted-foreground">
         Ebene 4 der Override-Hierarchie — höchste Präzedenz. Pro Route-Eintrag
         (z. B. LH600 EDDF→LOWW). Überschreibt alle anderen Ebenen. Routen
         werden vom Schedule-Management verwaltet, hier nur die Override-
@@ -143,45 +162,47 @@ export function RouteOverlayCard({ initial }: Props) {
       </p>
 
       {routes.length === 0 && (
-        <div className="text-sm text-gray-500 italic mb-4 px-3 py-4 border border-dashed border-gray-200 dark:border-gray-800 rounded text-center">
+        <div className="rounded border border-dashed border-border px-3 py-4 text-center text-sm italic text-muted-foreground">
           Keine Routen in deiner Airline registriert.
         </div>
       )}
 
       {routes.length > 0 && (
-        <ul className="divide-y divide-gray-800 max-h-96 overflow-y-auto">
+        <ul className="max-h-96 divide-y divide-border overflow-y-auto">
           {routes.map((item) => (
             <li
               key={item.id}
-              className="py-3 flex items-center justify-between"
+              className="flex items-center justify-between py-3"
             >
               <div className="flex items-center gap-3">
-                <span className="font-mono font-medium text-base">
+                <span className="font-mono text-base font-medium">
                   {item.flightNumber}
                 </span>
-                <span className="text-xs text-gray-500 font-mono">
+                <span className="font-mono text-xs text-muted-foreground">
                   {item.departureIcao} → {item.arrivalIcao}
                 </span>
-                <span className="text-xs text-gray-500">·</span>
+                <span className="text-xs text-muted-foreground">·</span>
                 <span
-                  className={`text-xs ${
+                  className={cn(
+                    'text-xs',
                     item.populatedCount > 0
-                      ? 'text-indigo-400'
-                      : 'text-gray-500'
-                  }`}
+                      ? 'text-indigo-600 dark:text-indigo-400'
+                      : 'text-muted-foreground',
+                  )}
                 >
                   {item.populatedCount}{' '}
                   {item.populatedCount === 1 ? 'Override' : 'Overrides'}
                 </span>
               </div>
-              <button
+              <Button
                 type="button"
+                variant="secondary"
+                size="sm"
                 onClick={() => openEdit(item)}
                 disabled={isPending}
-                className="px-3 py-1 text-sm bg-gray-100 dark:bg-gray-800 hover:bg-gray-300 dark:hover:bg-gray-700 rounded disabled:opacity-50"
               >
                 Bearbeiten
-              </button>
+              </Button>
             </li>
           ))}
         </ul>
@@ -190,126 +211,143 @@ export function RouteOverlayCard({ initial }: Props) {
       {editor && editingItem && (
         <form
           onSubmit={handleSubmit}
-          className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-800"
+          className="border-t border-border pt-4"
         >
-          <h4 className="text-base font-semibold mb-4">
+          <h4 className="mb-4 text-base font-semibold">
             Route bearbeiten:{' '}
             <span className="font-mono">{editingItem.flightNumber}</span>{' '}
-            <span className="text-sm text-gray-500 font-normal font-mono">
+            <span className="font-mono text-sm font-normal text-muted-foreground">
               ({editingItem.departureIcao} → {editingItem.arrivalIcao})
             </span>
           </h4>
 
           {error && (
-            <div className="mb-4 px-3 py-2 rounded border bg-red-500/10 border-red-500/30 text-red-300 text-sm">
-              {error}
-              {issues.length > 0 && (
-                <ul className="mt-2 ml-4 list-disc text-xs">
-                  {issues.map((i, idx) => (
-                    <li key={idx}>
-                      <code>{i.path}</code>: {i.msg}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
+            <Alert
+              variant="destructive"
+              className="mb-4 border-red-500/30 bg-red-500/10"
+            >
+              <AlertDescription className="text-red-700 dark:text-red-300">
+                {error}
+                {issues.length > 0 && (
+                  <ul className="ml-4 mt-2 list-disc text-xs">
+                    {issues.map((i, idx) => (
+                      <li key={idx}>
+                        <code>{i.path}</code>: {i.msg}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </AlertDescription>
+            </Alert>
           )}
 
           <div className="space-y-8">
             {SECTIONS.map((section) => (
               <fieldset
                 key={section.title}
-                className="border-t border-gray-200 dark:border-gray-800 pt-4"
+                className="border-t border-border pt-4"
               >
-                <legend className="text-xs uppercase tracking-wider text-gray-500 mb-1 px-2 -ml-2">
+                <legend className="-ml-2 mb-1 px-2 text-xs uppercase tracking-wider text-muted-foreground">
                   {section.title}
                 </legend>
-                <p className="text-xs text-gray-500 mb-4">
+                <p className="mb-4 text-xs text-muted-foreground">
                   {section.description}
                 </p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {section.fields.map((f) => (
-                    <div key={f.key as string}>
-                      <label className="block text-sm font-medium mb-1">
-                        {f.label}
-                      </label>
-                      {f.type === 'select' ? (
-                        <select
-                          value={values[f.key as string] ?? ''}
-                          onChange={(e) =>
-                            setField(f.key as string, e.target.value)
-                          }
-                          className="w-full px-3 py-2 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded text-sm focus:border-indigo-500 focus:outline-none disabled:opacity-50"
-                          disabled={isPending}
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  {section.fields.map((f) => {
+                    const fieldId = `route-overlay-${f.key as string}`;
+                    return (
+                      <div key={f.key as string}>
+                        <Label
+                          htmlFor={fieldId}
+                          className="mb-1 block text-sm font-medium"
                         >
-                          {f.options.map((o) => (
-                            <option key={o.value} value={o.value}>
-                              {o.label}
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
-                        <input
-                          type={f.type}
-                          value={values[f.key as string] ?? ''}
-                          onChange={(e) =>
-                            setField(f.key as string, e.target.value)
-                          }
-                          placeholder={
-                            'placeholder' in f ? f.placeholder : undefined
-                          }
-                          min={f.type === 'number' ? f.min : undefined}
-                          max={f.type === 'number' ? f.max : undefined}
-                          step={f.type === 'number' ? f.step : undefined}
-                          className="w-full px-3 py-2 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded text-sm focus:border-indigo-500 focus:outline-none disabled:opacity-50"
-                          disabled={isPending}
-                        />
-                      )}
-                      {f.hint && (
-                        <p className="text-xs text-gray-500 mt-1">{f.hint}</p>
-                      )}
-                    </div>
-                  ))}
+                          {f.label}
+                        </Label>
+                        {f.type === 'select' ? (
+                          <select
+                            id={fieldId}
+                            value={values[f.key as string] ?? ''}
+                            onChange={(e) =>
+                              setField(f.key as string, e.target.value)
+                            }
+                            className={selectClass}
+                            disabled={isPending}
+                          >
+                            {f.options.map((o) => (
+                              <option key={o.value} value={o.value}>
+                                {o.label}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <Input
+                            id={fieldId}
+                            type={f.type}
+                            value={values[f.key as string] ?? ''}
+                            onChange={(e) =>
+                              setField(f.key as string, e.target.value)
+                            }
+                            placeholder={
+                              'placeholder' in f ? f.placeholder : undefined
+                            }
+                            min={f.type === 'number' ? f.min : undefined}
+                            max={f.type === 'number' ? f.max : undefined}
+                            step={f.type === 'number' ? f.step : undefined}
+                            disabled={isPending}
+                          />
+                        )}
+                        {f.hint && (
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {f.hint}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </fieldset>
             ))}
           </div>
 
-          <div className="flex justify-between items-center mt-8 pt-4 border-t border-gray-200 dark:border-gray-800">
+          <div className="mt-8 flex items-center justify-between border-t border-border pt-4">
             <div className="flex items-center gap-3">
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="sm"
                 onClick={closeEditor}
                 disabled={isPending}
-                className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-200 disabled:opacity-30 transition"
               >
                 Abbrechen
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
+                variant="ghost"
+                size="sm"
                 onClick={handleClearAll}
                 disabled={isPending || populatedCount === 0}
-                className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400 hover:text-red-400 disabled:opacity-30 disabled:hover:text-gray-500 dark:text-gray-400 transition"
+                className="text-muted-foreground hover:text-red-600 dark:hover:text-red-400"
               >
                 Alle löschen
-              </button>
+              </Button>
             </div>
             <div className="flex items-center gap-3">
-              <span className="text-xs text-gray-500">
+              <span className="text-xs text-muted-foreground">
                 {populatedCount}{' '}
                 {populatedCount === 1 ? 'Override' : 'Overrides'}
               </span>
-              <button
+              <Button
                 type="submit"
                 disabled={isPending}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed transition"
+                className="bg-indigo-600 text-white hover:bg-indigo-700 dark:bg-indigo-600 dark:hover:bg-indigo-700"
               >
                 {isPending ? 'Speichert…' : 'Speichern'}
-              </button>
+              </Button>
             </div>
           </div>
         </form>
       )}
-    </div>
+    </Card>
   );
 }
