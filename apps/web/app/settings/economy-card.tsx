@@ -1,6 +1,13 @@
 'use client';
 
 import { useState, useTransition } from 'react';
+
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Card } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
+import { cn } from '@/lib/utils';
+
 import { setUserEconomyEnabled } from './actions';
 
 interface Props {
@@ -48,8 +55,7 @@ export function EconomyCard({
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
-  function handleToggle() {
-    const newValue = !enabled;
+  function handleToggle(newValue: boolean) {
     setError(null);
 
     // Optimistic update — UI flippt sofort, server-action revertiert
@@ -93,12 +99,12 @@ export function EconomyCard({
   })();
 
   return (
-    <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6">
-      <h2 className="text-sm uppercase tracking-wider text-gray-500 mb-4">
+    <Card className="gap-4 p-6">
+      <h2 className="text-sm uppercase tracking-wider text-muted-foreground">
         Economy (Beta)
       </h2>
 
-      <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+      <p className="text-sm text-muted-foreground">
         VAM$-Wallet, Salary-Auszahlungen, Revenue-/Expense-Tracking pro Flug.
         Aktivieren ist <strong>opt-in</strong> — solange der Toggle aus ist,
         siehst du keine Geld-UI und es werden keine Transactions gebucht.
@@ -107,59 +113,64 @@ export function EconomyCard({
       </p>
 
       {error && (
-        <div className="mb-4 px-4 py-3 rounded border bg-red-500/10 border-red-500/30 text-red-700 dark:text-red-300 text-sm">
-          {error}
-        </div>
+        <Alert
+          variant="destructive"
+          className="border-red-500/30 bg-red-500/10"
+        >
+          <AlertDescription className="text-red-700 dark:text-red-300">
+            {error}
+          </AlertDescription>
+        </Alert>
       )}
 
-      <div className="flex items-start justify-between gap-4 py-3 border-t border-gray-200 dark:border-gray-800">
+      <div className="flex items-start justify-between gap-4 border-t border-border py-3">
         <div className="flex-1">
-          <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+          <Label
+            htmlFor="economy-enabled"
+            className="text-sm font-medium text-foreground"
+          >
             Economy für mich aktivieren
-          </p>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+          </Label>
+          <p className="mt-1 text-xs text-muted-foreground">
             Persönlicher Opt-In. Sowohl dieser Toggle als auch der
             Airline-weite Toggle müssen aktiviert sein, damit Wallet-Features
             wirksam werden.
           </p>
         </div>
 
-        {/* Switch — accessible via keyboard, role=switch, aria-checked.
-            Visual: 44×24px track mit thumb. */}
-        <button
-          type="button"
-          role="switch"
-          aria-checked={enabled}
-          onClick={handleToggle}
+        <Switch
+          id="economy-enabled"
+          checked={enabled}
+          onCheckedChange={handleToggle}
           disabled={pending}
-          className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900 disabled:opacity-50 disabled:cursor-not-allowed ${
-            enabled
-              ? 'bg-indigo-600'
-              : 'bg-gray-200 dark:bg-gray-700'
-          }`}
-        >
-          <span className="sr-only">Economy aktivieren</span>
-          <span
-            className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
-              enabled ? 'translate-x-5' : 'translate-x-0.5'
-            }`}
-          />
-        </button>
+          aria-label="Economy aktivieren"
+        />
       </div>
 
       {hintMessage && (
-        <div
-          className={`mt-4 px-4 py-3 rounded border text-sm ${
-            hintMessage.kind === 'success'
-              ? 'bg-green-500/10 border-green-500/30 text-green-700 dark:text-green-300'
-              : hintMessage.kind === 'warning'
-                ? 'bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-300'
-                : 'bg-blue-500/10 border-blue-500/30 text-blue-700 dark:text-blue-300'
-          }`}
+        <Alert
+          className={cn(
+            hintMessage.kind === 'success' &&
+              'border-green-500/30 bg-green-500/10',
+            hintMessage.kind === 'warning' &&
+              'border-amber-500/30 bg-amber-500/10',
+            hintMessage.kind === 'info' &&
+              'border-blue-500/30 bg-blue-500/10',
+          )}
         >
-          {hintMessage.text}
-        </div>
+          <AlertDescription
+            className={cn(
+              hintMessage.kind === 'success' &&
+                'text-green-700 dark:text-green-300',
+              hintMessage.kind === 'warning' &&
+                'text-amber-700 dark:text-amber-300',
+              hintMessage.kind === 'info' && 'text-blue-700 dark:text-blue-300',
+            )}
+          >
+            {hintMessage.text}
+          </AlertDescription>
+        </Alert>
       )}
-    </section>
+    </Card>
   );
 }
