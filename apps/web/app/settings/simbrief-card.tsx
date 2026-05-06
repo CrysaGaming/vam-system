@@ -1,6 +1,14 @@
 'use client';
 
 import { useState, useTransition } from 'react';
+
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { cn } from '@/lib/utils';
+
 import { setSimBriefUsername } from './actions';
 
 type Props = {
@@ -100,12 +108,12 @@ export function SimBriefCard({
   }
 
   return (
-    <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6">
-      <div className="flex items-center justify-between mb-2">
+    <Card className="gap-4 p-6">
+      <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold">SimBrief Account</h3>
         <SaveStatusBadge status={status} />
       </div>
-      <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+      <p className="text-sm text-muted-foreground">
         Trage deinen SimBrief-Benutzernamen ein, damit VAM deine generierten
         Flight Plans mit deinen Buchungen verknüpfen kann. Den Benutzernamen
         findest du in deinem{' '}
@@ -113,45 +121,56 @@ export function SimBriefCard({
           href="https://dispatch.simbrief.com/account"
           target="_blank"
           rel="noopener noreferrer"
-          className="text-indigo-400 hover:text-indigo-300 underline"
+          className="text-indigo-600 underline hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300"
         >
           SimBrief-Profil
         </a>
         .
       </p>
 
-      <div className="flex gap-3 mb-3">
-        <input
+      <div className="flex gap-3">
+        <Label htmlFor="simbrief-username" className="sr-only">
+          SimBrief-Benutzername
+        </Label>
+        <Input
+          id="simbrief-username"
           type="text"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           placeholder="z.B. CrysaGaming"
           disabled={isPending}
           maxLength={50}
-          className="flex-1 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded px-3 py-2 text-sm font-mono text-gray-900 dark:text-gray-100 placeholder:text-gray-500 focus:outline-none focus:border-indigo-500 disabled:opacity-50"
+          className="flex-1 font-mono"
         />
-        <button
+        <Button
           type="button"
           onClick={handleSave}
           disabled={!canSave || isPending}
-          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 dark:disabled:bg-gray-700 disabled:cursor-not-allowed rounded text-sm font-medium transition"
+          className="bg-indigo-600 text-white hover:bg-indigo-700 dark:bg-indigo-600 dark:hover:bg-indigo-700"
         >
           Speichern
-        </button>
+        </Button>
         {canClear && (
-          <button
+          <Button
             type="button"
+            variant="secondary"
             onClick={handleClear}
             disabled={isPending}
-            className="px-4 py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-300 dark:hover:bg-gray-700 rounded text-sm transition"
           >
             Löschen
-          </button>
+          </Button>
         )}
       </div>
 
       {errorMessage && (
-        <p className="text-sm text-red-400 mt-2">{errorMessage}</p>
+        <Alert
+          variant="destructive"
+          className="border-red-500/30 bg-red-500/10"
+        >
+          <AlertDescription className="text-red-700 dark:text-red-300">
+            {errorMessage}
+          </AlertDescription>
+        </Alert>
       )}
 
       {/* Suggestion row — shown only for fresh accounts where Username
@@ -161,24 +180,26 @@ export function SimBriefCard({
           Designed to feel like a hint, not an instruction — text-tone
           matches the gray-400 helper-paragraph above. */}
       {showSuggestion && suggestedUsername && (
-        <p className="text-xs text-gray-500 mt-3">
+        <p className="text-xs text-muted-foreground">
           Tipp: Dein SimBrief-Username ist oft gleich deinem Discord-
           Namen.{' '}
-          <button
+          <Button
             type="button"
+            variant="link"
+            size="xs"
             onClick={applySuggestion}
             disabled={isPending}
-            className="text-indigo-400 hover:text-indigo-300 underline font-mono disabled:opacity-50 disabled:cursor-not-allowed"
+            className="h-auto p-0 font-mono text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300"
           >
             {suggestedUsername} übernehmen
-          </button>
+          </Button>
         </p>
       )}
 
       {currentUsername && (
-        <p className="text-xs text-gray-500 mt-3">
+        <p className="text-xs text-muted-foreground">
           Aktuell gespeichert:{' '}
-          <span className="font-mono text-gray-500 dark:text-gray-400">{currentUsername}</span>
+          <span className="font-mono">{currentUsername}</span>
         </p>
       )}
 
@@ -189,61 +210,73 @@ export function SimBriefCard({
           booking flow. The popup-form on a booking page hides itself
           silently when not available; this card is where the user finds
           out why. */}
-      <div className="mt-5 pt-4 border-t border-gray-200 dark:border-gray-800">
-        <p className="text-xs uppercase tracking-wider text-gray-500 mb-3">
+      <div className="mt-1 border-t border-border pt-4">
+        <p className="mb-3 text-xs uppercase tracking-wider text-muted-foreground">
           Verfügbare Dispatch-Modi
         </p>
         <ul className="space-y-1.5 text-xs">
           <li className="flex items-baseline gap-2">
             <span
-              className={
-                currentUsername ? 'text-green-400' : 'text-gray-600'
-              }
+              className={cn(
+                currentUsername
+                  ? 'text-green-600 dark:text-green-400'
+                  : 'text-muted-foreground/60',
+              )}
               aria-hidden
             >
               {currentUsername ? '●' : '○'}
             </span>
-            <span className="text-gray-500 dark:text-gray-400">Pattern α (Tab-Redirect)</span>
+            <span className="text-muted-foreground">
+              Pattern α (Tab-Redirect)
+            </span>
             {!currentUsername && (
-              <span className="text-gray-600">— Username fehlt</span>
+              <span className="text-muted-foreground/60">
+                — Username fehlt
+              </span>
             )}
           </li>
           <li className="flex items-baseline gap-2">
             <span
-              className={
+              className={cn(
                 patternZAvailable && currentUsername
-                  ? 'text-green-400'
-                  : 'text-gray-600'
-              }
+                  ? 'text-green-600 dark:text-green-400'
+                  : 'text-muted-foreground/60',
+              )}
               aria-hidden
             >
               {patternZAvailable && currentUsername ? '●' : '○'}
             </span>
-            <span className="text-gray-500 dark:text-gray-400">Pattern Z (Popup)</span>
+            <span className="text-muted-foreground">Pattern Z (Popup)</span>
             {!patternZAvailable && (
-              <span className="text-gray-600">
+              <span className="text-muted-foreground/60">
                 — SIMBRIEF_API_KEY nicht konfiguriert
               </span>
             )}
             {patternZAvailable && !currentUsername && (
-              <span className="text-gray-600">— Username fehlt</span>
+              <span className="text-muted-foreground/60">
+                — Username fehlt
+              </span>
             )}
           </li>
         </ul>
       </div>
-    </div>
+    </Card>
   );
 }
 
 function SaveStatusBadge({ status }: { status: SaveStatus }) {
   if (status === 'idle') return null;
   if (status === 'saving') {
-    return <span className="text-xs text-gray-500 dark:text-gray-400">Speichern...</span>;
+    return <span className="text-xs text-muted-foreground">Speichern...</span>;
   }
   if (status === 'saved') {
-    return <span className="text-xs text-green-400">✓ Gespeichert</span>;
+    return (
+      <span className="text-xs text-green-600 dark:text-green-400">
+        ✓ Gespeichert
+      </span>
+    );
   }
-  return <span className="text-xs text-red-400">✗ Fehler</span>;
+  return <span className="text-xs text-destructive">✗ Fehler</span>;
 }
 
 function formatError(code: string): string {
