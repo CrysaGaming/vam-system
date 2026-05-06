@@ -1,7 +1,7 @@
 'use server';
 
-import { auth } from '@/auth';
 import { prisma } from '@vam/db';
+import { requireAdmin } from '@/lib/roles';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 
@@ -11,17 +11,7 @@ import { z } from 'zod';
 // Caller dazu kommt (PIREP-actions hat ähnlich, aber unterschiedlicher).
 
 async function requireAirlineAdmin() {
-  const session = await auth();
-  if (!session?.user) throw new Error('unauthorized');
-
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    include: { role: true },
-  });
-
-  if (!user?.role || user.role.name !== 'admin') {
-    throw new Error('forbidden');
-  }
+  const user = await requireAdmin();
   if (!user.airlineId) {
     throw new Error('no-airline');
   }
@@ -30,18 +20,7 @@ async function requireAirlineAdmin() {
 }
 
 async function requireSystemAdmin() {
-  const session = await auth();
-  if (!session?.user) throw new Error('unauthorized');
-
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    include: { role: true },
-  });
-
-  if (!user?.role || user.role.name !== 'admin') {
-    throw new Error('forbidden');
-  }
-
+  const user = await requireAdmin();
   return { user };
 }
 

@@ -1,6 +1,5 @@
 'use server';
 
-import { auth } from '@/auth';
 import {
   prisma,
   createEvent as dbCreateEvent,
@@ -15,6 +14,7 @@ import {
   type UpdateEventInput,
   type EventKind,
 } from '@vam/db';
+import { requireAdmin } from '@/lib/roles';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 
@@ -37,25 +37,6 @@ import { z } from 'zod';
  * emitEventPublished. Wenn der bot-call failed, ist der publish trotzdem
  * durch — admin sieht erfolg-message, bot-failure wird nur im console-log.
  */
-
-// ─────────────────────────────────────────────────────────────────────
-// Auth-helper
-// ─────────────────────────────────────────────────────────────────────
-
-async function requireAdmin() {
-  const session = await auth();
-  if (!session?.user) throw new Error('unauthorized');
-
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    include: { role: true },
-  });
-
-  if (!user?.role || user.role.name !== 'admin') {
-    throw new Error('forbidden');
-  }
-  return user;
-}
 
 // ─────────────────────────────────────────────────────────────────────
 // Schemas

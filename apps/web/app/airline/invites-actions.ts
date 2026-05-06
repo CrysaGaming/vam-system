@@ -22,27 +22,17 @@
 import { auth } from '@/auth';
 import { prisma } from '@vam/db';
 import { revalidatePath } from 'next/cache';
-import { redirect } from 'next/navigation';
 import { z } from 'zod';
+import { requireAdminWithAirline } from '@/lib/roles';
 
-async function requireAirlineAdmin() {
-  const session = await auth();
-  if (!session?.user) throw new Error('unauthorized');
+// ─────────────────────────────────────────────────────────────────────
+// Auth-helper: lokales `requireAirlineAdmin` ist semantic identisch mit
+// `requireAdminWithAirline()` aus lib/roles — siehe dortigen JSDoc:
+// trotz historischem namen checked es role.name === 'admin'. Track 3
+// #11.2.5 M2: lokal entfernt, zentralen import wiederverwendet.
+// ─────────────────────────────────────────────────────────────────────
 
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    include: { role: true },
-  });
-
-  if (!user?.role || user.role.name !== 'admin') {
-    throw new Error('forbidden');
-  }
-  if (!user.airlineId) {
-    throw new Error('no-airline');
-  }
-
-  return { user, airlineId: user.airlineId };
-}
+const requireAirlineAdmin = requireAdminWithAirline;
 
 export type InviteRow = {
   id: string;

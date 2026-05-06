@@ -1,7 +1,7 @@
 'use server';
 
-import { auth } from '@/auth';
 import { prisma } from '@vam/db';
+import { requireAdmin } from '@/lib/roles';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import {
@@ -19,17 +19,7 @@ import {
  * with an airline assignment. Pilots cannot propose airports.
  */
 async function requireAirlineAdmin() {
-  const session = await auth();
-  if (!session?.user) throw new Error('unauthorized');
-
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    include: { role: true },
-  });
-
-  if (!user?.role || user.role.name !== 'admin') {
-    throw new Error('forbidden');
-  }
+  const user = await requireAdmin();
   if (!user.airlineId) {
     throw new Error('no-airline');
   }
@@ -50,18 +40,7 @@ async function requireAirlineAdmin() {
  * multiple airlines.
  */
 async function requireSystemAdmin() {
-  const session = await auth();
-  if (!session?.user) throw new Error('unauthorized');
-
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    include: { role: true },
-  });
-
-  if (!user?.role || user.role.name !== 'admin') {
-    throw new Error('forbidden');
-  }
-
+  const user = await requireAdmin();
   return { user };
 }
 
