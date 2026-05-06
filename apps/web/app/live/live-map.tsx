@@ -20,6 +20,7 @@ import type {
   SymbolLayerSpecification,
 } from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
+import { useLiveMapStore } from '@/lib/stores/live-map-store';
 
 type LiveSession = {
   id: string;
@@ -201,22 +202,17 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
   const mapRef = useRef<MapRef | null>(null);
   const [planeImagesLoaded, setPlaneImagesLoaded] = useState(false);
   
-  const [filters, setFilters] = useState({
-    memberOnly: false,
-    showVatsim: true,
-    showIvao: true,
-    showAirports: true,
-    cockpitRain: false,
-    cockpitSnow: false,
-    weatherRadar: false,
-    autoWeather: false,
-    clustering: true,
-    // Track 1 #4 (PIREP-Heatmap, 9.2.6): toggle für historische
-    // flight-aktivität als heatmap-layer. Default off — heatmap ist
-    // ein analytisches feature (nicht "wo ist grade was los"), darum
-    // off-by-default sodass die map clean startet.
-    heatmap: false,
-  });
+  // Track 3 #11.2.3: filter-state migrated zu zustand-store. Single
+  // setFilter (key, value) für individual toggles, applyFilters (partial)
+  // für multi-field updates (autoWeather-tick z.B.). Alle filters via
+  // persist-middleware in localStorage gespeichert — beim page-reload
+  // sind die settings noch da.
+  const {
+    setFilter,
+    setFilters: applyFilters,
+    resetFilters: _resetFilters,
+    ...filters
+  } = useLiveMapStore();
 
   const [mapCenter, setMapCenter] = useState<{ lat: number; lng: number } | null>(null);
 
@@ -523,11 +519,7 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
 
     // Wenn kein Airport nahe: beide Effekte aus
     if (!nearest || !nearest.metar.decoded) {
-      setFilters((prev) => ({
-        ...prev,
-        cockpitRain: false,
-        cockpitSnow: false,
-      }));
+      applyFilters({ cockpitRain: false, cockpitSnow: false });
       return;
     }
 
@@ -544,25 +536,13 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
 
     // Schnee dominiert wenn beides (visuell auffälliger)
     if (hasSnow) {
-      setFilters((prev) => ({
-        ...prev,
-        cockpitRain: false,
-        cockpitSnow: true,
-      }));
+      applyFilters({ cockpitRain: false, cockpitSnow: true });
     } else if (hasRain) {
-      setFilters((prev) => ({
-        ...prev,
-        cockpitRain: true,
-        cockpitSnow: false,
-      }));
+      applyFilters({ cockpitRain: true, cockpitSnow: false });
     } else {
-      setFilters((prev) => ({
-        ...prev,
-        cockpitRain: false,
-        cockpitSnow: false,
-      }));
+      applyFilters({ cockpitRain: false, cockpitSnow: false });
     }
-  }, [filters.autoWeather, mapCenter, airports]);
+  }, [filters.autoWeather, mapCenter, airports, applyFilters]);
 
   // Cockpit Rain Effect (Mapbox native v3.9+)
   useEffect(() => {
@@ -1859,73 +1839,55 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
           <FilterToggle
             label="Member only"
             checked={filters.memberOnly}
-            onChange={(v) =>
-              setFilters((prev) => ({ ...prev, memberOnly: v }))
-            }
+            onChange={(v) => setFilter('memberOnly', v)}
             color="#f97316"
           />
           <FilterToggle
             label="VATSIM"
             checked={filters.showVatsim}
-            onChange={(v) =>
-              setFilters((prev) => ({ ...prev, showVatsim: v }))
-            }
+            onChange={(v) => setFilter('showVatsim', v)}
             color="#60a5fa"
           />
           <FilterToggle
             label="IVAO"
             checked={filters.showIvao}
-            onChange={(v) =>
-              setFilters((prev) => ({ ...prev, showIvao: v }))
-            }
+            onChange={(v) => setFilter('showIvao', v)}
             color="#34d399"
           />
           <FilterToggle
             label="Airports"
             checked={filters.showAirports}
-            onChange={(v) =>
-              setFilters((prev) => ({ ...prev, showAirports: v }))
-            }
+            onChange={(v) => setFilter('showAirports', v)}
             color="#fbbf24"
           />
           <FilterToggle
             label="Cockpit Rain"
             checked={filters.cockpitRain}
-            onChange={(v) =>
-              setFilters((prev) => ({ ...prev, cockpitRain: v }))
-            }
+            onChange={(v) => setFilter('cockpitRain', v)}
             color="#60a5fa"
           />
           <FilterToggle
             label="Cockpit Snow"
             checked={filters.cockpitSnow}
-            onChange={(v) =>
-              setFilters((prev) => ({ ...prev, cockpitSnow: v }))
-            }
+            onChange={(v) => setFilter('cockpitSnow', v)}
             color="#e0e7ff"
           />
           <FilterToggle
             label="Wetter Radar"
             checked={filters.weatherRadar}
-            onChange={(v) =>
-              setFilters((prev) => ({ ...prev, weatherRadar: v }))
-            }
+            onChange={(v) => setFilter('weatherRadar', v)}
             color="#22d3ee"
           />
           <FilterToggle
             label="Auto Wetter (5km)"
             checked={filters.autoWeather}
-            onChange={(v) =>
-              setFilters((prev) => ({ ...prev, autoWeather: v }))
-            }
+            onChange={(v) => setFilter('autoWeather', v)}
             color="#a78bfa"
           />
           <FilterToggle
             label="Clustering"
             checked={filters.clustering}
-            onChange={(v) =>
-              setFilters((prev) => ({ ...prev, clustering: v }))
-            }
+            onChange={(v) => setFilter('clustering', v)}
             color="#84cc16"
           />
           {/* Track 1 #4 (PIREP-Heatmap, 9.2.6): toggle für historische
@@ -1935,9 +1897,7 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
           <FilterToggle
             label={heatmapLoading ? 'Heatmap (lädt...)' : 'PIREP-Heatmap'}
             checked={filters.heatmap}
-            onChange={(v) =>
-              setFilters((prev) => ({ ...prev, heatmap: v }))
-            }
+            onChange={(v) => setFilter('heatmap', v)}
             color="#ef4444"
           />
           <div
