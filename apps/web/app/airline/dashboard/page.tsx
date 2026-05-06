@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 import { prisma } from '@vam/db';
 import Link from 'next/link';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { PirepFlowTimeline } from './_components/pirep-flow-timeline';
 
 const AIRLINE_MANAGER_ROLES = ['admin', 'airline-admin', 'instructor'];
 
@@ -80,6 +81,8 @@ export default async function AirlineDashboardPage() {
             <KpiCard label="PIREPs zur Prüfung" value={pendingPireps} highlight={pendingPireps > 0} />
           </div>
         </section>
+
+        <PirepFlowTimeline airlineId={airlineId} />
 
         <section className="mb-10">
           <h2 className="text-lg font-semibold mb-4">Verwaltung</h2>
@@ -192,25 +195,26 @@ function DashboardCard({ href, icon, title, description }: DashboardCardProps) {
 }
 
 /**
- * Platzhalter-section für widgets aus
- * docs/vision/admin-dashboards-vision.md Section 7.3 — z.B. PIREP-flow-
- * timeline, fleet-utilization-heatmap, recent-bookings, top-routes-
- * leaderboard. v1-full scope (3-4 Wochen) — heute reservierter platz.
+ * Platzhalter-section für die verbleibenden widgets aus
+ * docs/vision/admin-dashboards-vision.md Section 7.3. PIREP-flow-timeline
+ * ist als erstes widget umgesetzt (siehe _components/pirep-flow-timeline)
+ * — fleet-utilization, recent-bookings, top-routes-leaderboard sind v1-
+ * full scope, heute reservierter platz.
  */
 function TodoSection() {
   return (
     <section className="rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-700 p-6">
       <h2 className="text-lg font-semibold mb-2">
-        🚧 Operations-Widgets
+        🚧 Weitere Operations-Widgets
         <span className="ml-2 text-xs font-normal text-gray-500 dark:text-gray-400 uppercase tracking-wide">
           v1-full pending
         </span>
       </h2>
       <p className="text-sm text-gray-500 dark:text-gray-400 max-w-2xl">
-        Platzhalter für Operations-Widgets (PIREP-flow-timeline, fleet-
-        utilization, recent-bookings, top-routes). Spec siehe
+        Platzhalter für weitere Operations-Widgets — fleet-utilization,
+        recent-bookings, top-routes-leaderboard. Spec siehe
         {' '}<code className="text-xs">docs/vision/admin-dashboards-vision.md</code> §7.3.
-        Werden in v1-full inkrementell ergänzt.
+        PIREP-flow-timeline ist bereits live (siehe oben).
       </p>
     </section>
   );
