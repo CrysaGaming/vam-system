@@ -348,3 +348,86 @@ body {
   transform: translateY(0);
   outline: none; /* haben unseren eigenen sichtbaren-state via transform */
 }
+
+/* ─────────────────────────────────────────────────────────────────────
+ * View Transitions API styling (Track 3 #11.2.7)
+ *
+ * Aktiviert wird das von JS via `document.startViewTransition()` im
+ * lib/view-transitions.ts wrapper. Das CSS hier customized was passiert
+ * wenn die transition läuft.
+ *
+ * # Default-animation
+ *
+ * Browser-default ist ein 250ms cross-fade (chromium). Das ist ok aber
+ * etwas träge für intra-app-navigation wo der user sofort feedback
+ * erwartet. Wir kürzen auf 150ms und nutzen ein cubic-bezier das
+ * "snappy" wirkt (schnell anziehen, weich rauslaufen).
+ *
+ * `*` selector = alle elemente die KEINEN view-transition-name haben
+ * (d.h. der ganze main-content-bereich). Persistente elemente
+ * (header, sidebar) haben eigene names und werden separat behandelt
+ * (siehe weiter unten).
+ *
+ * # Persistente shell-elemente
+ *
+ * Header und sidebar sollen NICHT animiert werden weil sie über alle
+ * pages identisch bleiben. Wir geben ihnen `view-transition-name: header`
+ * bzw. `sidebar`, was den browser dazu bringt sie als "shared" zu
+ * behandeln und zwischen old + new state zu morphen statt cross-zufaden.
+ * Da sie identisch bleiben, ist der morph effektiv ein no-op visuell —
+ * sie scheinen während der transition stabil zu bleiben statt mit dem
+ * content zu flackern.
+ *
+ * `contain: layout` auf den persisten elementen ist optional aber hilft
+ * dem browser die snapshot-capture-arbeit auf den container zu
+ * begrenzen.
+ *
+ * # Reduced-motion
+ *
+ * `@media (prefers-reduced-motion: reduce)` kürzt die animations auf
+ * 0.01ms (nicht 0 weil manche browsers transitions mit duration:0
+ * komplett überspringen statt zu rendern, was zu flickering führen
+ * kann). User mit motion-sensitivity bekommen also einen instant
+ * page-swap statt eines cross-fades.
+ */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 150ms;
+  animation-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* Persistente shell-elemente bekommen einen named-view-transition. Der
+ * browser behandelt diese pseudo-elemente separat vom default ::view-
+ * transition-old/new(root). Da name="header" / "sidebar" und die elemente
+ * über pages identisch sind, wird der morph quasi unsichtbar. Wenn das
+ * mal nicht so ist (z.B. sidebar collapsed/expanded zwischen pages,
+ * was in unserem persist-store gar nicht passieren sollte aber theoretisch
+ * möglich), wird's automatisch animiert. */
+.shell-header {
+  view-transition-name: shell-header;
+}
+
+.shell-sidebar {
+  view-transition-name: shell-sidebar;
+}
+
+/* Header + sidebar transitions: explizit kürzer als content, damit die
+ * shell sich "stabil" anfühlt während content swaps. */
+::view-transition-old(shell-header),
+::view-transition-new(shell-header),
+::view-transition-old(shell-sidebar),
+::view-transition-new(shell-sidebar) {
+  animation-duration: 100ms;
+  animation-timing-function: ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    /* 0.01ms statt 0ms weil manche browsers (Safari WebKit) transitions
+     * mit duration:0 komplett überspringen, was zu flicker zwischen
+     * old + new snapshot führen kann. 0.01ms ist effektiv instant für
+     * den user aber gibt dem rendering-pipeline einen frame zeit. */
+    animation-duration: 0.01ms !important;
+  }
+}

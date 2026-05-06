@@ -2003,17 +2003,28 @@ v1: Light/Dark/System
 v2: Per-Airline-Branding-Override
 ```
 
-#### 11.2.7 View Transitions API für Page-Changes
+#### 11.2.7 View Transitions API für Page-Changes ✅ v1 done
 
 ```
 WAS:
-  - React 19.2 unstable_ViewTransition
+  - React 19.2 unstable_ViewTransition  ← canary-only, NICHT in stable!
+  - Browser-native View Transitions API (document.startViewTransition)
   - Smooth Page-Wechsel (GPU-accelerated)
 
 KOMPLEXITÄT: 🟢 niedrig
 AUFWAND: 1-2 Tage real
 
-v1: Aktivieren auf 2-3 Pages, beobachten
+v1: ✅ DONE 2026-05-06
+  - lib/view-transitions.ts — navigateWithTransition() helper mit
+    feature-detection + RAF-await für react-commit-timing
+  - globals.css — ::view-transition-old/new(root) custom timing 150ms,
+    persistente shell-elemente (.shell-header, .shell-sidebar) mit
+    eigenen view-transition-names + 100ms timing, prefers-reduced-
+    motion override
+  - AppShell.tsx — NavLink (alle sidebar-links) wrap router.push
+    in document.startViewTransition(), modifier-key-passthrough
+    für cmd-click/middle-click. Header + nav element bekommen
+    persist-classes
 ```
 
 ### 11.3 Track 3 Strategische Reihenfolge

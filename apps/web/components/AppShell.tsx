@@ -1,10 +1,11 @@
 'use client';
 
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, type MouseEvent as ReactMouseEvent } from 'react';
 import { ThemeToggle } from './Theme';
 import { useUIStore } from '@/lib/stores/ui-store';
+import { navigateWithTransition } from '@/lib/view-transitions';
 
 export type ShellUser = {
   name: string | null;
@@ -225,7 +226,7 @@ export function AppShell({ user, children }: Props) {
 function Header({ user }: { user: ShellUser }) {
   return (
     <header
-      className="sticky top-0 z-30 flex items-center justify-between gap-4 px-6 py-4 sm:px-10 sm:py-6 lg:px-12 lg:py-8 bg-white dark:bg-gray-950 border-b border-gray-200 dark:border-gray-800"
+      className="shell-header sticky top-0 z-30 flex items-center justify-between gap-4 px-6 py-4 sm:px-10 sm:py-6 lg:px-12 lg:py-8 bg-white dark:bg-gray-950 border-b border-gray-200 dark:border-gray-800"
       aria-label="Header"
     >
       {/* Mobile-only hamburger left of brand. Track 3 #11.2.4 Phase 3:
@@ -717,6 +718,7 @@ function Sidebar({ user, pathname }: SidebarProps) {
       <nav
         id="primary-navigation"
         className={`
+          shell-sidebar
           fixed lg:static inset-y-0 left-0 z-50 lg:z-auto
           flex flex-col w-64 lg:w-60 shrink-0 h-full overflow-hidden
           bg-white dark:bg-gray-950 border-r border-gray-200 dark:border-gray-800
@@ -1064,10 +1066,32 @@ interface NavLinkProps {
 
 function NavLink({ href, pathname, icon, label, exact = false }: NavLinkProps) {
   const isActive = exact ? pathname === href : pathname === href || pathname.startsWith(href + '/');
+  const router = useRouter();
+
+  // Track 3 #11.2.7 — View-transition-wrapped navigation für alle sidebar-
+  // links. Statt next/link's default behavior (router.push direkt) wrappen
+  // wir den click in document.startViewTransition() (siehe lib/view-
+  // transitions.ts für details).
+  //
+  // Modifier-key-handling: wir lassen cmd/ctrl/shift/middle-click durch
+  // ohne preventDefault → der user kann links wie üblich in neuen tabs
+  // öffnen. Native-link-verhalten ist die wichtigste a11y-eigenschaft
+  // die wir nicht brechen wollen.
+  //
+  // e.button !== 0 = nicht der primäre maus-button (z.B. middle-click =
+  // 1 → "open in new tab"). isLeft-click + no-modifier = "normal navigate"
+  // → preventDefault + view-transition.
+  const onClick = (e: ReactMouseEvent<HTMLAnchorElement>) => {
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    if (e.button !== 0) return;
+    e.preventDefault();
+    navigateWithTransition(router, href);
+  };
 
   return (
     <Link
       href={href}
+      onClick={onClick}
       className={`flex items-center gap-3 px-3 py-2 rounded text-sm transition ${
         isActive
           ? 'bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border-l-2 border-indigo-500 dark:border-indigo-400 -ml-0.5 pl-[10px]'
