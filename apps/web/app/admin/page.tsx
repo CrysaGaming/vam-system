@@ -5,6 +5,7 @@ import { ActivePilotsCounter } from './_widgets/active-pilots-counter';
 import { PilotBirthdayCalendar } from './_widgets/pilot-birthday-calendar';
 import { PirepHeatmap } from './_widgets/pirep-heatmap';
 import { DiscordPirepBroadcast } from './_widgets/discord-pirep-broadcast';
+import { PilotRankingBoard } from './_widgets/pilot-ranking-board';
 
 /**
  * Track 3 #11.2.5 v1-Full Innovation-Items aus
@@ -15,7 +16,7 @@ import { DiscordPirepBroadcast } from './_widgets/discord-pirep-broadcast';
  *   2. ✅ 9.1.14 Pilot-Birthday-Calendar                 [S]
  *   3. ✅ 9.1.1  PIREP-Heatmaps                          [S]
  *   4. ✅ 9.2.10 Realtime-Discord-PIREP-Embed            [M]
- *   5. ⏳ 9.2.5  Pilot-Ranking-Board mit Filtern         [M]
+ *   5. ✅ 9.2.5  Pilot-Ranking-Board mit Filtern         [M]
  *   6. ⏳ 9.2.15 Bulk-Import-Wizards                     [M]
  *   7. ⏳ 9.3.5  Awards-Crafting-System                  [L]
  *   8. ⏳ 9.3.10 Notification-Center (In-App)            [L]
@@ -50,8 +51,13 @@ export const revalidate = 30;
  * darf z.B. PIREPs zur Prüfung sehen). Hier auf der Landing strikt
  * admin-only weil das gesamte ressort gemeint ist.
  */
-export default async function AdminDashboardPage() {
+export default async function AdminDashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   await requireAdminPage();
+  const resolvedSearchParams = await searchParams;
 
   return (
     <main className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-white p-4 sm:p-6 lg:p-8">
@@ -117,7 +123,7 @@ export default async function AdminDashboardPage() {
           </div>
         </section>
 
-        <InnovationItems />
+        <InnovationItems searchParams={resolvedSearchParams} />
       </div>
     </main>
   );
@@ -152,14 +158,24 @@ function DashboardCard({ href, icon, title, description }: DashboardCardProps) {
  * mischt full-width zeilen (für viz-heavy widgets wie heatmaps) mit
  * grid-zeilen (für stat-cards). Pro neuem widget: imports + ein
  * `<WidgetX />` einfügen + status-comment im header anpassen.
+ *
+ * # searchParams-prop
+ *
+ * Wird von der page durchgereicht. Die meisten widgets ignorieren das,
+ * aber `<PilotRankingBoard />` liest filter-keys (rank_mode, rank_period,
+ * rank_aircraft) für seine GET-form-controls.
  */
-function InnovationItems() {
+function InnovationItems({
+  searchParams,
+}: {
+  searchParams: Record<string, string | string[] | undefined>;
+}) {
   return (
     <section className="space-y-6">
       <header className="flex items-baseline gap-3 border-b border-gray-200 dark:border-gray-800 pb-2">
         <h2 className="text-lg font-semibold">Innovation-Items</h2>
         <span className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-          4 / 10 — Track 3 #11.2.5 v1-Full
+          5 / 10 — Track 3 #11.2.5 v1-Full
         </span>
       </header>
 
@@ -167,6 +183,7 @@ function InnovationItems() {
         <ActivePilotsCounter />
         <PilotBirthdayCalendar />
         <DiscordPirepBroadcast />
+        <PilotRankingBoard searchParams={searchParams} />
       </div>
 
       <PirepHeatmap />
