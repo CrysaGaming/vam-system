@@ -729,6 +729,17 @@ model User {
   eventsCreated          Event[]            @relation("EventCreatedBy")
   eventsParticipated     EventParticipant[] @relation("EventParticipations")
   eventsCompletedAsAdmin EventParticipant[] @relation("EventParticipantsCompletedBy")
+
+  // Track 3 #11.2.5 v1-Full Item 8/10 (Notification-Center, 9.3.10):
+  // Admin → Pilot in-app messaging. Author = admin der die nachricht
+  // verfasst (audit-trail wer kommuniziert). Received = pilot, der die
+  // nachricht erhält. Beide back-relations sind cascade-tolerant —
+  // notifications werden nicht hard-deleted bei user-delete (siehe
+  // model AdminNotification für die rules), wir referenzieren nur per
+  // ID damit ein gelöschter user dem admin zeigt "(gelöschter pilot)"
+  // statt das record-recovery zu blockieren.
+  notificationsAuthored AdminNotification[] @relation("AdminNotificationAuthor")
+  notificationsReceived AdminNotification[] @relation("AdminNotificationRecipient")
 }
 
 model LiveSession {
@@ -2740,4 +2751,79 @@ model EventParticipant {
   @@unique([eventId, userId])
   @@index([userId])
   @@index([eventId, completed])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Track 3 #11.2.5 v1-Full Item 8/10 — Notification-Center (vision §9.3.10)
+// ─────────────────────────────────────────────────────────────────────────
+
+/// AdminNotification — admin-authored in-app message für piloten.
+///
+/// # Recipient-modi (drei varianten)
+///
+/// 1. **Per-user**: recipientId set → genau ein pilot bekommt die nachricht.
+///    Use-cases: warnings, personal-feedback, rejected-PIREP-clarification.
+///
+/// 2. **Broadcast (global)**: recipientId NULL → alle user sehen die
+///    nachricht. Use-cases: maintenance-windows, neue-feature-announcements,
+///    plattform-weite events. v1 hat KEINEN per-airline-broadcast — wenn
+///    admin einer airline-spezifisch broadcasten will, muss er es per-user
+///    tun oder global. Per-airline-broadcast = v2-ticket weil das einen
+///    zusätzlichen audience-resolver braucht.
+///
+/// # Read-tracking
+///
+/// readAt: NULL = ungelesen, set = gelesen + zeitstempel. Pilot-side UI
+/// (separates ticket) markiert beim öffnen des notification-drawers alle
+/// als gelesen.
+///
+/// Bei BROADCAST-notifications (recipientId=null) ist readAt nicht
+/// per-user — der admin sieht's globally als "gesendet" und der pilot-
+/// drawer zeigt sie immer als info. v2 könnte per-user-read-state via
+/// separate join-tabelle einführen wenn das wichtig wird (z.B. badge-
+/// count "5 ungelesen broadcasts").
+///
+/// # Kind-feld
+///
+/// Frei-formatiges string-feld (nicht enum) damit neue notification-typen
+/// ohne migration funktionieren. Canonical-werte (UI rendert mit color/
+/// icon):
+///   - "info" (default, blau-grau)
+///   - "warning" (gelb, achtung)
+///   - "success" (grün, geschafft!)
+///   - "event" (lila, neuer event publiziert)
+/// Unbekannte werte fallen auf "info"-style zurück.
+///
+/// # Pilot-side rendering
+///
+/// V1: nur das ADMIN-widget zum SENDEN existiert. Pilot-side rendering
+/// (badge im sidebar-header + drawer) ist separates ticket. Schema und
+/// server-action sind hier soweit dass das pilot-widget einfach
+/// `prisma.adminNotification.findMany({ where: { OR: [{ recipientId: userId },
+/// { recipientId: null }] } })` machen kann.
+model AdminNotification {
+  id          String  @id @default(cuid())
+  authorId    String
+  author      User    @relation("AdminNotificationAuthor", fields: [authorId], references: [id])
+  recipientId String?
+  recipient   User?   @relation("AdminNotificationRecipient", fields: [recipientId], references: [id])
+
+  title String
+  body  String @db.Text
+  kind  String @default("info")
+
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  // Häufigste queries:
+  //   - Pilot-side drawer: "alle notifications für mich + alle broadcasts"
+  //     → OR-where auf recipientId=userId + recipientId=null. Index auf
+  //     recipientId+readAt deckt den per-user-teil schnell ab.
+  //   - Admin-widget recent-sent feed: "alle notifications die ich kürzlich
+  //     gesendet habe" → orderBy createdAt desc, where authorId=adminId.
+  //     Index auf authorId+createdAt unterstützt das.
+  //   - Generic "neueste notifications" für broadcasts → createdAt-only-index.
+  @@index([recipientId, readAt])
+  @@index([authorId, createdAt])
+  @@index([createdAt])
 }
