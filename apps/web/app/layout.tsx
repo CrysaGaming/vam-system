@@ -6,6 +6,7 @@ import { auth } from '@/auth';
 import { prisma, countLivePilots } from '@vam/db';
 import { AppShell, type ShellUser } from '@/components/AppShell';
 import { ThemeProvider, themeInitScript } from '@/components/Theme';
+import { Providers } from '@/components/Providers';
 import { isApproverRole } from '@/lib/roles';
 
 const geistSans = Geist({
@@ -199,7 +200,9 @@ export default async function RootLayout({
       </head>
       <body className="min-h-full flex flex-col">
         <ThemeProvider>
-          <AppShell user={shellUser}>{children}</AppShell>
+          <Providers>
+            <AppShell user={shellUser}>{children}</AppShell>
+          </Providers>
         </ThemeProvider>
       </body>
     </html>

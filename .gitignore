@@ -75,3 +75,4 @@ _scratch/
 # Claude Code per-user harness settings (permissions, etc.)
 # Project-shared CC config (CLAUDE.md, skills/) stays tracked.
 .claude/settings.local.json
+.smoke-test/
