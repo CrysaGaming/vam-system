@@ -1931,7 +1931,7 @@ GAINS:
   - Type-safe Validation
 ```
 
-#### 11.2.4 Sidebar-Layout (Migration von Header-only)
+#### 11.2.4 Sidebar-Layout (Migration von Header-only) ✅ v1 done · ✅ v2 done
 
 ```
 WAS:
@@ -1944,6 +1944,29 @@ AUFWAND: 2-3 Wochen real (siehe layout-redesign Migration-Plan)
 
 DEPENDENCIES:
   ✅ shadcn-Migration als Foundation
+
+STATUS (2026-05-06):
+  v1 ✅ DONE:
+    - AppLayout mit Sidebar + Header (220px sidebar, sticky header)
+    - Mobile-Drawer-Pattern (collapsible sidebar via ui-store)
+    - Section-basierte Navigation (FLYING / AIRLINE / AIRLINE-ADMIN /
+      ADMIN / ACCOUNT) mit collapsible NavSections
+    - User-Menu im Header mit Dropdown
+
+  v2 ✅ DONE (über mehrere Phasen + Ergänzungs-Tickets):
+    - Phase 1.5: 3-state Theme Light/Dark/System (commit 8278b3d,
+      siehe #11.2.6 v1)
+    - Phase 4: Per-Airline-Branding-Override (commit e14c802, siehe
+      #11.2.6 v2)
+    - Phase 5: a11y skip-link + focus-visible-ring (commit bdf8003)
+    - Phase 6: View-Transitions API für Page-Changes (commit f727ea3,
+      siehe #11.2.7 v1)
+    - Collapsible Sidebar-Sections (NavSection-component)
+    - AppShell indigo→primary Token-Migration für die 3 Brand-
+      touchpoints — Logo-Monogramm-fallback, Admin-Badge, NavLink-
+      active-state (commit 681570e). Voller Scope (alle 105 files mit
+      hardcoded indigo-classes) = separates Follow-up-Ticket, siehe
+      #11.2.6 v2 follow-up.
 
 v1-DEFINITION:
   - AppLayout mit Sidebar + Header
