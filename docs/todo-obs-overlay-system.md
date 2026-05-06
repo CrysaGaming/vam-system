@@ -13,6 +13,33 @@
 
 ---
 
+## Status-Update Tag 12 (2026-05-07)
+
+> **Phasen 1-7 sind alle ge-shipped.** Die einzelnen phase-checkboxes
+> unten reflektieren den ursprünglichen task-plan und sind nicht
+> fortlaufend gepflegt worden — die wahre source-of-truth ist der
+> code im repo.
+
+| Phase | Heading-Status | Code-Evidenz |
+|---|---|---|
+| 1 Token-Infrastruktur | ✅ DONE | `db21a73` (26.04.2026), User.overlayToken field |
+| 2 Public-API-Endpoint | ✅ DONE | `apps/web/app/api/overlay/[token]/data/route.ts` |
+| 3 Overlay-Page Live-Bar | ✅ DONE | `apps/web/app/overlay/[token]/{page,overlay-client}.tsx` |
+| 4 Polish + Multi-Layout | ✅ DONE | URL-Param `?layout=bar\|card`, `?position=top-left\|...`, layout-dispatch in overlay-client |
+| 5 Erweiterte Daten | 🔵 future | braucht eigenen ACARS-Client (Phase 8) als datenquelle |
+| 6 Push-Updates (SSE) | ✅ DONE | `apps/web/app/api/overlay/[token]/stream/route.ts` mit ReadableStream-controller, comment "Track 1 #8 Phase 6" |
+| 7 Trail-Visualization | ✅ DONE | `apps/web/app/api/overlay/[token]/trail/route.ts` |
+| 8 Eigener ACARS-Client | 🔵 future | XL-arbeit, ~12-18 Tage scope (siehe Sub-Phasen unten) |
+| 9 Streamer-Erweiterungen | 🔵 future | nice-to-have nach Phase 8 |
+| 10 Multi-Layout-Editor | 💭 idea | erst evaluieren ob nutzer-bedarf real |
+
+**Was als nächstes offen ist** (in priorität):
+- Phase 8 (ACARS-Client) ist die größte verbleibende investition — voraussetzung für Phase 5 (mehr telemetrie) und für Track 2 #10.2.4 (Channel-Points-Rewards). Bevor das angefangen wird sollte explizit entschieden werden ob eigener ACARS-client höhere prio hat als andere XL-pakete (Channel-Points, Multi-Tenant-polish, etc.).
+
+*Doc-pflege-note: einzelne checkbox-items unten sind NICHT für jede done-phase abgehakt worden — würde ~50 inline-edits brauchen ohne mehr informationswert als diese tabelle. Bei zukünftiger doc-überarbeitung sollten die checkbox-listen für Phase 2-4, 6-7 ganz entfernt und durch kurze "shipped"-paragraphs ersetzt werden.*
+
+---
+
 ## Phase 1: Token-Infrastruktur ✅
 
 **Commit:** `db21a73` (26.04.2026)
@@ -27,7 +54,7 @@
 
 ---
 
-## Phase 2: Public-API-Endpoint ⬜
+## Phase 2: Public-API-Endpoint ✅
 
 **Ziel:** Daten-Quelle für Overlay-Page, kein Auth, nur via Token.
 
@@ -52,7 +79,7 @@
 
 ---
 
-## Phase 3: Overlay-Page (Live-Bar Layout) ⬜
+## Phase 3: Overlay-Page (Live-Bar Layout) ✅
 
 **Ziel:** Die eigentliche OBS-Browser-Source. Transparent, oben am Bildschirm.
 
@@ -84,7 +111,7 @@
 
 ---
 
-## Phase 4: Polish + Multi-Layout ⬜
+## Phase 4: Polish + Multi-Layout ✅
 
 **Ziel:** Mehr als ein Layout, schöner Look, gut dokumentiert.
 
@@ -138,7 +165,7 @@
 
 ---
 
-## Phase 6: Push-Updates statt Polling 🔵
+## Phase 6: Push-Updates statt Polling ✅
 
 **Ziel:** Updates erscheinen sofort statt mit 5s Verzögerung.
 
@@ -168,7 +195,7 @@
 
 ---
 
-## Phase 7: Trail-Visualization im Overlay 🔵
+## Phase 7: Trail-Visualization im Overlay ✅
 
 **Ziel:** Mini-Map im Overlay zeigt geflogene Strecke.
 
@@ -324,6 +351,13 @@
 ---
 
 ## Verwandte Features (nicht Teil des Overlay-Systems, aber verwoben)
+
+> **Stand 2026-05-07:** Twitch-Integration und Awards-System sind beide
+> ge-shipped. Die checkbox-listen unten sind nicht aktualisiert worden,
+> aber im repo existieren:
+> - **Twitch:** `apps/web/lib/twitch-oauth.ts`, `/api/auth/twitch/{start,callback,disconnect}`, `apps/bot/src/services/twitch-eventsub.ts` mit `markPilotLive`/`markPilotOffline`/`awardStreamReward`. Live-badge in `pilots/[id]/page.tsx` + `live/live-map.tsx` + `/api/live/sessions`. Discord-livestreams-broadcast existiert auch.
+> - **Awards:** `/awards/{page,[id],personal}`, `award-badge.tsx`, admin-side `/admin/awards/*`, awards-section auf pilot-profile.
+> - **YouTube-Integration:** noch offen, kein code dafür.
 
 ### Twitch-Integration
 
