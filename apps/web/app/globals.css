@@ -130,7 +130,12 @@
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
+  /* Primary = indigo-600 (Tailwind #4f46e5). Brand-color als token statt
+     per-Button className-override. shadcn-Button variant="default" und
+     alle anderen primitives die `bg-primary` verwenden inheriten das
+     automatisch. Hover wird via `bg-primary/90` durch Button-component
+     gemacht — kein hover-override nötig. */
+  --primary: oklch(0.546 0.215 262.4);
   --primary-foreground: oklch(0.985 0 0);
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
@@ -227,8 +232,10 @@
   --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.205 0 0);
   --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
+  /* Dark-mode primary: indigo-500 (heller als indigo-600 für lesbarkeit
+     auf dark-bg). Foreground bleibt off-white (text auf indigo). */
+  --primary: oklch(0.626 0.213 262.7);
+  --primary-foreground: oklch(0.985 0 0);
   --secondary: oklch(0.269 0 0);
   --secondary-foreground: oklch(0.985 0 0);
   --muted: oklch(0.269 0 0);

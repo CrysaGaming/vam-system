@@ -228,7 +228,6 @@ export function AirlineOverlayCard({ initial }: Props) {
         <Button
           type="submit"
           disabled={isPending}
-          className="bg-indigo-600 text-white hover:bg-indigo-700 dark:bg-indigo-600 dark:hover:bg-indigo-700"
         >
           {isPending ? 'Speichert…' : 'Speichern'}
         </Button>

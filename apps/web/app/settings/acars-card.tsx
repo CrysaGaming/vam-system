@@ -249,7 +249,6 @@ export function AcarsCard({ initial, vatsimLinked, ivaoLinked }: Props) {
             type="button"
             onClick={handlePair}
             disabled={pairingPending}
-            className="bg-indigo-600 text-white hover:bg-indigo-700 dark:bg-indigo-600 dark:hover:bg-indigo-700"
           >
             {pairingPending ? 'Generiere…' : 'Pair Device'}
           </Button>

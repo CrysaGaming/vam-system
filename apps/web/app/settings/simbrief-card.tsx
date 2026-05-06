@@ -146,7 +146,6 @@ export function SimBriefCard({
           type="button"
           onClick={handleSave}
           disabled={!canSave || isPending}
-          className="bg-indigo-600 text-white hover:bg-indigo-700 dark:bg-indigo-600 dark:hover:bg-indigo-700"
         >
           Speichern
         </Button>

@@ -294,7 +294,7 @@ export function OverlayPreferences({
                 type="button"
                 onClick={handleSaveColors}
                 disabled={isPending}
-                className="flex-1 bg-indigo-600 text-white hover:bg-indigo-700 dark:bg-indigo-600 dark:hover:bg-indigo-700"
+                className="flex-1"
               >
                 Farben speichern
               </Button>
@@ -447,7 +447,6 @@ export function OverlayPreferences({
             type="button"
             onClick={handleSaveBranding}
             disabled={isPending}
-            className="bg-indigo-600 text-white hover:bg-indigo-700 dark:bg-indigo-600 dark:hover:bg-indigo-700"
           >
             Branding speichern
           </Button>

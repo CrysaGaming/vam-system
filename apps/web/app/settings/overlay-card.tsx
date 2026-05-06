@@ -68,9 +68,8 @@ export function OverlayCard({ token: initialToken }: { token: string }) {
             type="button"
             onClick={handleCopy}
             className={cn(
-              copied
-                ? 'bg-green-600 text-white hover:bg-green-700 dark:bg-green-600 dark:hover:bg-green-700'
-                : 'bg-indigo-600 text-white hover:bg-indigo-700 dark:bg-indigo-600 dark:hover:bg-indigo-700',
+              copied &&
+                'bg-green-600 text-white hover:bg-green-700 dark:bg-green-600 dark:hover:bg-green-700',
             )}
           >
             {copied ? '✓ Kopiert' : 'Kopieren'}
