@@ -1,7 +1,7 @@
-import { auth } from '@/auth';
-import { redirect, notFound } from 'next/navigation';
+import { notFound  } from 'next/navigation';
 import Link from 'next/link';
 import { prisma, getSceneryById } from '@vam/db';
+import { requireAdminPage } from '@/lib/roles';
 import {
   EditSceneryForm,
   DeleteSceneryButton,
@@ -23,18 +23,7 @@ export default async function AdminSceneryDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const session = await auth();
-  if (!session?.user) redirect('/');
-
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    include: { role: true },
-  });
-
-  if (!user?.role || user.role.name !== 'admin') {
-    redirect('/dashboard');
-  }
-
+  const user = await requireAdminPage();
   const { id } = await params;
 
   const [scenery, airlinesRaw] = await Promise.all([

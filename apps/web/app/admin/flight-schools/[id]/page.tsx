@@ -1,7 +1,7 @@
-import { auth } from '@/auth';
-import { redirect, notFound } from 'next/navigation';
+import { notFound  } from 'next/navigation';
 import Link from 'next/link';
 import { prisma } from '@vam/db';
+import { requireAdminPage } from '@/lib/roles';
 import { FlightSchoolForm } from '../school-form';
 import { ActiveToggleButton } from '../active-toggle';
 
@@ -28,17 +28,7 @@ interface Props {
 export default async function EditFlightSchoolPage({ params }: Props) {
   const { id } = await params;
 
-  const session = await auth();
-  if (!session?.user) redirect('/');
-
-  const currentUser = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    include: { role: true },
-  });
-  if (!currentUser?.role || currentUser.role.name !== 'admin') {
-    redirect('/dashboard');
-  }
-
+  const currentUser = await requireAdminPage();
   const school = await prisma.flightSchool.findUnique({
     where: { id },
     include: {

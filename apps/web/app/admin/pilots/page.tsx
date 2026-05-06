@@ -1,6 +1,5 @@
-import { auth } from '@/auth';
-import { redirect } from 'next/navigation';
 import { prisma } from '@vam/db';
+import { requireAdminPage } from '@/lib/roles';
 import Link from 'next/link';
 import { AdminPilotsTable, type AdminUser } from './admin-pilots-table';
 
@@ -34,24 +33,11 @@ import { AdminPilotsTable, type AdminUser } from './admin-pilots-table';
  * comment in admin-pilots-table.tsx).
  */
 export default async function AdminPilotsList() {
-  const session = await auth();
-
-  if (!session?.user) {
-    redirect('/');
-  }
-
-  // Page-level admin-gate. Spiegelt requireAdmin() in admin/roles/actions.ts.
-  // Im Sidebar (AppShell.tsx Admin-sektor) wird der link nur für isAdmin
-  // gerendert, aber wir prüfen hier nochmal weil URL-direktzugriff diesen
-  // client-seitigen gate umgeht. Backend-gates sind die echte safety-line.
-  const currentUser = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    include: { role: true },
-  });
-
-  if (!currentUser?.role || currentUser.role.name !== 'admin') {
-    redirect('/dashboard');
-  }
+  // Page-level admin-gate. Im Sidebar (AppShell.tsx Admin-sektor) wird der
+  // link nur für isAdmin gerendert, aber wir prüfen hier nochmal weil URL-
+  // direktzugriff diesen client-seitigen gate umgeht. Backend-gates sind
+  // die echte safety-line.
+  const currentUser = await requireAdminPage();
 
   // Alle user fetchen, mit rank/role/airline für die anzeige. Sortierung
   // hier ist nur die initial-default — die client-component erlaubt dem

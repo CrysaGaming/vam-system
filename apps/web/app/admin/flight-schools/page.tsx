@@ -1,7 +1,6 @@
-import { auth } from '@/auth';
-import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { prisma } from '@vam/db';
+import { requireAdminPage } from '@/lib/roles';
 import { FlightSchoolForm } from './school-form';
 import { ActiveToggleButton } from './active-toggle';
 
@@ -24,18 +23,7 @@ import { ActiveToggleButton } from './active-toggle';
  * sind gruppiert.
  */
 export default async function AdminFlightSchoolsPage() {
-  const session = await auth();
-  if (!session?.user) redirect('/');
-
-  const currentUser = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    include: { role: true },
-  });
-
-  if (!currentUser?.role || currentUser.role.name !== 'admin') {
-    redirect('/dashboard');
-  }
-
+  const currentUser = await requireAdminPage();
   const schools = await prisma.flightSchool.findMany({
     include: {
       airport: { select: { name: true, city: true, country: true } },

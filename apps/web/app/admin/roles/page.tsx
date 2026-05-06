@@ -1,6 +1,5 @@
-import { auth } from '@/auth';
-import { redirect } from 'next/navigation';
 import { prisma } from '@vam/db';
+import { requireAdminPage } from '@/lib/roles';
 import Link from 'next/link';
 import { listRoles } from './actions';
 import { RoleManagement } from './role-management';
@@ -12,18 +11,7 @@ import { RoleManagement } from './role-management';
  * server actions would still reject any mutation.
  */
 export default async function AdminRolesPage() {
-  const session = await auth();
-  if (!session?.user) redirect('/');
-
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    include: { role: true },
-  });
-
-  if (!user?.role || user.role.name !== 'admin') {
-    redirect('/dashboard');
-  }
-
+  const user = await requireAdminPage();
   const roles = await listRoles();
 
   return (

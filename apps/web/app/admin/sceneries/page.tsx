@@ -1,7 +1,6 @@
-import { auth } from '@/auth';
-import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { prisma, listSceneries } from '@vam/db';
+import { requireAdminPage } from '@/lib/roles';
 import {
   CreateSceneryForm,
   EditSceneryForm,
@@ -33,18 +32,7 @@ import {
  * dass er hier nicht hingehört.
  */
 export default async function AdminSceneriesPage() {
-  const session = await auth();
-  if (!session?.user) redirect('/');
-
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    include: { role: true },
-  });
-
-  if (!user?.role || user.role.name !== 'admin') {
-    redirect('/dashboard');
-  }
-
+  const user = await requireAdminPage();
   // Parallel fetch: alle sceneries (kein filter — admin sieht immer
   // alles), airlines für die airline-select-dropdowns.
   const [sceneries, airlinesRaw] = await Promise.all([

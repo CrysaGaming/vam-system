@@ -1,7 +1,7 @@
-import { auth } from '@/auth';
-import { redirect, notFound } from 'next/navigation';
+import { notFound  } from 'next/navigation';
 import Link from 'next/link';
 import { prisma, getEventForAdmin, type EventStatus, type RuntimeStatus, type EventKind } from '@vam/db';
+import { requireAdminPage } from '@/lib/roles';
 import { EditEventForm, EventStateButtons, MarkParticipantButton } from '../admin-forms';
 
 /**
@@ -66,17 +66,7 @@ export default async function AdminEventDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const session = await auth();
-  if (!session?.user) redirect('/');
-
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    include: { role: true },
-  });
-  if (!user?.role || user.role.name !== 'admin') {
-    redirect('/dashboard');
-  }
-
+  const user = await requireAdminPage();
   const { id } = await params;
 
   // Parallel: event-with-participants + airlines (für edit-form dropdown)

@@ -1,5 +1,3 @@
-import { auth } from '@/auth';
-import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import {
   prisma,
@@ -8,6 +6,7 @@ import {
   type RuntimeStatus,
   type EventKind,
 } from '@vam/db';
+import { requireAdminPage } from '@/lib/roles';
 import { CreateEventForm } from './admin-forms';
 
 /**
@@ -84,17 +83,7 @@ export default async function AdminEventsPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const session = await auth();
-  if (!session?.user) redirect('/');
-
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    include: { role: true },
-  });
-
-  if (!user?.role || user.role.name !== 'admin') {
-    redirect('/dashboard');
-  }
+  await requireAdminPage();
 
   const params = await searchParams;
   const statusParam = typeof params.status === 'string' ? params.status : 'all';

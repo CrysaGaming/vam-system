@@ -1,6 +1,5 @@
-import { auth } from '@/auth';
-import { redirect } from 'next/navigation';
 import { prisma } from '@vam/db';
+import { requireAdminPage } from '@/lib/roles';
 import Link from 'next/link';
 import { RequestsQueue } from './requests-queue';
 
@@ -14,18 +13,7 @@ import { RequestsQueue } from './requests-queue';
  * if a non-admin loads this page, mutations are blocked.
  */
 export default async function AdminRequestsPage() {
-  const session = await auth();
-  if (!session?.user) redirect('/');
-
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    include: { role: true },
-  });
-
-  if (!user?.role || user.role.name !== 'admin') {
-    redirect('/dashboard');
-  }
-
+  const user = await requireAdminPage();
   // Open requests = Submitted + UnderReview. Approved/Rejected go into a
   // separate "Recent Decisions" section (TODO Phase 1.x — for now we show
   // only the queue).
