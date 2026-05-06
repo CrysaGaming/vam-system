@@ -2,6 +2,11 @@ import { auth } from '@/auth';
 import { redirect } from 'next/navigation';
 import { prisma } from '@vam/db';
 import Link from 'next/link';
+
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+
 import { ConnectionCard } from './connection-card';
 import { OverlayCard } from './overlay-card';
 import {
@@ -134,8 +139,8 @@ export default async function SettingsPage({
 
   const profileContent = (
     <>
-      <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6">
-        <h2 className="text-sm uppercase tracking-wider text-gray-500 mb-4">
+      <Card className="gap-4 p-6">
+        <h2 className="text-sm uppercase tracking-wider text-muted-foreground">
           Profil
         </h2>
         <div className="flex items-center gap-4">
@@ -149,18 +154,18 @@ export default async function SettingsPage({
               <img
                 src={user.image}
                 alt={user.name ?? 'Avatar'}
-                className="w-16 h-16 rounded-full border border-gray-300 dark:border-gray-700"
+                className="h-16 w-16 rounded-full border border-border"
               />
             </picture>
           ) : (
-            <div className="w-16 h-16 rounded-full bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700" />
+            <div className="h-16 w-16 rounded-full border border-border bg-muted" />
           )}
           <div>
             <p className="text-lg font-semibold">{user.name ?? 'Unbenannt'}</p>
-            <p className="text-sm text-gray-500 dark:text-gray-400">{user.email}</p>
+            <p className="text-sm text-muted-foreground">{user.email}</p>
           </div>
         </div>
-      </section>
+      </Card>
 
       {/* Welle 13D-1: Economy opt-in. Bewusst im Profil-tab statt
           eigene tab — economy-features sind persönliche präferenzen
@@ -194,22 +199,16 @@ export default async function SettingsPage({
   );
 
   const connectionsContent = (
-    <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6">
-      <h2 className="text-sm uppercase tracking-wider text-gray-500 mb-4">
+    <Card className="gap-4 p-6">
+      <h2 className="text-sm uppercase tracking-wider text-muted-foreground">
         Account-Verknüpfungen
       </h2>
-      <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
+      <p className="text-sm text-muted-foreground">
         Verknüpfe deine Netzwerk-Accounts um Live-Tracking, Flight-Stats und
         automatische PIREP-Erkennung zu aktivieren.
       </p>
 
-      <div
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '1rem',
-        }}
-      >
+      <div className="flex flex-col gap-4">
         <ConnectionCard
           provider="discord"
           name="Discord"
@@ -281,7 +280,7 @@ export default async function SettingsPage({
           canDisconnect={true}
         />
       </div>
-    </section>
+    </Card>
   );
 
   const simbriefContent = (
@@ -351,17 +350,17 @@ export default async function SettingsPage({
 
   const overlayContent = (
     <>
-      <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6">
-        <h2 className="text-sm uppercase tracking-wider text-gray-500 mb-4">
+      <Card className="gap-4 p-6">
+        <h2 className="text-sm uppercase tracking-wider text-muted-foreground">
           OBS-Overlay
         </h2>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
+        <p className="text-sm text-muted-foreground">
           Live-Flugdaten für Twitch/YouTube-Streams. URL als Browser-Source
           in OBS einfügen, zeigt während des Fluges automatisch deine
           Live-Daten an.
         </p>
         <OverlayCard token={overlayToken} />
-      </section>
+      </Card>
 
       <section className="mt-8">
         <OverlayPreferences
@@ -385,33 +384,39 @@ export default async function SettingsPage({
   );
 
   return (
-    <main className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-white p-8">
-      <div className="max-w-4xl mx-auto">
-        <header className="flex justify-between items-center mb-8 pb-6 border-b border-gray-200 dark:border-gray-800">
+    <main className="min-h-screen bg-background p-8 text-foreground">
+      <div className="mx-auto max-w-4xl">
+        <header className="mb-8 flex items-center justify-between border-b border-border pb-6">
           <div>
             <h1 className="text-3xl font-bold">Einstellungen</h1>
-            <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">
+            <p className="mt-1 text-sm text-muted-foreground">
               Account-Verknüpfungen und Präferenzen
             </p>
           </div>
-          <Link
-            href="/dashboard"
-            className="px-4 py-2 bg-gray-200 hover:bg-gray-300 dark:bg-gray-800 dark:hover:bg-gray-700 rounded text-sm transition"
-          >
-            ← Dashboard
-          </Link>
+          <Button asChild variant="secondary" size="sm">
+            <Link href="/dashboard">← Dashboard</Link>
+          </Button>
         </header>
 
         {statusBanner && (
-          <div
-            className={`mb-6 px-4 py-3 rounded border text-sm ${
+          <Alert
+            variant={statusBanner.type === 'success' ? 'default' : 'destructive'}
+            className={
               statusBanner.type === 'success'
-                ? 'bg-green-500/10 border-green-500/30 text-green-700 dark:text-green-300'
-                : 'bg-red-500/10 border-red-500/30 text-red-700 dark:text-red-300'
-            }`}
+                ? 'mb-6 border-green-500/30 bg-green-500/10'
+                : 'mb-6 border-red-500/30 bg-red-500/10'
+            }
           >
-            {statusBanner.message}
-          </div>
+            <AlertDescription
+              className={
+                statusBanner.type === 'success'
+                  ? 'text-green-700 dark:text-green-300'
+                  : 'text-red-700 dark:text-red-300'
+              }
+            >
+              {statusBanner.message}
+            </AlertDescription>
+          </Alert>
         )}
 
         <SettingsTabs
