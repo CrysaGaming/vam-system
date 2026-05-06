@@ -2,13 +2,20 @@
 
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
+
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { cn } from '@/lib/utils';
+import type { SimBriefOverlay } from '@/lib/simbrief/overlay';
+
 import { updateAirlineSimBriefOverlay } from './actions';
 import {
   SECTIONS,
   overlayToFormValues,
   formValuesToOverlay,
 } from './_overlay-fields';
-import type { SimBriefOverlay } from '@/lib/simbrief/overlay';
 
 interface Props {
   initial: SimBriefOverlay;
@@ -80,18 +87,30 @@ export function AirlineOverlayCard({ initial }: Props) {
   // Count populated fields for the header summary
   const populatedCount = Object.values(values).filter((v) => v !== '').length;
 
+  // Selectstyling-class — siehe Note in aircraft-overlay-card.tsx (selber
+  // pattern: shadcn-Select kommt in eigenem sweep wenn _overlay-fields
+  // sentinel-values bekommt).
+  const selectClass = cn(
+    'flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm',
+    'shadow-xs transition-[color,box-shadow] outline-none',
+    'focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50',
+    'disabled:cursor-not-allowed disabled:opacity-50',
+    'dark:bg-input/30',
+  );
+
   return (
     <form
       onSubmit={handleSubmit}
-      className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6"
+      className="flex flex-col gap-4 rounded-xl border bg-card p-6 text-card-foreground shadow-sm"
     >
-      <div className="flex items-start justify-between mb-2">
+      <div className="flex items-start justify-between">
         <h3 className="text-lg font-semibold">SimBrief Override (Airline)</h3>
-        <span className="text-xs text-gray-500 mt-1">
-          {populatedCount} {populatedCount === 1 ? 'Override' : 'Overrides'} aktiv
+        <span className="mt-1 text-xs text-muted-foreground">
+          {populatedCount}{' '}
+          {populatedCount === 1 ? 'Override' : 'Overrides'} aktiv
         </span>
       </div>
-      <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
+      <p className="text-sm text-muted-foreground">
         Ebene 1 der 4-stufigen Override-Hierarchie. Wird bei jedem SimBrief-
         Dispatch als Floor verwendet und durch Fleet (Ebene 2), Aircraft
         (Ebene 3) oder Route (Ebene 4) überschrieben. Leere Felder = keine
@@ -99,95 +118,120 @@ export function AirlineOverlayCard({ initial }: Props) {
       </p>
 
       {success && (
-        <div className="mb-4 px-3 py-2 rounded border bg-green-500/10 border-green-500/30 text-green-300 text-sm">
-          Gespeichert.
-        </div>
+        <Alert className="border-green-500/30 bg-green-500/10">
+          <AlertDescription className="text-green-700 dark:text-green-300">
+            Gespeichert.
+          </AlertDescription>
+        </Alert>
       )}
 
       {error && (
-        <div className="mb-4 px-3 py-2 rounded border bg-red-500/10 border-red-500/30 text-red-300 text-sm">
-          {error}
-          {issues.length > 0 && (
-            <ul className="mt-2 ml-4 list-disc text-xs">
-              {issues.map((i, idx) => (
-                <li key={idx}>
-                  <code>{i.path}</code>: {i.msg}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+        <Alert
+          variant="destructive"
+          className="border-red-500/30 bg-red-500/10"
+        >
+          <AlertDescription className="text-red-700 dark:text-red-300">
+            {error}
+            {issues.length > 0 && (
+              <ul className="ml-4 mt-2 list-disc text-xs">
+                {issues.map((i, idx) => (
+                  <li key={idx}>
+                    <code>{i.path}</code>: {i.msg}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </AlertDescription>
+        </Alert>
       )}
 
       <div className="space-y-8">
         {SECTIONS.map((section) => (
-          <fieldset key={section.title} className="border-t border-gray-200 dark:border-gray-800 pt-4">
-            <legend className="text-xs uppercase tracking-wider text-gray-500 mb-1 px-2 -ml-2">
+          <fieldset
+            key={section.title}
+            className="border-t border-border pt-4"
+          >
+            <legend className="-ml-2 mb-1 px-2 text-xs uppercase tracking-wider text-muted-foreground">
               {section.title}
             </legend>
-            <p className="text-xs text-gray-500 mb-4">{section.description}</p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {section.fields.map((f) => (
-                <div key={f.key as string}>
-                  <label className="block text-sm font-medium mb-1">
-                    {f.label}
-                  </label>
-                  {f.type === 'select' ? (
-                    <select
-                      value={values[f.key as string] ?? ''}
-                      onChange={(e) => setField(f.key as string, e.target.value)}
-                      className="w-full px-3 py-2 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded text-sm focus:border-indigo-500 focus:outline-none disabled:opacity-50"
-                      disabled={isPending}
+            <p className="mb-4 text-xs text-muted-foreground">
+              {section.description}
+            </p>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              {section.fields.map((f) => {
+                const fieldId = `airline-overlay-${f.key as string}`;
+                return (
+                  <div key={f.key as string}>
+                    <Label
+                      htmlFor={fieldId}
+                      className="mb-1 block text-sm font-medium"
                     >
-                      {f.options.map((o) => (
-                        <option key={o.value} value={o.value}>
-                          {o.label}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <input
-                      type={f.type}
-                      value={values[f.key as string] ?? ''}
-                      onChange={(e) =>
-                        setField(f.key as string, e.target.value)
-                      }
-                      placeholder={
-                        'placeholder' in f ? f.placeholder : undefined
-                      }
-                      min={f.type === 'number' ? f.min : undefined}
-                      max={f.type === 'number' ? f.max : undefined}
-                      step={f.type === 'number' ? f.step : undefined}
-                      className="w-full px-3 py-2 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded text-sm focus:border-indigo-500 focus:outline-none disabled:opacity-50"
-                      disabled={isPending}
-                    />
-                  )}
-                  {f.hint && (
-                    <p className="text-xs text-gray-500 mt-1">{f.hint}</p>
-                  )}
-                </div>
-              ))}
+                      {f.label}
+                    </Label>
+                    {f.type === 'select' ? (
+                      <select
+                        id={fieldId}
+                        value={values[f.key as string] ?? ''}
+                        onChange={(e) =>
+                          setField(f.key as string, e.target.value)
+                        }
+                        className={selectClass}
+                        disabled={isPending}
+                      >
+                        {f.options.map((o) => (
+                          <option key={o.value} value={o.value}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <Input
+                        id={fieldId}
+                        type={f.type}
+                        value={values[f.key as string] ?? ''}
+                        onChange={(e) =>
+                          setField(f.key as string, e.target.value)
+                        }
+                        placeholder={
+                          'placeholder' in f ? f.placeholder : undefined
+                        }
+                        min={f.type === 'number' ? f.min : undefined}
+                        max={f.type === 'number' ? f.max : undefined}
+                        step={f.type === 'number' ? f.step : undefined}
+                        disabled={isPending}
+                      />
+                    )}
+                    {f.hint && (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {f.hint}
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </fieldset>
         ))}
       </div>
 
-      <div className="flex justify-between items-center mt-8 pt-4 border-t border-gray-200 dark:border-gray-800">
-        <button
+      <div className="mt-4 flex items-center justify-between border-t border-border pt-4">
+        <Button
           type="button"
+          variant="ghost"
+          size="sm"
           onClick={handleReset}
           disabled={isPending || populatedCount === 0}
-          className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400 hover:text-red-400 disabled:opacity-30 disabled:hover:text-gray-500 dark:text-gray-400 transition"
+          className="text-muted-foreground hover:text-red-600 dark:hover:text-red-400"
         >
           Alle löschen
-        </button>
-        <button
+        </Button>
+        <Button
           type="submit"
           disabled={isPending}
-          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed transition"
+          className="bg-indigo-600 text-white hover:bg-indigo-700 dark:bg-indigo-600 dark:hover:bg-indigo-700"
         >
           {isPending ? 'Speichert…' : 'Speichern'}
-        </button>
+        </Button>
       </div>
     </form>
   );
