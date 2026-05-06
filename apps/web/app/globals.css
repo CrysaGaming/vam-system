@@ -19,6 +19,22 @@
    neue classes nach HMR-cycles). Workaround: explizit safelisten. */
 @source inline("max-h-16 max-w-[12rem] max-w-[8rem] sm:max-w-[10rem] h-14 w-14 py-4 sm:py-6 lg:py-8 sm:px-10 lg:px-12 overflow-hidden");
 
+/* Track 3 #11.2.4 Phase 3 mobile-drawer responsive classes. Die sidebar
+   nutzt ein `fixed lg:static`-pattern damit sie auf mobile als drawer
+   eingleitet (fixed) und auf desktop als normal column im flex-row
+   (static) sitzt. Tailwind v4's auto-detection picked die `lg:`-prefixes
+   für template-string-classes wieder mal nicht zuverlässig auf — das
+   führt dazu dass auf desktop die sidebar fixed bleibt und mit
+   `inset-y-0 left-0 z-50 lg:translate-x-0` als overlay über dem main-
+   content sitzt statt links daneben. Resultat: dashboard wird komplett
+   verdeckt von der sidebar.
+
+   Verifiziert durch grep auf .next/dev/static/chunks/*.css:
+   `translate-x-full` ist im bundle, aber `lg:static` / `lg:z-auto` /
+   `lg:translate-x-0` / `lg:overflow-visible` sind ALLE absent.
+   Workaround: explizit safelisten. */
+@source inline("lg:static lg:z-auto lg:translate-x-0 lg:overflow-visible");
+
 /* Page-level responsive layout safelist. Same Tailwind v4 + Turbopack
    detection-bug pattern as oben — arbitrary max-w values + responsive
    padding/grid utilities werden manchmal nicht aus content-files gepickt,
