@@ -7,6 +7,7 @@ import { prisma, countLivePilots } from '@vam/db';
 import { AppShell, type ShellUser } from '@/components/AppShell';
 import { ThemeProvider, themeInitScript } from '@/components/Theme';
 import { Providers } from '@/components/Providers';
+import { AirlineBrandingProvider } from '@/components/AirlineBrandingProvider';
 import { isApproverRole } from '@/lib/roles';
 
 const geistSans = Geist({
@@ -45,6 +46,11 @@ export default async function RootLayout({
   const session = await auth();
 
   let shellUser: ShellUser | null = null;
+  // Track 3 #11.2.4 Phase 4 + #11.2.6 v2: airline-primary-color für den
+  // <head> branding-style-block. Separate variable statt im shellUser
+  // weil AppShell die farbe nicht braucht (CSS-variable kaskadiert über
+  // alle children automatisch).
+  let airlinePrimaryColor: string | null = null;
 
   if (session?.user) {
     const user = await prisma.user.findUnique({
@@ -60,7 +66,20 @@ export default async function RootLayout({
         // logoUrl mit fetchen für den header-brand-block. Optional auf der
         // airline; wenn null, fällt der BrandLink auf einen ICAO-monogramm
         // zurück.
-        airline: { select: { name: true, icao: true, logoUrl: true, economyEnabled: true, careerEnabled: true } },
+        airline: {
+          select: {
+            name: true,
+            icao: true,
+            logoUrl: true,
+            economyEnabled: true,
+            careerEnabled: true,
+            // Track 3 #11.2.4 Phase 4 + #11.2.6 v2: per-airline-branding.
+            // primaryColor wird im <head> als CSS-var-override für --primary
+            // gerendert (siehe AirlineBrandingProvider). Null → globals.css
+            // default-indigo gewinnt.
+            primaryColor: true,
+          },
+        },
         // rank.name für das header user-info display (vAMSYS-style:
         // pilot-name oben, rank-bezeichnung darunter). Optional FK —
         // user kann ohne rank existieren (z.B. neuer pilot vor zuweisung).
@@ -86,6 +105,7 @@ export default async function RootLayout({
 
     if (user) {
       const roleName = user.role?.name ?? null;
+      airlinePrimaryColor = user.airline?.primaryColor ?? null;
 
       // Welle 14C: Live-stream-count für den header-counter ("🔴 N live").
       // Filter auf airlineId — counter zeigt nur live-pilots der eigenen
@@ -197,6 +217,13 @@ export default async function RootLayout({
           strategy="beforeInteractive"
           dangerouslySetInnerHTML={{ __html: themeInitScript }}
         />
+        {/* Track 3 #11.2.4 Phase 4 + #11.2.6 v2: airline-brand-color
+            override für --primary CSS-variable. Server-rendered <style>-
+            tag — kein FOUC, kein client-bundle, kein context-overhead.
+            Wenn user keine airline hat oder primaryColor null ist,
+            rendert die component null und globals.css-default-indigo
+            bleibt aktiv. */}
+        <AirlineBrandingProvider primaryColor={airlinePrimaryColor} />
       </head>
       <body className="min-h-full flex flex-col">
         <ThemeProvider>
