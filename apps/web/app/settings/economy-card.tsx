@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useTransition } from 'react';
+import { toast } from 'sonner';
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Card } from '@/components/ui/card';
@@ -53,11 +54,8 @@ export function EconomyCard({
 }: Props) {
   const [enabled, setEnabled] = useState(initialEnabled);
   const [pending, startTransition] = useTransition();
-  const [error, setError] = useState<string | null>(null);
 
   function handleToggle(newValue: boolean) {
-    setError(null);
-
     // Optimistic update — UI flippt sofort, server-action revertiert
     // bei error.
     setEnabled(newValue);
@@ -67,7 +65,12 @@ export function EconomyCard({
         await setUserEconomyEnabled(newValue);
       } catch (e) {
         setEnabled(!newValue); // revert
-        setError(e instanceof Error ? e.message : 'Unbekannter Fehler');
+        // Track 3 #11.2.3 vNext: error → toast statt inline-Alert.
+        // Server-fehler sind transient (network/perm-issue), gehören
+        // nicht permanent in die UI. Hint-message darunter (success/
+        // warning/info) bleibt persistent weil das den state des
+        // toggles erklärt, nicht ein fehlerhaftes commit.
+        toast.error(e instanceof Error ? e.message : 'Unbekannter Fehler');
       }
     });
   }
@@ -111,17 +114,6 @@ export function EconomyCard({
         Existing PIREPs werden NICHT retroaktiv verarbeitet, nur künftige
         Approvals.
       </p>
-
-      {error && (
-        <Alert
-          variant="destructive"
-          className="border-red-500/30 bg-red-500/10"
-        >
-          <AlertDescription className="text-red-700 dark:text-red-300">
-            {error}
-          </AlertDescription>
-        </Alert>
-      )}
 
       <div className="flex items-start justify-between gap-4 border-t border-border py-3">
         <div className="flex-1">

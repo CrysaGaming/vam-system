@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { toast } from 'sonner';
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -37,9 +38,17 @@ export function OverlayCard({ token: initialToken }: { token: string }) {
       const newToken = await rotateOverlayToken();
       setToken(newToken);
       setShowConfirm(false);
+      // Track 3 #11.2.3 vNext: success-toast bestätigt dem user dass die
+      // rotation durch ist. Token-rotate ist destructive (alte URL ungültig)
+      // — explizites positives feedback verhindert verwirrung wenn der button
+      // schnell auf "Ja, zurücksetzen" → "🔄 Token zurücksetzen" zurück-flippt.
+      toast.success('Token wurde neu generiert. Aktualisiere die OBS-URL.');
     } catch (err) {
       console.error('Rotate failed:', err);
-      alert('Fehler beim Token-Rotate');
+      // Track 3 #11.2.3 vNext: native browser-alert() → sonner toast.
+      // alert() ist blocking + nicht-themed + outside-component. Toast
+      // ist non-blocking, themed, dismissible.
+      toast.error('Fehler beim Token-Rotate');
     } finally {
       setRotating(false);
     }

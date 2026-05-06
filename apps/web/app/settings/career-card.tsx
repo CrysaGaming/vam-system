@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useTransition } from 'react';
+import { toast } from 'sonner';
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Card } from '@/components/ui/card';
@@ -65,11 +66,8 @@ export function CareerCard({
 }: Props) {
   const [enabled, setEnabled] = useState(initialEnabled);
   const [pending, startTransition] = useTransition();
-  const [error, setError] = useState<string | null>(null);
 
   function handleToggle(newValue: boolean) {
-    setError(null);
-
     // Optimistic update — UI flippt sofort, server-action revertiert
     // bei error.
     setEnabled(newValue);
@@ -79,7 +77,9 @@ export function CareerCard({
         await setUserCareerEnabled(newValue);
       } catch (e) {
         setEnabled(!newValue); // revert
-        setError(e instanceof Error ? e.message : 'Unbekannter Fehler');
+        // Track 3 #11.2.3 vNext: error → toast statt inline-Alert
+        // (siehe economy-card.tsx für rationale).
+        toast.error(e instanceof Error ? e.message : 'Unbekannter Fehler');
       }
     });
   }
@@ -125,17 +125,6 @@ export function CareerCard({
         retroaktiv für die Rang-Progression gewertet, nur künftige
         Approvals.
       </p>
-
-      {error && (
-        <Alert
-          variant="destructive"
-          className="border-red-500/30 bg-red-500/10"
-        >
-          <AlertDescription className="text-red-700 dark:text-red-300">
-            {error}
-          </AlertDescription>
-        </Alert>
-      )}
 
       <div className="flex items-start justify-between gap-4 border-t border-border py-3">
         <div className="flex-1">

@@ -18,6 +18,7 @@
  */
 
 import React, { useState, useTransition } from 'react';
+import { toast } from 'sonner';
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -98,7 +99,12 @@ export function OverlayPreferences({
   }));
   const [previewPhase, setPreviewPhase] = useState<FlightPhaseId>('cruise');
   const [isPending, startTransition] = useTransition();
-  const [saveStatus, setSaveStatus] = useState<'idle' | 'saved' | 'error'>('idle');
+  // Track 3 #11.2.3 vNext: saveStatus + setTimeout-pattern entfernt zugunsten
+  // sonner-toasts. Vorher gab es einen kleinen badge im header der nach 2s
+  // zurück auf "idle" flippte — toasts machen genau das gleiche, nur als
+  // global stack top-right + auto-dismiss + dismissible. brandingError
+  // bleibt als inline-Alert weil das field-validation ist (welches feld
+  // genau invalid?), nicht ein generisches "speichern fehlgeschlagen".
 
   // Welle 10 commit 10D: Branding state. Initial values mirror the saved
   // user-prefs (or empty strings for null). Empty-string is the "no value"
@@ -125,8 +131,11 @@ export function OverlayPreferences({
     setLayout(newLayout);
     startTransition(async () => {
       const result = await updateOverlayLayout(newLayout);
-      setSaveStatus(result.success ? 'saved' : 'error');
-      setTimeout(() => setSaveStatus('idle'), 2000);
+      if (result.success) {
+        toast.success('Layout gespeichert');
+      } else {
+        toast.error('Layout konnte nicht gespeichert werden');
+      }
     });
   }
 
@@ -134,8 +143,11 @@ export function OverlayPreferences({
     setCardPosition(newPosition);
     startTransition(async () => {
       const result = await updateOverlayCardPosition(newPosition);
-      setSaveStatus(result.success ? 'saved' : 'error');
-      setTimeout(() => setSaveStatus('idle'), 2000);
+      if (result.success) {
+        toast.success('Position gespeichert');
+      } else {
+        toast.error('Position konnte nicht gespeichert werden');
+      }
     });
   }
 
@@ -151,8 +163,11 @@ export function OverlayPreferences({
       }
       const toSave = Object.keys(overrides).length > 0 ? overrides : null;
       const result = await updateOverlayPhaseColors(toSave);
-      setSaveStatus(result.success ? 'saved' : 'error');
-      setTimeout(() => setSaveStatus('idle'), 2000);
+      if (result.success) {
+        toast.success('Phasen-Farben gespeichert');
+      } else {
+        toast.error('Phasen-Farben konnten nicht gespeichert werden');
+      }
     });
   }
 
@@ -160,8 +175,11 @@ export function OverlayPreferences({
     startTransition(async () => {
       setColors({ ...DEFAULT_PHASE_COLORS });
       const result = await resetOverlayPhaseColors();
-      setSaveStatus(result.success ? 'saved' : 'error');
-      setTimeout(() => setSaveStatus('idle'), 2000);
+      if (result.success) {
+        toast.success('Phasen-Farben auf default zurückgesetzt');
+      } else {
+        toast.error('Reset fehlgeschlagen');
+      }
     });
   }
 
@@ -176,12 +194,13 @@ export function OverlayPreferences({
         accentColor,
       });
       if (result.success) {
-        setSaveStatus('saved');
+        toast.success('Branding gespeichert');
       } else {
-        setSaveStatus('error');
+        // brandingError bleibt inline — der user braucht zu sehen WELCHES
+        // feld invalid ist (URL-format vs primary-hex vs accent-hex), das
+        // ist im toast nicht differenzierbar genug. Toast wäre redundant.
         setBrandingError(result.error);
       }
-      setTimeout(() => setSaveStatus('idle'), 2000);
     });
   }
 
@@ -192,8 +211,11 @@ export function OverlayPreferences({
       setPrimaryColor('#00BFFF');
       setAccentColor('#10B981');
       const result = await resetOverlayBranding();
-      setSaveStatus(result.success ? 'saved' : 'error');
-      setTimeout(() => setSaveStatus('idle'), 2000);
+      if (result.success) {
+        toast.success('Branding auf default zurückgesetzt');
+      } else {
+        toast.error('Reset fehlgeschlagen');
+      }
     });
   }
 
@@ -201,7 +223,10 @@ export function OverlayPreferences({
     <Card className="gap-0 p-6">
       <div className="mb-4 flex items-baseline justify-between">
         <h2 className="m-0 text-lg font-semibold">OBS-Overlay Anpassung</h2>
-        <SaveStatusBadge status={saveStatus} pending={isPending} />
+        {/* Track 3 #11.2.3 vNext: SaveStatusBadge entfernt — toasts machen
+            das gleiche feedback ("✓ Gespeichert" / "✗ Fehler") aber als
+            global-stack top-right statt im card-header. isPending wird
+            weiterhin auf den buttons als disabled-state durchgereicht. */}
       </div>
       <p className="mb-6 mt-0 text-sm text-muted-foreground">
         Wähle ein Layout und passe die Farben pro Flight-Phase an.
@@ -606,36 +631,9 @@ function ColorInput({
   );
 }
 
-function SaveStatusBadge({
-  status,
-  pending,
-}: {
-  status: 'idle' | 'saved' | 'error';
-  pending: boolean;
-}) {
-  if (pending) {
-    return (
-      <span className="text-xs italic text-muted-foreground">
-        Speichern...
-      </span>
-    );
-  }
-  if (status === 'saved') {
-    return (
-      <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">
-        ✓ Gespeichert
-      </span>
-    );
-  }
-  if (status === 'error') {
-    return (
-      <span className="text-xs font-semibold text-red-600 dark:text-red-400">
-        ✗ Fehler
-      </span>
-    );
-  }
-  return null;
-}
+// Track 3 #11.2.3 vNext: SaveStatusBadge component-definition entfernt.
+// Status-feedback ("✓ Gespeichert" / "✗ Fehler") läuft jetzt über sonner-
+// toasts in den 6 action-handlers oben. Die badge wäre dead code.
 
 // ────────────────────────────────────────────────────────────
 // Setup Guide — admin UI, theme-aware
