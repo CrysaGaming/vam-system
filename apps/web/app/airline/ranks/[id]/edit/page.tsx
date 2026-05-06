@@ -1,6 +1,6 @@
-import { auth } from '@/auth';
-import { redirect, notFound } from 'next/navigation';
+import { notFound  } from 'next/navigation';
 import { prisma } from '@vam/db';
+import { requireAirlineManagerWithAirlinePage } from '@/lib/roles';
 import Link from 'next/link';
 import { RankForm } from '../../rank-form';
 
@@ -15,24 +15,7 @@ export default async function EditRankPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const session = await auth();
-  if (!session?.user) redirect('/');
-
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    include: { role: true, airline: { select: { name: true } } },
-  });
-
-  const allowedRoles = ['admin', 'airline-admin', 'instructor'];
-  if (
-    !user?.role ||
-    !allowedRoles.includes(user.role.name) ||
-    !user.airlineId ||
-    !user.airline
-  ) {
-    redirect('/dashboard');
-  }
-
+  const user = await requireAirlineManagerWithAirlinePage();
   const { id: rankId } = await params;
   const rank = await prisma.rank.findUnique({
     where: { id: rankId },

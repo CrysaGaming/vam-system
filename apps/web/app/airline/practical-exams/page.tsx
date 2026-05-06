@@ -1,4 +1,3 @@
-import { auth } from '@/auth';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -7,6 +6,7 @@ import {
   licenseDisplayName,
   getMinFlightTimeForLicense,
 } from '@vam/db';
+import { requireAirlineManagerWithAirlinePage } from '@/lib/roles';
 import { ReviewRow, type PirepInfo } from './review-row';
 
 /**
@@ -38,23 +38,7 @@ import { ReviewRow, type PirepInfo } from './review-row';
  * updatedAt.
  */
 export default async function PracticalExamsReviewPage() {
-  const session = await auth();
-  if (!session?.user) redirect('/');
-
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    include: {
-      role: true,
-      airline: { select: { id: true, name: true, icao: true, careerEnabled: true } },
-    },
-  });
-
-  // Layer 1+2: role + airline. Spiegelt /airline-page-gate.
-  const allowedRoles = ['admin', 'airline-admin', 'instructor'];
-  if (!user?.role || !allowedRoles.includes(user.role.name) || !user.airline) {
-    redirect('/dashboard');
-  }
-
+  const user = await requireAirlineManagerWithAirlinePage();
   // Layer 3: airline.careerEnabled. Wenn die airline career nicht aktiviert
   // hat, ist diese page sinnlos. Redirect zu /airline wo der admin den
   // toggle findet (statt 403 — feature ist nicht verboten sondern nicht

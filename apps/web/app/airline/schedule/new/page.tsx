@@ -1,6 +1,5 @@
-import { auth } from '@/auth';
-import { redirect } from 'next/navigation';
 import { prisma } from '@vam/db';
+import { requireAirlineManagerWithAirlinePage } from '@/lib/roles';
 import Link from 'next/link';
 import { ScheduleTemplateForm } from '../schedule-template-form';
 
@@ -12,24 +11,7 @@ import { ScheduleTemplateForm } from '../schedule-template-form';
  * (admin will normalerweise eine active route nutzen).
  */
 export default async function NewScheduleTemplatePage() {
-  const session = await auth();
-  if (!session?.user) redirect('/');
-
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    include: { role: true, airline: { select: { name: true } } },
-  });
-
-  const allowedRoles = ['admin', 'airline-admin', 'instructor'];
-  if (
-    !user?.role ||
-    !allowedRoles.includes(user.role.name) ||
-    !user.airlineId ||
-    !user.airline
-  ) {
-    redirect('/dashboard');
-  }
-
+  const user = await requireAirlineManagerWithAirlinePage();
   const [routes, aircraft] = await Promise.all([
     prisma.route.findMany({
       where: { airlineId: user.airlineId },

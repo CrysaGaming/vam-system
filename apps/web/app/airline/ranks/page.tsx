@@ -1,6 +1,5 @@
-import { auth } from '@/auth';
-import { redirect } from 'next/navigation';
 import { prisma } from '@vam/db';
+import { requireAirlineManagerWithAirlinePage } from '@/lib/roles';
 import Link from 'next/link';
 import { listRanksWithStats } from './actions';
 import { RankForm } from './rank-form';
@@ -34,24 +33,7 @@ import { ReEvaluateRanksButton } from './re-evaluate-button';
  * - Promotion-history (audit-log) → später
  */
 export default async function AirlineRanksPage() {
-  const session = await auth();
-  if (!session?.user) redirect('/');
-
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    include: { role: true, airline: { select: { name: true } } },
-  });
-
-  const allowedRoles = ['admin', 'airline-admin', 'instructor'];
-  if (
-    !user?.role ||
-    !allowedRoles.includes(user.role.name) ||
-    !user.airlineId ||
-    !user.airline
-  ) {
-    redirect('/dashboard');
-  }
-
+  const user = await requireAirlineManagerWithAirlinePage();
   const ranks = await listRanksWithStats();
 
   // Duplicate-order-detection für UI-warning (admin sieht dass zwei ranks

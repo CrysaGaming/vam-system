@@ -1,6 +1,5 @@
-import { auth } from '@/auth';
-import { redirect } from 'next/navigation';
 import { prisma } from '@vam/db';
+import { requireAirlineManagerWithAirlinePage } from '@/lib/roles';
 import Link from 'next/link';
 import {
   listAirlineMembers,
@@ -26,25 +25,7 @@ import { InviteSection } from './invite-section';
  *   2) Airline metadata form (name, callsign, IATA, logoUrl)
  */
 export default async function AirlineAdminPage() {
-  const session = await auth();
-  if (!session?.user) redirect('/');
-
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    include: { role: true },
-  });
-
-  // Page-level gate: Spiegelt AIRLINE_MANAGER_ROLES in actions.ts.
-  // Falls roleName-liste hier vs. dort divergiert, ist das ein bug.
-  const allowedRoles = ['admin', 'airline-admin', 'instructor'];
-  if (
-    !user?.role ||
-    !allowedRoles.includes(user.role.name) ||
-    !user.airlineId
-  ) {
-    redirect('/dashboard');
-  }
-
+  const user = await requireAirlineManagerWithAirlinePage();
   const [members, roles, ranks, settings, invites, inviteRoles] =
     await Promise.all([
       listAirlineMembers(),

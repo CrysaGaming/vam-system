@@ -1,11 +1,9 @@
-import { auth } from '@/auth';
 import { redirect } from 'next/navigation';
 import { prisma } from '@vam/db';
+import { requireAirlineManagerWithAirlinePage } from '@/lib/roles';
 import Link from 'next/link';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { PirepFlowTimeline } from './_components/pirep-flow-timeline';
-
-const AIRLINE_MANAGER_ROLES = ['admin', 'airline-admin', 'instructor'];
 
 /**
  * Airline-Admin-Dashboard — Track 3 #11.2.5 Foundation-Slice.
@@ -36,17 +34,7 @@ const AIRLINE_MANAGER_ROLES = ['admin', 'airline-admin', 'instructor'];
  * economy-toggle-on).
  */
 export default async function AirlineDashboardPage() {
-  const session = await auth();
-  if (!session?.user) redirect('/');
-
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    include: { role: true, airline: true },
-  });
-
-  if (!user?.role || !AIRLINE_MANAGER_ROLES.includes(user.role.name)) {
-    redirect('/dashboard');
-  }
+  const user = await requireAirlineManagerWithAirlinePage();
   if (!user.airline) {
     redirect('/dashboard');
   }

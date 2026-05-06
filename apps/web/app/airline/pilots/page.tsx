@@ -1,6 +1,5 @@
-import { auth } from '@/auth';
-import { redirect } from 'next/navigation';
 import { prisma, type EmploymentStatus } from '@vam/db';
+import { requireAirlineManagerWithAirlinePage } from '@/lib/roles';
 import Link from 'next/link';
 import {
   listPersonnel,
@@ -46,24 +45,7 @@ export default async function AirlinePilotsPage({
 }: {
   searchParams: Promise<{ status?: string; rank?: string }>;
 }) {
-  const session = await auth();
-  if (!session?.user) redirect('/');
-
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    include: { role: true, airline: { select: { name: true } } },
-  });
-
-  const allowedRoles = ['admin', 'airline-admin', 'instructor'];
-  if (
-    !user?.role ||
-    !allowedRoles.includes(user.role.name) ||
-    !user.airlineId ||
-    !user.airline
-  ) {
-    redirect('/dashboard');
-  }
-
+  const user = await requireAirlineManagerWithAirlinePage();
   const params = await searchParams;
 
   // Parse + validate filter-params. Invalid values fallen auf "kein filter".

@@ -1,6 +1,5 @@
-import { auth } from '@/auth';
-import { redirect } from 'next/navigation';
 import { prisma } from '@vam/db';
+import { requireAirlineManagerWithAirlinePage } from '@/lib/roles';
 import Link from 'next/link';
 import { DeleteRouteButton } from './delete-route-button';
 
@@ -27,23 +26,7 @@ import { DeleteRouteButton } from './delete-route-button';
  * - Bulk-actions (delete-all, deactivate-all) — gefährlich, später
  */
 export default async function AirlineRoutesPage() {
-  const session = await auth();
-  if (!session?.user) redirect('/');
-
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    include: { role: true },
-  });
-
-  const allowedRoles = ['admin', 'airline-admin', 'instructor'];
-  if (
-    !user?.role ||
-    !allowedRoles.includes(user.role.name) ||
-    !user.airlineId
-  ) {
-    redirect('/dashboard');
-  }
-
+  const user = await requireAirlineManagerWithAirlinePage();
   const routes = await prisma.route.findMany({
     where: { airlineId: user.airlineId },
     include: {

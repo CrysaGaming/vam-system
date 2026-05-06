@@ -1,5 +1,4 @@
-import { auth } from '@/auth';
-import { redirect, notFound } from 'next/navigation';
+import { notFound  } from 'next/navigation';
 import {
   prisma,
   getUserLicenses,
@@ -8,6 +7,7 @@ import {
   type LicenseType,
   type LicenseStatus,
 } from '@vam/db';
+import { requireAirlineManagerWithAirlinePage } from '@/lib/roles';
 import Link from 'next/link';
 import { LicenseGrantForm } from './license-grant-form';
 import { LicenseActions, TypeRatingActions } from './license-actions';
@@ -15,8 +15,6 @@ import { LicenseActions, TypeRatingActions } from './license-actions';
 interface PageProps {
   params: Promise<{ id: string }>;
 }
-
-const AIRLINE_MANAGER_ROLES = ['admin', 'airline-admin', 'instructor'];
 
 /**
  * Welle 13E-6 — Pilot detail page für admin license-management.
@@ -44,22 +42,7 @@ const AIRLINE_MANAGER_ROLES = ['admin', 'airline-admin', 'instructor'];
 export default async function PilotDetailPage({ params }: PageProps) {
   const { id: targetUserId } = await params;
 
-  const session = await auth();
-  if (!session?.user) redirect('/');
-
-  const actor = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    include: { role: true },
-  });
-
-  if (
-    !actor?.role ||
-    !AIRLINE_MANAGER_ROLES.includes(actor.role.name) ||
-    !actor.airlineId
-  ) {
-    redirect('/dashboard');
-  }
-
+  const actor = await requireAirlineManagerWithAirlinePage();
   // Target-pilot lookup mit multi-tenant-scope. Wenn target nicht in actor's
   // airline ist, returnen wir 404 statt 403 — wir wollen nicht leaken dass
   // der pilot in einer anderen airline existiert.

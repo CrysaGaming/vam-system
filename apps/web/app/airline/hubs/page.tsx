@@ -1,6 +1,5 @@
-import { auth } from '@/auth';
-import { redirect } from 'next/navigation';
 import { prisma } from '@vam/db';
+import { requireAirlineManagerWithAirlinePage } from '@/lib/roles';
 import Link from 'next/link';
 import { AddHubForm } from './add-hub-form';
 import { HubActionsButtons } from './hub-actions-buttons';
@@ -29,24 +28,7 @@ import { HubActionsButtons } from './hub-actions-buttons';
  * - Map-view aller hubs → Welle 6+ (zusammen mit route-map)
  */
 export default async function AirlineHubsPage() {
-  const session = await auth();
-  if (!session?.user) redirect('/');
-
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    include: { role: true, airline: { select: { id: true, name: true } } },
-  });
-
-  const allowedRoles = ['admin', 'airline-admin', 'instructor'];
-  if (
-    !user?.role ||
-    !allowedRoles.includes(user.role.name) ||
-    !user.airlineId ||
-    !user.airline
-  ) {
-    redirect('/dashboard');
-  }
-
+  const user = await requireAirlineManagerWithAirlinePage();
   const hubs = await prisma.airlineHub.findMany({
     where: { airlineId: user.airlineId },
     include: {

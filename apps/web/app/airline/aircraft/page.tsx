@@ -1,6 +1,5 @@
-import { auth } from '@/auth';
-import { redirect } from 'next/navigation';
 import { prisma } from '@vam/db';
+import { requireAirlineManagerWithAirlinePage } from '@/lib/roles';
 import Link from 'next/link';
 import type { AircraftStatus } from '@vam/db';
 import { AddAircraftForm } from './add-aircraft-form';
@@ -64,24 +63,7 @@ export default async function AirlineAircraftPage({
 }: {
   searchParams: Promise<{ status?: string; home?: string }>;
 }) {
-  const session = await auth();
-  if (!session?.user) redirect('/');
-
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    include: { role: true, airline: { select: { id: true, name: true } } },
-  });
-
-  const allowedRoles = ['admin', 'airline-admin', 'instructor'];
-  if (
-    !user?.role ||
-    !allowedRoles.includes(user.role.name) ||
-    !user.airlineId ||
-    !user.airline
-  ) {
-    redirect('/dashboard');
-  }
-
+  const user = await requireAirlineManagerWithAirlinePage();
   const params = await searchParams;
   const filterStatus = isAircraftStatus(params.status) ? params.status : undefined;
   const filterHome = params.home?.trim().toUpperCase() || undefined;

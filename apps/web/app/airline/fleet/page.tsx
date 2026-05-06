@@ -1,6 +1,5 @@
-import { auth } from '@/auth';
-import { redirect } from 'next/navigation';
 import { prisma } from '@vam/db';
+import { requireAirlineManagerWithAirlinePage } from '@/lib/roles';
 import type { AircraftStatus } from '@vam/db';
 import Link from 'next/link';
 
@@ -98,24 +97,7 @@ interface SubfleetGroup {
 }
 
 export default async function AirlineFleetPage() {
-  const session = await auth();
-  if (!session?.user) redirect('/');
-
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    include: { role: true, airline: { select: { id: true, name: true } } },
-  });
-
-  const allowedRoles = ['admin', 'airline-admin', 'instructor'];
-  if (
-    !user?.role ||
-    !allowedRoles.includes(user.role.name) ||
-    !user.airlineId ||
-    !user.airline
-  ) {
-    redirect('/dashboard');
-  }
-
+  const user = await requireAirlineManagerWithAirlinePage();
   // Fetch alle aircraft + catalog-info. PIREP-aggregation als parallel-query
   // auf alle aircraftIds (selbst pattern wie /airline/aircraft).
   const aircraft = await prisma.aircraft.findMany({

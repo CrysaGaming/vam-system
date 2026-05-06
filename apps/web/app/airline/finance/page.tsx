@@ -1,4 +1,3 @@
-import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 import {
   prisma,
@@ -8,6 +7,7 @@ import {
   type GetUserTransactionsOptions,
   type TransactionType,
 } from "@vam/db";
+import { requireAirlineManagerWithAirlinePage } from '@/lib/roles';
 import Link from "next/link";
 import {
   TRANSACTION_TYPE_DISPLAY,
@@ -44,27 +44,7 @@ interface PageProps {
  * bleibt die UI für pilots und admins konsistent.
  */
 export default async function AirlineFinancePage({ searchParams }: PageProps) {
-  const session = await auth();
-  if (!session?.user) redirect("/");
-
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    include: {
-      role: true,
-      airline: { select: { id: true, name: true, icao: true, economyEnabled: true } },
-    },
-  });
-
-  // Layer 1+2: role + airline. Spiegelt /airline-page-gate.
-  const allowedRoles = ["admin", "airline-admin", "instructor"];
-  if (
-    !user?.role ||
-    !allowedRoles.includes(user.role.name) ||
-    !user.airline
-  ) {
-    redirect("/dashboard");
-  }
-
+  const user = await requireAirlineManagerWithAirlinePage();
   // Layer 3: airline.economyEnabled. Wenn die airline economy nicht
   // aktiviert hat, ist diese page sinnlos. Redirect zu /airline wo
   // der admin den toggle findet (statt 403 — feature ist nicht

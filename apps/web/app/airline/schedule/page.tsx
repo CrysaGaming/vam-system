@@ -1,6 +1,5 @@
-import { auth } from '@/auth';
-import { redirect } from 'next/navigation';
 import { prisma } from '@vam/db';
+import { requireAirlineManagerWithAirlinePage } from '@/lib/roles';
 import Link from 'next/link';
 import { DeleteScheduleTemplateButton } from './delete-template-button';
 import { GenerateInstancesButton } from './generate-instances-button';
@@ -25,23 +24,7 @@ import { formatDaysOfWeekDe, formatMinuteUtc } from '@/lib/schedule';
  * - Inline-quick-edit
  */
 export default async function AirlineSchedulePage() {
-  const session = await auth();
-  if (!session?.user) redirect('/');
-
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    include: { role: true },
-  });
-
-  const allowedRoles = ['admin', 'airline-admin', 'instructor'];
-  if (
-    !user?.role ||
-    !allowedRoles.includes(user.role.name) ||
-    !user.airlineId
-  ) {
-    redirect('/dashboard');
-  }
-
+  const user = await requireAirlineManagerWithAirlinePage();
   const templates = await prisma.scheduleTemplate.findMany({
     where: { airlineId: user.airlineId },
     include: {

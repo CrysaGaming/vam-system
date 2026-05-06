@@ -184,9 +184,12 @@ export async function requireAdminWithAirlinePage(redirectTo: string = '/dashboa
   if (!user.airline) {
     redirect(redirectTo);
   }
-  return user as typeof user & { airline: NonNullable<typeof user.airline> };
+  return user as typeof user & {
+    role: NonNullable<typeof user.role>;
+    airline: NonNullable<typeof user.airline>;
+    airlineId: string;
+  };
 }
-
 // ─────────────────────────────────────────────────────────────────────
 // Airline-Manager-gates (admin | airline-admin | instructor)
 // ─────────────────────────────────────────────────────────────────────
@@ -326,5 +329,9 @@ export async function requireAirlineManagerWithAirlinePage(redirectTo: string = 
   if (!user.airline) {
     redirect(redirectTo);
   }
-  return user as typeof user & { airline: NonNullable<typeof user.airline> };
+  return user as typeof user & {
+    role: NonNullable<typeof user.role>;
+    airline: NonNullable<typeof user.airline>;
+    airlineId: string;
+  };
 }

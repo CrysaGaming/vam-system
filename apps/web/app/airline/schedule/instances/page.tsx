@@ -1,6 +1,5 @@
-import { auth } from '@/auth';
-import { redirect } from 'next/navigation';
 import { prisma } from '@vam/db';
+import { requireAirlineManagerWithAirlinePage } from '@/lib/roles';
 import Link from 'next/link';
 import { CancelScheduledFlightButton } from './cancel-flight-button';
 
@@ -50,23 +49,7 @@ export default async function ScheduleInstancesPage({
 }: {
   searchParams: Promise<{ days?: string; status?: string }>;
 }) {
-  const session = await auth();
-  if (!session?.user) redirect('/');
-
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    include: { role: true },
-  });
-
-  const allowedRoles = ['admin', 'airline-admin', 'instructor'];
-  if (
-    !user?.role ||
-    !allowedRoles.includes(user.role.name) ||
-    !user.airlineId
-  ) {
-    redirect('/dashboard');
-  }
-
+  const user = await requireAirlineManagerWithAirlinePage();
   const params = await searchParams;
   const daysRaw = parseInt(params.days ?? '14', 10);
   const days: AllowedDays = (ALLOWED_DAYS as readonly number[]).includes(daysRaw)
