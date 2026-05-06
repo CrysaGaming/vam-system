@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react';
 
+import { cn } from '@/lib/utils';
+
 type TabKey = 'profile' | 'connections' | 'simbrief' | 'overlay' | 'acars';
 
 const TABS: Array<{ key: TabKey; label: string; icon: string }> = [
@@ -80,7 +82,7 @@ export function SettingsTabs({
       {/* Tab-bar — sticky-ish at the top of the content. Horizontal-scroll
           on narrow viewports (mobile) so all 4 tabs remain reachable. */}
       <nav
-        className="flex gap-1 mb-6 overflow-x-auto border-b border-gray-200 dark:border-gray-800"
+        className="mb-6 flex gap-1 overflow-x-auto border-b border-border"
         role="tablist"
         aria-label="Settings sections"
       >
@@ -95,11 +97,12 @@ export function SettingsTabs({
               aria-controls={`tabpanel-${tab.key}`}
               id={`tab-${tab.key}`}
               onClick={() => handleTabClick(tab.key)}
-              className={`px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition flex items-center gap-2 ${
+              className={cn(
+                'flex items-center gap-2 whitespace-nowrap border-b-2 px-4 py-3 text-sm font-medium transition',
                 isActive
                   ? 'border-indigo-500 text-indigo-700 dark:text-white'
-                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 hover:border-gray-300 dark:hover:border-gray-700'
-              }`}
+                  : 'border-transparent text-muted-foreground hover:border-border hover:text-foreground',
+              )}
             >
               <span aria-hidden="true">{tab.icon}</span>
               {tab.label}
