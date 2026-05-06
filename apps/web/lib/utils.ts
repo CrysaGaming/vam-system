@@ -1,10 +1,25 @@
 // Tremor Raw cx [v0.0.0]
+//
+// Note (Track 3 #11.2.2 shadcn-Migration): cx bleibt erhalten weil Tremor's
+// BarChart.tsx + DonutChart.tsx es noch nutzen. Bei der Recharts-Migration
+// auf shadcn-charts (späterer Phase) kann cx und alle Tremor-utilities unten
+// (focusInput, focusRing, hasErrorInput) entfernt werden. Bis dahin laufen
+// Tremor-cx und shadcn-cn parallel — beide tun semantisch dasselbe via
+// clsx + twMerge, aber pro convention werden neue components mit cn gebaut.
 
 import clsx, { type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 
 export function cx(...args: ClassValue[]) {
   return twMerge(clsx(...args));
+}
+
+// shadcn cn (kanonisch ab Track 3 #11.2.2 — nutzen alle components/ui/* und
+// neue feature-components). Identisch zu cx, separater export ausschließlich
+// für die shadcn-Konvention damit kopierte components ohne edits laufen.
+
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
 }
 
 // Tremor focusInput [v0.0.2]
