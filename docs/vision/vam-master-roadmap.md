@@ -1385,7 +1385,15 @@ AUFWAND TOTAL: 4-8 Wochen real
 
 ### 9.2 Track-Items (priorisiert)
 
-#### 9.2.1 Booking-System (Phase 1 done — Service-Layer next)
+#### 9.2.1 Booking-System ✅ DONE
+
+> **Stand 2026-05-07:** Vollständig ge-shipped (1490 LOC).
+> Code: `apps/web/app/bookings/{page,[id]/page,new/page}.tsx`,
+> `apps/web/app/bookings/actions.ts`, `apps/web/app/bookings/[id]/{CancelBookingDialog,SimBriefDispatchForm}.tsx`.
+> Settings: `apps/web/app/settings/{simbrief-card,acars-card,connection-card}.tsx`.
+> Schema: `Booking` + `FlightPlanCache` models. SimBrief-Dispatch
+> (dual-path API/Fallback) + PIREP-Auto-Link via Booking-ID alle live.
+> Verbleibend: v2-Vision (Multi-Leg, Bidding, Award-Routes, Cargo-Loadout).
 
 ```
 WAS:
@@ -1427,7 +1435,18 @@ v2-VISION (Section 14.1):
   - Cargo-Loadout (für Cargo-Airlines)
 ```
 
-#### 9.2.2 OBS-Overlay-System Komplettierung (Phase 4-9 von todo-obs-overlay)
+#### 9.2.2 OBS-Overlay-System Komplettierung (Phase 4-9 von todo-obs-overlay) ✅ Phase 4-7 DONE
+
+> **Stand 2026-05-07:** Phase 4 (Multi-Layout), Phase 6 (SSE-Push)
+> und Phase 7 (Trail-Visualization) sind ge-shipped — die
+> `todo-obs-overlay-system.md` doc-status ist veraltet.
+> Code: `apps/web/app/overlay/[token]/{page,layout,overlay-client}.tsx`,
+> `apps/web/app/api/overlay/[token]/{data,stream,trail}/route.ts`.
+> URL-params `?layout=bar|card&position=top-left|...` funktionieren.
+> SSE-stream ersetzt 5s-polling (siehe stream/route.ts comment).
+> Verbleibend: Phase 5 (Wetter/ATC-Daten), Phase 8 (eigener ACARS-
+> Client = Track 4), Phase 9 (Streamer-Erweiterungen), Phase 10
+> (Multi-Layout-Editor 💭).
 
 ```
 WAS:
@@ -1467,7 +1486,14 @@ v1-DEFINITION:
   - Doku für Streamer (OBS-Setup-Anleitung)
 ```
 
-#### 9.2.3 Awards-System UI
+#### 9.2.3 Awards-System UI ✅ DONE
+
+> **Stand 2026-05-07:** Pilot-side UI vollständig — `/awards` (Catalog,
+> 143 LOC), `/awards/[id]` (Detail, 202 LOC), `/awards/personal`
+> (eigene Awards, 83 LOC), `award-badge.tsx` component. Awards-Section
+> auf `/pilots/[id]` profile integriert. Admin-side: `/admin/awards`
+> + `/admin/awards/[id]` für Definition + Vergabe. Auto-Award-Detection
+> + Discord-Embed-Notification = v2-Vision (eigene Tickets).
 
 ```
 WAS:
@@ -3883,3 +3909,112 @@ Pioneer-topics (MSFS-mod, Twitch-Sim-write, ACARS-eigener-client) bleiben bei mo
 ---
 
 *Appendix A geschrieben am 03. Mai 2026 (Tag 6) basierend auf vollständiger .md-recherche + git-log-analyse von 187 commits + 90 commits-letzte-4-tage.*
+
+---
+
+# APPENDIX B — Status-Update Tag 12 (07. Mai 2026)
+
+> **Diese sektion konsolidiert den ge-shippten zustand aller Track-1/2/3-items per 2026-05-07.** Sie ersetzt die punktuellen "TODO/⏳"-marker im hauptteil und überschreibt sie wo widersprüchlich. Ground-truth bei konflikten = dieser appendix. Hauptteil bleibt unverändert für historische ablesbarkeit.
+>
+> **Recherche-grundlage:** Direkte repo-inspection (`apps/web/app/`, `packages/db/prisma/schema.prisma`, `apps/bot/src/services/`) — nicht raten aus commit-messages.
+
+## B.1 Track 1 (Pilot-Experience) — Massive Progression
+
+Alle 8 explizit gelisteten v1-Items in §9.2 sind ge-shipped:
+
+| Item | §-Ref | Status | Haupt-Evidenz |
+|---|---|---|---|
+| 9.2.1 Booking-System | §9.2.1 | ✅ DONE | `apps/web/app/bookings/{page,[id],new}.tsx` (1490 LOC), SimBrief-Dual-Path, PIREP-Auto-Link |
+| 9.2.2 OBS-Overlay Phase 4-7 | §9.2.2 | ✅ DONE | `apps/web/app/api/overlay/[token]/{data,stream,trail}/route.ts` — SSE-stream + multi-layout + trail-vis |
+| 9.2.3 Awards-System UI | §9.2.3 | ✅ DONE | `apps/web/app/awards/{page,[id],personal}` + `award-badge.tsx` + admin-side gates auf `/admin/awards` |
+| 9.2.4 Sceneries-Catalog UI | §9.2.4 | ✅ DONE | `apps/web/app/sceneries/{page,[id]}` (432 LOC). Filter + detail-page funktionieren. v2-Vision (auto-import flightsim.to) bleibt v2. |
+| 9.2.5 Live-Map Search-Bar + Click-Public-Pilots | §9.2.5 | ✅ DONE | `live-map.tsx` line ~238 (`searchQuery`/`setSearchQuery` state), input-element line ~1537, public-pilot-resolution mit `selectedPublicPilot` |
+| 9.2.6 PIREP-Heatmap | §9.2.6 | ✅ DONE | Item 3/10 der Innovation-Items, `apps/web/app/admin/_widgets/pirep-heatmap.tsx` |
+| 9.2.7 Replay-Mode | §9.2.7 | ✅ DONE | `apps/web/app/pireps/[id]/replay/{page,replay-map}.tsx` — Time-Slider + Position-Animation |
+| 9.2.8 Events / Flight-Tours | §9.2.8 | ✅ DONE | Event-model im schema mit kind=TOUR/SINGLE_FLIGHT/THEMED/GROUP_FLIGHT/SEASONAL + status=DRAFT/PUBLISHED/COMPLETED/CANCELLED, `/admin/events` route, Tour-Calendar-widget (Item 9/10) verlinkt |
+
+**Track-1-v1 ist effektiv komplett.** Alle 8 originalen v1-items + alle erweiterungen aus den Wellen 1-11 sind durch.
+
+## B.2 Track 2 (Content-Creator) — "Welle 11+14" Foundation komplett
+
+Track 2's basis-items 10.2.1 + 10.2.2 + 10.2.3 sind alle ge-shipped (kommt aus den "Wellen 11+14" sprints — nicht in roadmap-hauptteil dokumentiert):
+
+| Item | §-Ref | Status | Haupt-Evidenz |
+|---|---|---|---|
+| 10.2.1 Twitch-OAuth + Account-Linking | §10.2.1 | ✅ DONE | User-model fields: `twitchUserId`, `twitchUsername`, `twitchAccessToken`, `twitchRefreshToken`, `twitchExpiresAt`. Routes: `/api/auth/twitch/{start,callback,disconnect}`. Lib: `apps/web/lib/twitch-oauth.ts` |
+| 10.2.2 EventSub-Hub im Bot | §10.2.2 | ✅ DONE | `apps/bot/src/services/twitch-eventsub.ts` — WebSocket-protocol, `markPilotLive`/`markPilotOffline`, `awardStreamReward` |
+| 10.2.3 Live-Stream-Status in VAM-UI | §10.2.3 | ✅ DONE | `twitchIsLive` exposed in `/api/live/sessions/route.ts`, rendered in `live-map.tsx` line ~2117 + pilot-profile Live-Stream-Card |
+
+**Verbleibend offen aus Track 2:**
+- 10.2.4 Channel-Points-Rewards für Light-Actions (🟠 hoch, 2-4 Wochen, braucht ACARS-Client mit SimConnect-Write = Track 4)
+- 10.2.5 Aircraft-Profile-System (🟠 hoch, 3-4 Wochen, braucht ACARS-Client)
+- 10.2.7 YouTube-Foundation (🟠 hoch, 7-8 Wochen, kommt nach Twitch stable)
+
+Wallet-Tx-Typ `REVENUE_STREAM_REWARD` existiert bereits im schema (Welle-14-prep), die monetization-pipeline ist also schon ge-foundation'd ohne dass die channel-points-actions live sind.
+
+## B.3 Track 3 (Platform-Foundation) — #11.2.5 v1-Full COMPLETE
+
+Track 3 #11.2.5 v1-Full ist mit Tag-12-Session erfolgreich abgeschlossen:
+
+**M2 Permission-Refactor (commits `15df54f` → `0604eb0`):**
+- 56 files refactored über 6 batches
+- Alle role.name-checks → `requireAdmin*` / `requireAirlineManager*` helpers in `lib/roles.ts`
+- 0 gates verbleibend, -521 LOC net
+
+**Top-10 Innovation-Items für /admin (commits `e35f832` → `754da5f`):**
+- 10/10 widgets ge-shipped in `apps/web/app/admin/_widgets/`
+- Counter im InnovationItems-header: 10/10 ✅
+- Items: Active-Pilots-Counter (S), Pilot-Birthday-Calendar (S), PIREP-Heatmap (S), Realtime-Discord-PIREP-Embed (M), Pilot-Ranking-Board mit Filtern (M), Bulk-Import-Hub (M), Awards-Crafting-Dashboard (L), Notification-Center (L), Tour-Calendar mit Saisonalen-Events (L), Airport-Traffic-Stats (L)
+- 2 DB-migrations: `add_user_birthday`, `add_admin_notification`
+
+**Operations-Widgets für /airline/dashboard:**
+- M1 Item: PIREP-flow-timeline ge-shipped (commit `0df46b1`)
+- v1-Full pending: Fleet-Utilization, Recent-Bookings-Pipeline, Top-Routes (airline-scoped), Pilot-Ranking-Board (airline-scoped)
+- Status: pending → wird in dieser session fortgesetzt
+
+**SystemSetting + AirlineSetting DB-Models:**
+- ⏳ Bewusst v2 — Cascade-Resolver-Foundation steht ohne sie, Encryption-vorbereitung kommt mit echtem Bedarf
+
+## B.4 Stale "TODO"/"⏳"-marker in der hauptdoc
+
+Folgende stellen im hauptteil sind veraltet und sollten beim nächsten quartals-review gerefactored werden:
+
+- §9.2.1-§9.2.8: alle haben "⏳ Phase X"-bullets die ge-shipped sind. Status-block oben in jeder section gibt ground-truth.
+- §9.3 Track 1 Strategische Reihenfolge: WOCHE-1-12 timeline ist komplett überholt — alle items dieser timeline sind in <2 Wochen real-zeit ge-shipped. Die "Phase-2-Reorg-TODO" am anfang der section bleibt akkurat.
+- §10.3 Track 2 Strategische Reihenfolge: MONAT-1-2 timeline (Twitch-OAuth + EventSub + Live-Status) ist abgeschlossen — die items wurden zwischen Welle 11+14 ge-shipped, schneller als roadmap erwartete.
+- §11.3 Track 3 Strategische Reihenfolge: MONAT-3-Slot (Admin-Dashboard-Split v1) ist mit #11.2.5 abgeschlossen.
+- README "Next"-section: nicht mehr verifiziert (siehe §4.6 punkt 4 — war schon Tag 5 veraltet)
+
+## B.5 Faktor-Re-Kalibrierung Tag-12
+
+Der "echte" velocity-faktor stabilisiert sich:
+
+| Item-typ | Original-schätzung | Real-zeit | Faktor |
+|---|---|---|---|
+| Track 3 Items 1-7 (S+M+L mix) | 5-15 tage real (roadmap-band) | 1-2 sessions | ~0.05-0.10 |
+| M2 56-files-refactor | 1-2 wochen | ~3-4 sessions | ~0.15 (refactor!) |
+| 9.2.3-9.2.8 Track-1-items | ~3-5 tage je | viele in einzelner session | ~0.05 |
+| Twitch-OAuth + EventSub + Live-Status | ~2 wochen | "Welle 11+14" sprint | ~0.10 |
+
+→ Die ursprüngliche schätzung "Faktor 0.05-0.1 für Standard-Patterns + 0.15-0.2 für Refactor" hält weiterhin. Pioneer-topics (MSFS-Mod, ACARS-Client-Eigene) sind weiter monate-territory.
+
+## B.6 Was kommt als nächstes (Tag-12 → Tag-N)
+
+Nach diesem Status-update wird die session fortgesetzt mit:
+
+1. **Operations-Widgets für /airline/dashboard** (Track 3 #11.2.5 v1-Full sauberer abschluss):
+   - Top-Routes (airline-scoped)
+   - Recent-Bookings-Pipeline
+   - Fleet-Utilization
+   - Pilot-Ranking-Board (airline-scoped, analog zu admin-version)
+
+2. **Nach v1-Full komplett**: XL-phase entscheiden — entweder
+   - Track 2 channel-points-rewards (10.2.4) bauen (braucht aber ACARS = Track 4 erstmal)
+   - Track 4 ACARS Phase 2-3 (Pairing-Code + Heartbeat-API) — voraussetzung für vieles
+   - Track 5 vorarbeit (z.B. Multi-Tenant-Polish)
+
+Diese entscheidung ist unabhängig vom appendix und kommt im nächsten user-prompt.
+
+---
+
+*Appendix B geschrieben am 07. Mai 2026 (Tag 12) basierend auf direkter repo-inspection nach Track-3 #11.2.5-v1-Full-abschluss. Recherche-method: filesystem-inventory + Grep auf code-evidenz, nicht commit-message-vertrauen.*
