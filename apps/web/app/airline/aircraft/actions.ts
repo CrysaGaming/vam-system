@@ -1,7 +1,7 @@
 'use server';
 
-import { auth } from '@/auth';
 import { prisma, AircraftStatus } from '@vam/db';
+import { requireAirlineManagerWithAirline } from '@/lib/roles';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 
@@ -50,26 +50,7 @@ import { z } from 'zod';
  * - Per-aircraft SimBrief-overlay-edit → Welle 6+
  * - Maintenance-history mit grund/dauer → Welle 7+ (operational depth)
  */
-const AIRLINE_MANAGER_ROLES = ['admin', 'airline-admin', 'instructor'];
-
-async function requireAirlineAdmin() {
-  const session = await auth();
-  if (!session?.user) throw new Error('unauthorized');
-
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    include: { role: true },
-  });
-
-  if (!user?.role || !AIRLINE_MANAGER_ROLES.includes(user.role.name)) {
-    throw new Error('forbidden');
-  }
-  if (!user.airlineId) {
-    throw new Error('no-airline');
-  }
-
-  return { user, airlineId: user.airlineId };
-}
+const requireAirlineAdmin = requireAirlineManagerWithAirline;
 
 // ─────────────────────────────────────────────────────────────────────────
 // Add Aircraft

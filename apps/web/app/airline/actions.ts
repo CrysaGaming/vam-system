@@ -1,7 +1,7 @@
 'use server';
 
-import { auth } from '@/auth';
 import { prisma } from '@vam/db';
+import { requireAirlineManagerWithAirline } from '@/lib/roles';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 
@@ -18,8 +18,6 @@ import { z } from 'zod';
  * - instructor: Trainer-rolle, hat lt. Kevin's design auch zugriff zur
  *   airline-verwaltung (kann new members onboarden + roles assignen).
  */
-const AIRLINE_MANAGER_ROLES = ['admin', 'airline-admin', 'instructor'];
-
 /**
  * Airline-management gate scoped to a specific airline. Returns the user
  * along with their airlineId so callers don't need a second query.
@@ -31,24 +29,7 @@ const AIRLINE_MANAGER_ROLES = ['admin', 'airline-admin', 'instructor'];
  * Das "scoped to airline" matters: ein global-admin ohne airline-zuordnung
  * hat hier nichts zu verwalten — der panel ist airline-internal.
  */
-async function requireAirlineAdmin() {
-  const session = await auth();
-  if (!session?.user) throw new Error('unauthorized');
-
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    include: { role: true },
-  });
-
-  if (!user?.role || !AIRLINE_MANAGER_ROLES.includes(user.role.name)) {
-    throw new Error('forbidden');
-  }
-  if (!user.airlineId) {
-    throw new Error('no-airline');
-  }
-
-  return { user, airlineId: user.airlineId };
-}
+const requireAirlineAdmin = requireAirlineManagerWithAirline;
 
 export type AirlineMember = {
   id: string;

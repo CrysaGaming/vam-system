@@ -1,7 +1,7 @@
 'use server';
 
-import { auth } from '@/auth';
 import { prisma, EmploymentStatus } from '@vam/db';
+import { requireAirlineManagerWithAirline } from '@/lib/roles';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 
@@ -24,26 +24,7 @@ import { z } from 'zod';
  * - Bulk-actions (multi-select status-change) → wenn user-feedback es will
  * - Pilot-detail-drawer mit history-graph → später
  */
-const AIRLINE_MANAGER_ROLES = ['admin', 'airline-admin', 'instructor'];
-
-async function requireAirlineAdmin() {
-  const session = await auth();
-  if (!session?.user) throw new Error('unauthorized');
-
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    include: { role: true },
-  });
-
-  if (!user?.role || !AIRLINE_MANAGER_ROLES.includes(user.role.name)) {
-    throw new Error('forbidden');
-  }
-  if (!user.airlineId) {
-    throw new Error('no-airline');
-  }
-
-  return { user, airlineId: user.airlineId };
-}
+const requireAirlineAdmin = requireAirlineManagerWithAirline;
 
 // ─────────────────────────────────────────────────────────────────────────
 // List personnel mit performance-stats

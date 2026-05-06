@@ -1,7 +1,7 @@
 'use server';
 
-import { auth } from '@/auth';
 import { prisma } from '@vam/db';
+import { requireAirlineManagerWithAirline } from '@/lib/roles';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { haversineKm } from '@/lib/flight-phase';
@@ -15,26 +15,7 @@ import { haversineKm } from '@/lib/flight-phase';
  * requireAirlineAdmin aus airline/actions.ts geexportiert würde, wäre er
  * accidentally callable als action.
  */
-const AIRLINE_MANAGER_ROLES = ['admin', 'airline-admin', 'instructor'];
-
-async function requireAirlineAdmin() {
-  const session = await auth();
-  if (!session?.user) throw new Error('unauthorized');
-
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    include: { role: true },
-  });
-
-  if (!user?.role || !AIRLINE_MANAGER_ROLES.includes(user.role.name)) {
-    throw new Error('forbidden');
-  }
-  if (!user.airlineId) {
-    throw new Error('no-airline');
-  }
-
-  return { user, airlineId: user.airlineId };
-}
+const requireAirlineAdmin = requireAirlineManagerWithAirline;
 
 // ─────────────────────────────────────────────────────────────────────────
 // Distance helper — km → NM conversion

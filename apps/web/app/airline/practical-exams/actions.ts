@@ -1,11 +1,11 @@
 'use server';
 
-import { auth } from '@/auth';
 import {
   prisma,
   passPracticalExam,
   failPracticalExam,
 } from '@vam/db';
+import { requireAirlineManagerWithAirline } from '@/lib/roles';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 
@@ -35,28 +35,11 @@ import { z } from 'zod';
  *   - /licenses (pilot's licenses-page wenn pass → license erscheint)
  */
 
-const AIRLINE_MANAGER_ROLES = ['admin', 'airline-admin', 'instructor'];
-
 /**
  * Auth-gate. Returns user + airlineId. Wirft bei: keine session,
  * unzureichende rolle, keine airline-zuordnung.
  */
-async function requireInstructor() {
-  const session = await auth();
-  if (!session?.user) throw new Error('unauthorized');
-
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    include: { role: true },
-  });
-  if (!user?.role || !AIRLINE_MANAGER_ROLES.includes(user.role.name)) {
-    throw new Error('forbidden');
-  }
-  if (!user.airlineId) {
-    throw new Error('no-airline');
-  }
-  return { user, airlineId: user.airlineId };
-}
+const requireInstructor = requireAirlineManagerWithAirline;
 
 /**
  * Verifies that the enrollment's pilot belongs to the same airline as the
