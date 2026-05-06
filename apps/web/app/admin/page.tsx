@@ -3,6 +3,7 @@ import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/ca
 import { requireAdminPage } from '@/lib/roles';
 import { ActivePilotsCounter } from './_widgets/active-pilots-counter';
 import { PilotBirthdayCalendar } from './_widgets/pilot-birthday-calendar';
+import { PirepHeatmap } from './_widgets/pirep-heatmap';
 
 /**
  * Track 3 #11.2.5 v1-Full Innovation-Items aus
@@ -11,7 +12,7 @@ import { PilotBirthdayCalendar } from './_widgets/pilot-birthday-calendar';
  *
  *   1. ✅ 9.1.13 Active-Pilots-Counter (Live)            [S]
  *   2. ✅ 9.1.14 Pilot-Birthday-Calendar                 [S]
- *   3. ⏳ 9.1.1  PIREP-Heatmaps                          [S]
+ *   3. ✅ 9.1.1  PIREP-Heatmaps                          [S]
  *   4. ⏳ 9.2.10 Realtime-Discord-PIREP-Embed            [M]
  *   5. ⏳ 9.2.5  Pilot-Ranking-Board mit Filtern         [M]
  *   6. ⏳ 9.2.15 Bulk-Import-Wizards                     [M]
@@ -157,7 +158,7 @@ function InnovationItems() {
       <header className="flex items-baseline gap-3 border-b border-gray-200 dark:border-gray-800 pb-2">
         <h2 className="text-lg font-semibold">Innovation-Items</h2>
         <span className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-          2 / 10 — Track 3 #11.2.5 v1-Full
+          3 / 10 — Track 3 #11.2.5 v1-Full
         </span>
       </header>
 
@@ -165,6 +166,8 @@ function InnovationItems() {
         <ActivePilotsCounter />
         <PilotBirthdayCalendar />
       </div>
+
+      <PirepHeatmap />
     </section>
   );
 }
