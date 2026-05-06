@@ -1957,7 +1957,7 @@ v2-VISION (kommt nach v1):
   - Theme-Switcher (Light/Dark/System)
 ```
 
-#### 11.2.5 Admin-Dashboard-Split (Server vs Airline)
+#### 11.2.5 Admin-Dashboard-Split (Server vs Airline) 🟨 v1 foundation done
 
 ```
 WAS:
@@ -1972,6 +1972,34 @@ AUFWAND: 3-4 Wochen real für v1
 DEPENDENCIES:
   ✅ Sidebar-Layout (11.2.4)
   ✅ Permission-Strings im Schema
+
+STATUS (2026-05-06):
+  🟨 v1 Foundation-Slice geshipped (cc-experiment → main):
+     ✅ lib/permissions.ts — typed Permission-Resolver (hasPermission/
+        hasAnyPermission/hasAllPermissions, PERMISSIONS-Konstanten,
+        Wildcard-* Support). NICHT in den 25 gegateten files genutzt —
+        die behalten ihre role.name-checks bis zum gezielten Refactor-
+        Ticket.
+     ✅ lib/settings-cascade.ts — generischer N-level Cascade-Resolver
+        (resolveCascade / resolveCascadeStrict). Pattern aus
+        resolveSimBriefOverlay extrahiert + variadic.
+     ✅ /admin/page.tsx Skelett-Landing (vorher 404). Cards für die
+        bestehenden /admin/*-routes + TODO-bereich für Innovation-Items.
+     ✅ /airline/dashboard/page.tsx Skelett-Landing (separat von
+        /airline = Settings-Form). KPIs (member/fleet/route/PIREP-count)
+        + Cards für /airline/*-routes + TODO-bereich für Operations-
+        Widgets.
+     ✅ Sidebar-NavLinks für beide Dashboards.
+
+  ⏳ v1 Full pending (eigene Tickets):
+     - 25-files-Permission-Refactor: role.name-checks → hasPermission().
+       Jeder Gate inhaltlich neu entscheiden (Permission-Mapping).
+     - Top-10-Innovation-Items für /admin (Auswahl aus vision-doc §9 ~30
+       options). Item-Selection ist Design-Gespräch.
+     - Operations-Widgets für /airline/dashboard (PIREP-flow-timeline,
+       fleet-utilization, recent-bookings, top-routes — vision-doc §7.3).
+     - SystemSetting + AirlineSetting DB-Models (v2-Encryption-Vorberei-
+       tung — Cascade-Resolver-Foundation steht bereits ohne sie).
 
 v1-DEFINITION (siehe admin-dashboards-vision.md Section 11):
   - Server-Admin-Dashboard mit Top-10-Innovation-Items

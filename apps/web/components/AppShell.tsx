@@ -812,6 +812,11 @@ function Sidebar({ user, pathname }: SidebarProps) {
             nichts zu tun (selbe logik wie alter Admin-sektor). */}
         {user.canManageAirline && user.hasAirline && (
           <NavSection title="Airline-Admin">
+            {/* Track 3 #11.2.5 Foundation: Dashboard-landing für airline-
+                admins. Bewusst SEPARAT von /airline (= Settings-Form +
+                MemberTable, bestehend) damit non-destruktiv. Steht oben
+                weil's konzeptionell der einstiegs-überblick ist. */}
+            <NavLink href="/airline/dashboard" pathname={pathname} icon="📊" label="Dashboard" />
             <NavLink href="/airline" pathname={pathname} icon="🏢" label="Airline-Verwaltung" exact />
             {/* Welle 13D-4: Airline-Finanzen. Nur sichtbar wenn die airline
                 economy-toggle ON ist UND der user canManageAirline ist
@@ -861,6 +866,9 @@ function Sidebar({ user, pathname }: SidebarProps) {
             )}
             {user.isAdmin && (
               <>
+                {/* Track 3 #11.2.5 Foundation: /admin landing-page (vorher
+                    war /admin ein 404). Steht oben im admin-only-block. */}
+                <NavLink href="/admin" pathname={pathname} icon="🛠️" label="Server-Admin" exact />
                 <NavLink href="/admin/stats" pathname={pathname} icon="📊" label="Statistiken" />
                 <NavLink href="/admin/pilots" pathname={pathname} icon="👥" label="Alle Piloten" />
                 <NavLink href="/admin/requests" pathname={pathname} icon="📥" label="Requests" />
