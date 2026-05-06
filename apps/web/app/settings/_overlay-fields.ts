@@ -15,7 +15,11 @@ import type { SimBriefOverlay } from '@/lib/simbrief/overlay';
  * Field types:
  *   - 'number'  → <input type="number">
  *   - 'text'    → <input type="text">
- *   - 'select'  → <select> with options
+ *   - 'select'  → shadcn <Select> with options. Auto/default options
+ *                 keep `value: ''` here; the cards map to/from a
+ *                 sentinel via toSelectValue/fromSelectValue (siehe
+ *                 unten) weil Radix-Select kein leerer string als
+ *                 item-value akzeptiert.
  *
  * Empty inputs are stripped at submit time (no key in the JSON),
  * which equals "no override at this level" — different from
@@ -276,6 +280,33 @@ export const SECTIONS: Section[] = [
     ],
   },
 ];
+
+/**
+ * Sentinel-value für shadcn-Select bei "Auto/Default" options. Radix-
+ * Select reserviert intern den leeren string und akzeptiert ihn nicht
+ * als Item-value. Unsere Form-data nutzt aber `''` als "kein override"
+ * marker (siehe formValuesToOverlay — strippt empty strings raus).
+ *
+ * Lösung: am UI-layer mappen wir form '' ↔ select '__auto__'. Die
+ * options-arrays in SECTIONS behalten `value: ''` als kanonisches
+ * format; die card-components mappen via toSelectValue/fromSelectValue
+ * beim rendern.
+ *
+ * Warum nicht direkt die options auf '__auto__' umstellen: würde formValuesToOverlay() brechen, der auf `''` als strip-marker zählt,
+ * und macht den schema-roundtrip unklar. Sentinel-mapping bleibt isoliert
+ * in der UI-schicht.
+ */
+export const SELECT_AUTO_VALUE = '__auto__';
+
+/** Form-value (`''` für auto) → Select-value (`'__auto__'` für auto). */
+export function toSelectValue(formValue: string): string {
+  return formValue === '' ? SELECT_AUTO_VALUE : formValue;
+}
+
+/** Select-value (`'__auto__'` für auto) → Form-value (`''` für auto). */
+export function fromSelectValue(selectValue: string): string {
+  return selectValue === SELECT_AUTO_VALUE ? '' : selectValue;
+}
 
 /**
  * Convert an initial typed overlay to string-form values for the

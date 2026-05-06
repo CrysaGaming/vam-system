@@ -8,8 +8,14 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { ConfirmDialog } from '@/components/confirm-dialog';
-import { cn } from '@/lib/utils';
 import type { SimBriefOverlay } from '@/lib/simbrief/overlay';
 
 import { updateAircraftSimBriefOverlay } from './actions';
@@ -17,6 +23,8 @@ import {
   SECTIONS,
   overlayToFormValues,
   formValuesToOverlay,
+  toSelectValue,
+  fromSelectValue,
 } from './_overlay-fields';
 
 interface AircraftSummary {
@@ -129,20 +137,6 @@ export function AircraftOverlayCard({ initial }: Props) {
   };
 
   const populatedCount = Object.values(values).filter((v) => v !== '').length;
-
-  // Tailwind-classes für native <select> die optisch mit shadcn's <Input>
-  // matchen. Kein shadcn-Select primitive verwendet weil Radix-Select kein
-  // value="" erlaubt (interne reservation), aber overlay-options haben
-  // value: '' für "Auto/default". Migration auf shadcn-Select kommt als
-  // separater sweep über aircraft+route+fleet overlay-cards mit sentinel-
-  // value-translation in _overlay-fields.
-  const selectClass = cn(
-    'flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm',
-    'shadow-xs transition-[color,box-shadow] outline-none',
-    'focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50',
-    'disabled:cursor-not-allowed disabled:opacity-50',
-    'dark:bg-input/30',
-  );
 
   return (
     <Card className="gap-4 p-6">
@@ -257,21 +251,32 @@ export function AircraftOverlayCard({ initial }: Props) {
                           {f.label}
                         </Label>
                         {f.type === 'select' ? (
-                          <select
-                            id={fieldId}
-                            value={values[f.key as string] ?? ''}
-                            onChange={(e) =>
-                              setField(f.key as string, e.target.value)
+                          <Select
+                            value={toSelectValue(
+                              values[f.key as string] ?? '',
+                            )}
+                            onValueChange={(v) =>
+                              setField(f.key as string, fromSelectValue(v))
                             }
-                            className={selectClass}
                             disabled={isPending}
                           >
-                            {f.options.map((o) => (
-                              <option key={o.value} value={o.value}>
-                                {o.label}
-                              </option>
-                            ))}
-                          </select>
+                            <SelectTrigger
+                              id={fieldId}
+                              className="w-full"
+                            >
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {f.options.map((o) => (
+                                <SelectItem
+                                  key={o.value}
+                                  value={toSelectValue(o.value)}
+                                >
+                                  {o.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                         ) : (
                           <Input
                             id={fieldId}

@@ -8,6 +8,13 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { cn } from '@/lib/utils';
 import type { SimBriefOverlay } from '@/lib/simbrief/overlay';
@@ -17,6 +24,8 @@ import {
   SECTIONS,
   overlayToFormValues,
   formValuesToOverlay,
+  toSelectValue,
+  fromSelectValue,
 } from './_overlay-fields';
 
 interface RouteSummary {
@@ -130,17 +139,6 @@ export function RouteOverlayCard({ initial }: Props) {
   const routesWithOverridesCount = routes.filter(
     (r) => r.populatedCount > 0,
   ).length;
-
-  // Selectstyling-class — siehe Note in aircraft-overlay-card.tsx (selber
-  // pattern: shadcn-Select kommt in eigenem sweep wenn _overlay-fields
-  // sentinel-values bekommt).
-  const selectClass = cn(
-    'flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm',
-    'shadow-xs transition-[color,box-shadow] outline-none',
-    'focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50',
-    'disabled:cursor-not-allowed disabled:opacity-50',
-    'dark:bg-input/30',
-  );
 
   return (
     <Card className="gap-4 p-6">
@@ -261,21 +259,32 @@ export function RouteOverlayCard({ initial }: Props) {
                           {f.label}
                         </Label>
                         {f.type === 'select' ? (
-                          <select
-                            id={fieldId}
-                            value={values[f.key as string] ?? ''}
-                            onChange={(e) =>
-                              setField(f.key as string, e.target.value)
+                          <Select
+                            value={toSelectValue(
+                              values[f.key as string] ?? '',
+                            )}
+                            onValueChange={(v) =>
+                              setField(f.key as string, fromSelectValue(v))
                             }
-                            className={selectClass}
                             disabled={isPending}
                           >
-                            {f.options.map((o) => (
-                              <option key={o.value} value={o.value}>
-                                {o.label}
-                              </option>
-                            ))}
-                          </select>
+                            <SelectTrigger
+                              id={fieldId}
+                              className="w-full"
+                            >
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {f.options.map((o) => (
+                                <SelectItem
+                                  key={o.value}
+                                  value={toSelectValue(o.value)}
+                                >
+                                  {o.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                         ) : (
                           <Input
                             id={fieldId}
