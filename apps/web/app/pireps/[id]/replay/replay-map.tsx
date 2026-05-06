@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useRef, useMemo, useCallback } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import Map, {
   Marker,
   Source,
@@ -172,9 +173,38 @@ export function ReplayMap({
   pirepId: string;
   mapboxToken: string;
 }) {
-  const [data, setData] = useState<ApiResult | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // ─── Track 3 #11.2.3 vNext: TanStack Query demo ──────────────────
+  // Vorher: useState<ApiResult>(null) + useState(true) + useState(null)
+  // + useEffect mit cancelled-flag, ~28 zeilen für ein simples GET.
+  // Jetzt: ein useQuery hook gibt uns data/loading/error inkl.
+  // automatischem cleanup, dedup über mehrere component-mounts (z.B.
+  // wenn der replay tab gewechselt wird und zurück), und retry-on-
+  // failure (default 3x mit exponential backoff) — alles ohne extra
+  // code. queryKey = ['pirep-replay', pirepId] sorgt dafür dass jede
+  // pirep-id einen eigenen cache-eintrag bekommt.
+  //
+  // Destructure-alias hält die downstream-API stabil: data, loading,
+  // error sind die gleichen variable-namen wie vorher, der rest der
+  // component (line ~219 onwards) muss nichts ändern.
+  const {
+    data = null,
+    isLoading: loading,
+    error: queryError,
+  } = useQuery({
+    queryKey: ['pirep-replay', pirepId],
+    queryFn: async () => {
+      const res = await fetch(`/api/pireps/${pirepId}/replay`, {
+        cache: 'no-store',
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return (await res.json()) as ApiResult;
+    },
+  });
+  const error = queryError
+    ? queryError instanceof Error
+      ? queryError.message
+      : 'Fetch failed'
+    : null;
 
   const [frameIndex, setFrameIndex] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -183,35 +213,6 @@ export function ReplayMap({
 
   const mapRef = useRef<MapRef>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  // ─── Fetch on mount ─────────────────────────────────────────────
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch(`/api/pireps/${pirepId}/replay`, {
-          cache: 'no-store',
-        });
-        if (!res.ok) {
-          if (!cancelled) setError(`HTTP ${res.status}`);
-          return;
-        }
-        const json = (await res.json()) as ApiResult;
-        if (!cancelled) {
-          setData(json);
-          setLoading(false);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Fetch failed');
-          setLoading(false);
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [pirepId]);
 
   // ─── Initial fit-bounds wenn data da ist ────────────────────────
   useEffect(() => {
