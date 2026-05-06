@@ -22,18 +22,46 @@
 /* Track 3 #11.2.4 Phase 3 mobile-drawer responsive classes. Die sidebar
    nutzt ein `fixed lg:static`-pattern damit sie auf mobile als drawer
    eingleitet (fixed) und auf desktop als normal column im flex-row
-   (static) sitzt. Tailwind v4's auto-detection picked die `lg:`-prefixes
-   für template-string-classes wieder mal nicht zuverlässig auf — das
-   führt dazu dass auf desktop die sidebar fixed bleibt und mit
-   `inset-y-0 left-0 z-50 lg:translate-x-0` als overlay über dem main-
-   content sitzt statt links daneben. Resultat: dashboard wird komplett
-   verdeckt von der sidebar.
+   (static) sitzt.
 
-   Verifiziert durch grep auf .next/dev/static/chunks/*.css:
-   `translate-x-full` ist im bundle, aber `lg:static` / `lg:z-auto` /
-   `lg:translate-x-0` / `lg:overflow-visible` sind ALLE absent.
-   Workaround: explizit safelisten. */
-@source inline("lg:static lg:z-auto lg:translate-x-0 lg:overflow-visible");
+   Tailwind v4 + Turbopack im DEV-mode ignoriert die @source inline()-
+   directive für `lg:`-prefixed classes komplett — verifiziert durch:
+     curl https://vam.kevindrack.de/_next/static/chunks/[root-of-the-server]__00ekqvr._.css
+     → grep -c lg:static       = 0
+     → grep -c lg:py-8         = 0  (← war angeblich \"safelisted\")
+     → grep -c lg:grid-cols-2  = 0  (← war angeblich \"safelisted\")
+   Der production-build (next build) liefert sie korrekt aus, aber der
+   dev-server (next dev / Turbopack) skipped sie — selbst nach komplettem
+   .next/cache + .next/dev wipe und kalt-restart.
+
+   Konsequenz für den user: auf desktop blieb die sidebar `fixed inset-y-0
+   left-0 z-50` und überlagerte das main-content. Hard-refresh + ctrl-f5
+   half nichts weil der dev-server selbst das CSS ohne diese classes
+   serviert.
+
+   Workaround: hardcoded raw CSS rules im selben pattern wie die schon
+   existierende `.lg\:grid-cols-2`-rule am ende dieser file (siehe dort
+   für ausführliche begründung). Das bypassed Tailwind komplett und
+   garantiert dass die rules im output-bundle landen, egal was das
+   detection-system gerade tut. */
+@media (min-width: 64rem) {
+  .lg\:static {
+    position: static;
+  }
+  .lg\:z-auto {
+    z-index: auto;
+  }
+  /* lg:translate-x-0 muss die selben CSS-vars wie Tailwind v4 setzen
+     damit die transition-transform animation (vom flag-toggle auf
+     mobile) auf desktop nicht mit -translate-x-full konfligiert. */
+  .lg\:translate-x-0 {
+    --tw-translate-x: 0;
+    translate: var(--tw-translate-x) var(--tw-translate-y);
+  }
+  .lg\:overflow-visible {
+    overflow: visible;
+  }
+}
 
 /* Page-level responsive layout safelist. Same Tailwind v4 + Turbopack
    detection-bug pattern as oben — arbitrary max-w values + responsive
