@@ -4,6 +4,7 @@ import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { useState, useEffect, useRef } from 'react';
 import { ThemeToggle } from './Theme';
+import { useUIStore } from '@/lib/stores/ui-store';
 
 export type ShellUser = {
   name: string | null;
@@ -758,75 +759,82 @@ function Sidebar({ user, pathname }: SidebarProps) {
 }
 
 /**
- * Collapsible nav-section mit localStorage-persistierung pro section.
+ * Collapsible nav-section.
  *
- * Default: alle sections expanded. Wenn der user eine section collapsed,
- * wird das in `localStorage` gespeichert unter key `vam:sidebar-collapsed:
- * <title>` mit value '1'. Beim nächsten render (auch nach reload) liest
- * useEffect nach mount den state aus localStorage zurück.
+ * # Track 3 #11.2.3 vNext Block C: store-migration
  *
- * SSR-strategie: initial state ist immer `false` (= expanded) damit
- * server-render und initial client-render IDENTISCH sind — sonst gäbe
- * es einen hydration-mismatch (server kennt localStorage nicht). Erst
- * nach mount syncen wir den persisted-state. Das führt zu einem mini-
- * flash beim ersten render: wenn der user eine section collapsed hatte,
- * sieht er sie kurz expanded bevor sie nach hydration einklappt. Das
- * ist akzeptabel weil die alternative (suppressHydrationWarning oder
- * cookie-based persist) deutlich mehr complexity bringt für minimal
- * besseres UX.
+ * Vorher hatte jede NavSection ihren eigenen useState + useEffect-load
+ * + manuelles localStorage.setItem/.removeItem mit try/catch um SSR-
+ * edge-cases. Storage-key war `vam:sidebar-collapsed:<title>`.
  *
- * Storage-key inkludiert den title — dadurch kann jede section unab-
- * hängig collapsed werden. Title-changes (z.B. \"Airline\" → \"Flotte\")
- * würden den state resetten weil der key sich ändert; das ist okay
- * weil section-title-changes selten sind.
+ * Jetzt: useUIStore.sidebarCollapsed[title] (Map: section → collapsed).
+ * Persist-middleware kapselt das localStorage-handling (key:
+ * 'vam:ui-store'). Setter ist toggleSidebar(title) — atomic,
+ * type-safe, kein manuelles set/remove.
  *
- * Defensive try/catch um localStorage-zugriffe: SSR-environments oder
- * private-mode browsers können den storage werfen. Bei error fällt
- * die section auf default (expanded) zurück und persistiert nicht —
- * UX bleibt funktional, nur die persistenz ist weg.
+ * **Storage-format-bruch:** alte keys `vam:sidebar-collapsed:*` werden
+ * NICHT migriert. Beim ersten reload nach diesem deployment haben alle
+ * user wieder default-expanded sections. Das ist ok weil:
+ *   - Die collapsed-states sind ein UX-convenience, kein kritischer
+ *     state-verlust.
+ *   - Eine migrations-funktion (alte keys lesen + in den store mergen
+ *     + alte keys löschen) wäre 30+ zeilen für eine einmalige
+ *     transition.
+ *   - User collapsen sections wieder beim nächsten use, dann ist's wie
+ *     vorher.
  *
- * Welle 13E-Sidebar: keyboard-a11y via button + aria-expanded, click
- * auf den header toggled. Chevron rotiert visuell um den state zu
- * signalisieren. Kein animation auf den content selbst — display:none
- * via conditional render statt height-transition, weil height-transitions
- * mit dynamic content (variable-höhe-children) immer flackern oder
- * springen.
+ * # SSR / hydration
+ *
+ * Initial server-render hat keinen access auf localStorage → store-
+ * defaults greifen (alle sections expanded). Auf dem client hydratet
+ * zustand-persist async — wir brauchen einen mounted-flag damit der
+ * erste client-render IDENTISCH zum server-render ist (sonst hydration-
+ * mismatch). Das pattern ist exakt wie vorher, nur ohne den localStorage-
+ * try/catch boilerplate.
+ *
+ * Folge: derselbe mini-flash wie vorher — wenn der user "Flying"
+ * collapsed hatte, zeigt der erste paint expanded, dann fadet's
+ * collapsed nachdem die store-rehydration durch ist. Doc-string
+ * vorher hat das schon erklärt; bleibt unverändert. Akzeptabel
+ * weil die alternative (suppressHydrationWarning oder cookie-based
+ * persist) deutlich mehr complexity kostet.
+ *
+ * # Was unverändert bleibt
+ *
+ * - JSX-output (button + chevron + conditional children render)
+ * - Keyboard-a11y (button + aria-expanded/aria-controls)
+ * - Default-state (expanded — kein eintrag im store === expanded)
+ * - Visuelles UX (chevron-rotation, kein height-transition)
+ *
+ * # Track 3 #11.2.4 verweis
+ *
+ * Die ganze sidebar wird in #11.2.4 neu strukturiert (220px-sidebar
+ * + horizontal-header → vertical-sidebar links). Die collapsed-state-
+ * map bleibt aber kompatibel — das neue layout konsumiert den selben
+ * store-key, nur das wrapper-component drumrum ändert sich.
  */
 function NavSection({ title, children }: { title: string; children: React.ReactNode }) {
-  const storageKey = `vam:sidebar-collapsed:${title}`;
-  const [collapsed, setCollapsed] = useState(false);
-
-  // Lade persisted-state nach mount. useEffect mit empty deps [] läuft
-  // einmal nach initial mount. Wir machen kein dependency auf storageKey
-  // weil der pro section konstant ist — title ist stable für die
-  // lifetime der component.
+  // SSR-hydration-flag: erst nach mount lesen wir den persist-store-
+  // value. Während des initialen server-renders + ersten client-paints
+  // ist `mounted=false` → wir nutzen den default (expanded). Sobald
+  // mounted=true (nach erstem useEffect-tick), liest der selector
+  // den echten persist-state — das löst den eventual-consistent
+  // collapse aus.
+  const [mounted, setMounted] = useState(false);
   useEffect(() => {
-    try {
-      const v = localStorage.getItem(storageKey);
-      if (v === '1') setCollapsed(true);
-    } catch {
-      // localStorage unavailable (private mode, SSR-edge-cases) —
-      // ignore, behalte default-expanded state.
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    setMounted(true);
   }, []);
 
+  // Selektor + setter aus dem store. Selector muss den fallback `?? false`
+  // haben weil `sidebarCollapsed[title]` für unbekannte sections undefined
+  // ist (Record<string, boolean> ist non-exhaustive).
+  const collapsedFromStore = useUIStore((s) => s.sidebarCollapsed[title] ?? false);
+  const toggleSidebar = useUIStore((s) => s.toggleSidebar);
+
+  const collapsed = mounted ? collapsedFromStore : false;
+
   function toggle() {
-    setCollapsed((prev) => {
-      const next = !prev;
-      try {
-        if (next) {
-          localStorage.setItem(storageKey, '1');
-        } else {
-          // Default ist expanded → wenn user expanded, brauchen wir
-          // keinen storage-eintrag (storage-key absent === default).
-          localStorage.removeItem(storageKey);
-        }
-      } catch {
-        // siehe useEffect oben — graceful degrade
-      }
-      return next;
-    });
+    toggleSidebar(title);
   }
 
   return (
