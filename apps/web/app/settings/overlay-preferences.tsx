@@ -18,15 +18,13 @@
  */
 
 import React, { useState, useTransition } from 'react';
-import {
-  updateOverlayLayout,
-  updateOverlayCardPosition,
-  updateOverlayPhaseColors,
-  resetOverlayPhaseColors,
-  updateOverlayBranding,
-  resetOverlayBranding,
-  type OverlayBranding,
-} from './overlay-actions';
+
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { cn } from '@/lib/utils';
 import {
   DEFAULT_PHASE_COLORS,
   OBS_BROWSER_SOURCE_SIZES,
@@ -36,6 +34,16 @@ import {
   type PhaseColor,
   type PhaseColorMap,
 } from '@/lib/overlay-types';
+
+import {
+  updateOverlayLayout,
+  updateOverlayCardPosition,
+  updateOverlayPhaseColors,
+  resetOverlayPhaseColors,
+  updateOverlayBranding,
+  resetOverlayBranding,
+  type OverlayBranding,
+} from './overlay-actions';
 
 const PHASE_LABELS: Record<FlightPhaseId, { label: string; shortLabel: string }> = {
   'preflight':     { label: 'Preflight',      shortLabel: 'PRE' },
@@ -190,12 +198,12 @@ export function OverlayPreferences({
   }
 
   return (
-    <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6">
-      <div className="flex items-baseline justify-between mb-4">
-        <h2 className="text-lg font-semibold m-0">OBS-Overlay Anpassung</h2>
+    <Card className="gap-0 p-6">
+      <div className="mb-4 flex items-baseline justify-between">
+        <h2 className="m-0 text-lg font-semibold">OBS-Overlay Anpassung</h2>
         <SaveStatusBadge status={saveStatus} pending={isPending} />
       </div>
-      <p className="text-sm text-gray-500 dark:text-gray-400 mb-6 mt-0">
+      <p className="mb-6 mt-0 text-sm text-muted-foreground">
         Wähle ein Layout und passe die Farben pro Flight-Phase an.
         Änderungen werden live gespeichert.
       </p>
@@ -257,11 +265,10 @@ export function OverlayPreferences({
                 <div
                   key={phase}
                   onMouseEnter={() => setPreviewPhase(phase)}
-                  className={`flex items-center gap-2 p-2 rounded transition-colors ${
-                    isPreviewing
-                      ? 'bg-gray-100 dark:bg-white/[0.04]'
-                      : 'bg-transparent'
-                  }`}
+                  className={cn(
+                    'flex items-center gap-2 rounded p-2 transition-colors',
+                    isPreviewing ? 'bg-muted/50' : 'bg-transparent',
+                  )}
                 >
                   {/* Phase-pill — uses user-configured colors, stays inline */}
                   <span
@@ -269,11 +276,11 @@ export function OverlayPreferences({
                       background: color.bg,
                       color: color.fg,
                     }}
-                    className="px-2 py-0.5 rounded text-[11px] font-bold tracking-[0.05em] font-mono min-w-[40px] text-center"
+                    className="min-w-[40px] rounded px-2 py-0.5 text-center font-mono text-[11px] font-bold tracking-[0.05em]"
                   >
                     {meta.shortLabel}
                   </span>
-                  <span className="flex-1 text-sm text-gray-700 dark:text-gray-200">
+                  <span className="flex-1 text-sm text-foreground">
                     {meta.label}
                   </span>
                   <ColorInput label="BG" value={color.bg} onChange={(v) => updatePhaseBg(phase, v)} />
@@ -282,27 +289,29 @@ export function OverlayPreferences({
               );
             })}
 
-            <div className="flex gap-2 mt-2">
-              <button
+            <div className="mt-2 flex gap-2">
+              <Button
+                type="button"
                 onClick={handleSaveColors}
                 disabled={isPending}
-                className="flex-1 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white border-0 rounded-md text-sm font-semibold cursor-pointer disabled:opacity-60 disabled:cursor-wait transition"
+                className="flex-1 bg-indigo-600 text-white hover:bg-indigo-700 dark:bg-indigo-600 dark:hover:bg-indigo-700"
               >
                 Farben speichern
-              </button>
-              <button
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
                 onClick={handleResetColors}
                 disabled={isPending}
-                className="px-4 py-2 bg-transparent text-gray-500 dark:text-gray-400 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium cursor-pointer disabled:opacity-60 disabled:cursor-wait transition hover:bg-gray-100 dark:hover:bg-white/[0.04]"
               >
                 Reset
-              </button>
+              </Button>
             </div>
           </div>
 
           {/* Rechte Spalte: Live Preview */}
           <div className="flex flex-col">
-            <div className="text-xs uppercase tracking-[0.05em] text-gray-500 dark:text-gray-500 mb-2">
+            <div className="mb-2 text-xs uppercase tracking-[0.05em] text-muted-foreground">
               Preview ({PHASE_LABELS[previewPhase].label})
             </div>
             <PreviewPanel
@@ -318,51 +327,62 @@ export function OverlayPreferences({
 
       {/* Custom Branding (Welle 10 commit 10D) */}
       <Section title="Custom Branding (optional)">
-        <p className="text-xs text-gray-500 dark:text-gray-400 mb-3 mt-0">
+        <p className="mb-3 mt-0 text-xs text-muted-foreground">
           Eigenes Logo + Farben für deinen Stream. Logo wird oben-links im
           Overlay angezeigt, Primary färbt den Akzent-Rahmen, Accent färbt
           die Phase-Pills wenn keine Phase-spezifische Farbe gesetzt ist.
         </p>
 
-        <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto] gap-3 items-end">
+        <div className="grid grid-cols-1 items-end gap-3 sm:grid-cols-[1fr_auto_auto]">
           {/* Logo URL */}
           <div className="flex flex-col gap-1">
-            <label className="text-[0.7rem] uppercase tracking-[0.05em] text-gray-500 dark:text-gray-500">
+            <Label
+              htmlFor="branding-logo-url"
+              className="text-[0.7rem] uppercase tracking-[0.05em] text-muted-foreground"
+            >
               Logo-URL
-            </label>
-            <input
+            </Label>
+            <Input
+              id="branding-logo-url"
               type="url"
               value={logoUrl}
               onChange={(e) => setLogoUrl(e.target.value)}
               placeholder="https://example.com/logo.png"
-              className="px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-md text-sm text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
               maxLength={500}
             />
           </div>
 
           {/* Primary Color */}
           <div className="flex flex-col gap-1">
-            <label className="text-[0.7rem] uppercase tracking-[0.05em] text-gray-500 dark:text-gray-500">
+            <Label
+              htmlFor="branding-primary-color"
+              className="text-[0.7rem] uppercase tracking-[0.05em] text-muted-foreground"
+            >
               Primary
-            </label>
+            </Label>
             <input
+              id="branding-primary-color"
               type="color"
               value={primaryColor}
               onChange={(e) => setPrimaryColor(e.target.value)}
-              className="w-12 h-9 border border-gray-300 dark:border-gray-700 rounded cursor-pointer p-0 bg-transparent"
+              className="h-9 w-12 cursor-pointer rounded border border-input bg-transparent p-0"
             />
           </div>
 
           {/* Accent Color */}
           <div className="flex flex-col gap-1">
-            <label className="text-[0.7rem] uppercase tracking-[0.05em] text-gray-500 dark:text-gray-500">
+            <Label
+              htmlFor="branding-accent-color"
+              className="text-[0.7rem] uppercase tracking-[0.05em] text-muted-foreground"
+            >
               Accent
-            </label>
+            </Label>
             <input
+              id="branding-accent-color"
               type="color"
               value={accentColor}
               onChange={(e) => setAccentColor(e.target.value)}
-              className="w-12 h-9 border border-gray-300 dark:border-gray-700 rounded cursor-pointer p-0 bg-transparent"
+              className="h-9 w-12 cursor-pointer rounded border border-input bg-transparent p-0"
             />
           </div>
         </div>
@@ -370,11 +390,11 @@ export function OverlayPreferences({
         {/* Logo Preview when set */}
         {logoUrl && (
           <div className="mt-3 flex items-center gap-3">
-            <span className="text-[0.7rem] uppercase tracking-[0.05em] text-gray-500 dark:text-gray-500">
+            <span className="text-[0.7rem] uppercase tracking-[0.05em] text-muted-foreground">
               Vorschau
             </span>
             <div
-              className="px-2 py-1 rounded bg-gray-900 border-l-2 flex items-center gap-2"
+              className="flex items-center gap-2 rounded border-l-2 bg-gray-900 px-2 py-1"
               style={{ borderLeftColor: primaryColor }}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -393,7 +413,7 @@ export function OverlayPreferences({
                 }}
               />
               <span
-                className="text-xs font-mono font-bold"
+                className="font-mono text-xs font-bold"
                 style={{ color: accentColor }}
               >
                 DLH123
@@ -404,40 +424,47 @@ export function OverlayPreferences({
 
         {/* Error message */}
         {brandingError && (
-          <div className="mt-2 text-xs text-red-600 dark:text-red-400">
-            {brandingError === 'invalid_logo_url' &&
-              'Logo-URL ungültig. Muss https://… sein und auf .png/.jpg/.gif/.webp/.svg enden (query-string erlaubt).'}
-            {brandingError === 'invalid_primary_color' &&
-              'Primary-Farbe muss ein 6-stelliger Hex-Code sein (#RRGGBB).'}
-            {brandingError === 'invalid_accent_color' &&
-              'Accent-Farbe muss ein 6-stelliger Hex-Code sein (#RRGGBB).'}
-            {!['invalid_logo_url', 'invalid_primary_color', 'invalid_accent_color'].includes(
-              brandingError,
-            ) && `Fehler: ${brandingError}`}
-          </div>
+          <Alert
+            variant="destructive"
+            className="mt-2 border-red-500/30 bg-red-500/10"
+          >
+            <AlertDescription className="text-xs text-red-700 dark:text-red-300">
+              {brandingError === 'invalid_logo_url' &&
+                'Logo-URL ungültig. Muss https://… sein und auf .png/.jpg/.gif/.webp/.svg enden (query-string erlaubt).'}
+              {brandingError === 'invalid_primary_color' &&
+                'Primary-Farbe muss ein 6-stelliger Hex-Code sein (#RRGGBB).'}
+              {brandingError === 'invalid_accent_color' &&
+                'Accent-Farbe muss ein 6-stelliger Hex-Code sein (#RRGGBB).'}
+              {!['invalid_logo_url', 'invalid_primary_color', 'invalid_accent_color'].includes(
+                brandingError,
+              ) && `Fehler: ${brandingError}`}
+            </AlertDescription>
+          </Alert>
         )}
 
-        <div className="flex gap-2 mt-4">
-          <button
+        <div className="mt-4 flex gap-2">
+          <Button
+            type="button"
             onClick={handleSaveBranding}
             disabled={isPending}
-            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white border-0 rounded-md text-sm font-semibold cursor-pointer disabled:opacity-60 disabled:cursor-wait transition"
+            className="bg-indigo-600 text-white hover:bg-indigo-700 dark:bg-indigo-600 dark:hover:bg-indigo-700"
           >
             Branding speichern
-          </button>
-          <button
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
             onClick={handleResetBranding}
             disabled={isPending}
-            className="px-4 py-2 bg-transparent text-gray-500 dark:text-gray-400 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium cursor-pointer disabled:opacity-60 disabled:cursor-wait transition hover:bg-gray-100 dark:hover:bg-white/[0.04]"
           >
             Reset
-          </button>
+          </Button>
         </div>
       </Section>
 
       {/* Setup-Anleitung */}
       <SetupGuide layout={layout} cardPosition={cardPosition} overlayUrl={overlayUrl} />
-    </div>
+    </Card>
   );
 }
 
@@ -448,7 +475,7 @@ export function OverlayPreferences({
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="mb-6">
-      <h3 className="text-xs uppercase tracking-[0.05em] text-gray-500 dark:text-gray-500 mb-3 mt-0">
+      <h3 className="mb-3 mt-0 text-xs uppercase tracking-[0.05em] text-muted-foreground">
         {title}
       </h3>
       {children}
@@ -457,7 +484,6 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 function LayoutOption({
-  id,
   label,
   description,
   selected,
@@ -471,23 +497,26 @@ function LayoutOption({
 }) {
   return (
     <button
+      type="button"
       onClick={onSelect}
-      className={`flex-1 px-4 py-3 rounded-md cursor-pointer text-left transition-all border ${
+      className={cn(
+        'flex-1 cursor-pointer rounded-md border px-4 py-3 text-left transition-all',
         selected
-          ? 'bg-indigo-500/15 border-indigo-500'
-          : 'bg-gray-50 dark:bg-gray-800 border-gray-300 dark:border-gray-700'
-      }`}
+          ? 'border-indigo-500 bg-indigo-500/15'
+          : 'border-input bg-muted/50 hover:bg-muted',
+      )}
     >
       <div
-        className={`text-sm font-semibold ${
+        className={cn(
+          'text-sm font-semibold',
           selected
             ? 'text-indigo-700 dark:text-indigo-300'
-            : 'text-gray-900 dark:text-white'
-        }`}
+            : 'text-foreground',
+        )}
       >
         {label}
       </div>
-      <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+      <div className="mt-0.5 text-xs text-muted-foreground">
         {description}
       </div>
     </button>
@@ -515,34 +544,38 @@ function PositionOption({
 
   return (
     <button
+      type="button"
       onClick={onSelect}
-      className={`px-3 py-2.5 rounded-md cursor-pointer flex items-center gap-2 transition-all border ${
+      className={cn(
+        'flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2.5 transition-all',
         selected
-          ? 'bg-indigo-500/15 border-indigo-500'
-          : 'bg-gray-50 dark:bg-gray-800 border-gray-300 dark:border-gray-700'
-      }`}
+          ? 'border-indigo-500 bg-indigo-500/15'
+          : 'border-input bg-muted/50 hover:bg-muted',
+      )}
     >
       {/* Mini-Position-Indicator (2×2 Grid) */}
-      <div className="grid grid-cols-2 grid-rows-2 gap-[2px] w-5 h-5">
+      <div className="grid h-5 w-5 grid-cols-2 grid-rows-2 gap-[2px]">
         {positionDot.map((dot, i) => (
           <span
             key={i}
-            className={`text-[10px] leading-[8px] text-center ${
+            className={cn(
+              'text-center text-[10px] leading-[8px]',
               dot === '●'
                 ? 'text-indigo-700 dark:text-indigo-300'
-                : 'text-gray-400 dark:text-gray-600'
-            }`}
+                : 'text-muted-foreground/60',
+            )}
           >
             {dot}
           </span>
         ))}
       </div>
       <span
-        className={`text-[0.8rem] font-medium ${
+        className={cn(
+          'text-[0.8rem] font-medium',
           selected
             ? 'text-indigo-700 dark:text-indigo-300'
-            : 'text-gray-900 dark:text-white'
-        }`}
+            : 'text-foreground',
+        )}
       >
         {label}
       </span>
@@ -561,14 +594,14 @@ function ColorInput({
 }) {
   return (
     <div className="flex items-center gap-1">
-      <span className="text-[0.65rem] text-gray-500 dark:text-gray-500 font-mono">
+      <span className="font-mono text-[0.65rem] text-muted-foreground">
         {label}
       </span>
       <input
         type="color"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-7 h-6 border border-gray-300 dark:border-gray-700 rounded cursor-pointer p-0 bg-transparent"
+        className="h-6 w-7 cursor-pointer rounded border border-input bg-transparent p-0"
       />
     </div>
   );
@@ -583,21 +616,21 @@ function SaveStatusBadge({
 }) {
   if (pending) {
     return (
-      <span className="text-xs text-gray-500 dark:text-gray-400 italic">
+      <span className="text-xs italic text-muted-foreground">
         Speichern...
       </span>
     );
   }
   if (status === 'saved') {
     return (
-      <span className="text-xs text-emerald-700 dark:text-emerald-400 font-semibold">
+      <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">
         ✓ Gespeichert
       </span>
     );
   }
   if (status === 'error') {
     return (
-      <span className="text-xs text-red-600 dark:text-red-400 font-semibold">
+      <span className="text-xs font-semibold text-red-600 dark:text-red-400">
         ✗ Fehler
       </span>
     );
@@ -627,9 +660,9 @@ function SetupGuide({
 
   return (
     <Section title="OBS Setup-Anleitung">
-      <div className="bg-gray-50 dark:bg-black/25 border border-gray-200 dark:border-white/[0.06] rounded-lg p-4">
+      <div className="rounded-lg border border-border bg-muted/50 p-4">
         {/* Schritt-für-Schritt */}
-        <ol className="m-0 mb-5 pl-5 text-sm leading-[1.7] text-gray-700 dark:text-gray-200 list-decimal">
+        <ol className="m-0 mb-5 list-decimal pl-5 text-sm leading-[1.7] text-foreground">
           <li>
             In OBS: <strong>+</strong> unter <strong>Quellen</strong> →{' '}
             <strong>Browser</strong> hinzufügen
@@ -651,13 +684,13 @@ function SetupGuide({
         {/* Custom-URL für aktuelles Layout */}
         {fullUrl && (
           <div className="mb-5">
-            <div className="text-[0.7rem] uppercase tracking-[0.05em] text-gray-500 dark:text-gray-500 mb-1.5">
+            <div className="mb-1.5 text-[0.7rem] uppercase tracking-[0.05em] text-muted-foreground">
               URL für aktuelles Layout
             </div>
-            <div className="font-mono text-xs bg-gray-100 dark:bg-black/40 px-3 py-2.5 rounded text-indigo-700 dark:text-indigo-300 break-all">
+            <div className="break-all rounded bg-background/60 px-3 py-2.5 font-mono text-xs text-indigo-700 dark:text-indigo-300">
               {fullUrl}
             </div>
-            <div className="text-[0.7rem] text-gray-500 dark:text-gray-500 mt-1 italic">
+            <div className="mt-1 text-[0.7rem] italic text-muted-foreground">
               Diese URL überschreibt das Default-Layout aus den Settings via URL-Parameter.
               Praktisch wenn du verschiedene Browser-Sources mit unterschiedlichen Layouts haben willst.
             </div>
@@ -666,17 +699,17 @@ function SetupGuide({
 
         {/* Browser-Source Größen-Tabelle */}
         <div>
-          <div className="text-[0.7rem] uppercase tracking-[0.05em] text-gray-500 dark:text-gray-500 mb-1.5">
+          <div className="mb-1.5 text-[0.7rem] uppercase tracking-[0.05em] text-muted-foreground">
             Browser-Source Größe (an Stream-Auflösung anpassen)
           </div>
-          <div className="grid grid-cols-[1fr_auto_auto] gap-x-4 gap-y-1.5 text-[0.8rem] font-mono">
-            <div className="text-gray-500 dark:text-gray-500 font-semibold">Stream</div>
-            <div className="text-gray-500 dark:text-gray-500 font-semibold">Width</div>
-            <div className="text-gray-500 dark:text-gray-500 font-semibold">Height</div>
+          <div className="grid grid-cols-[1fr_auto_auto] gap-x-4 gap-y-1.5 font-mono text-[0.8rem]">
+            <div className="font-semibold text-muted-foreground">Stream</div>
+            <div className="font-semibold text-muted-foreground">Width</div>
+            <div className="font-semibold text-muted-foreground">Height</div>
 
             {OBS_BROWSER_SOURCE_SIZES.map((size) => (
               <React.Fragment key={size.label}>
-                <div className="text-gray-700 dark:text-gray-200">
+                <div className="text-foreground">
                   {size.label}
                 </div>
                 <div className="text-indigo-700 dark:text-indigo-300">
@@ -688,7 +721,7 @@ function SetupGuide({
               </React.Fragment>
             ))}
           </div>
-          <div className="text-[0.7rem] text-gray-500 dark:text-gray-500 mt-2 italic">
+          <div className="mt-2 text-[0.7rem] italic text-muted-foreground">
             Hintergrund ist transparent. Bar/Card positionieren sich automatisch im Container,
             also Browser-Source = Stream-Auflösung machen.
           </div>
