@@ -42,16 +42,16 @@ export function CollapsibleSection({
   const [open, setOpen] = useState(defaultOpen);
 
   return (
-    <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg overflow-hidden">
+    <div className="overflow-hidden rounded-lg border border-border bg-card">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-800/40 transition cursor-pointer text-left"
+        className="flex w-full cursor-pointer items-center justify-between px-6 py-4 text-left transition hover:bg-muted/50"
         aria-expanded={open}
       >
         <div className="flex items-center gap-3">
           <span
-            className={`text-gray-500 transition-transform inline-block ${
+            className={`inline-block text-muted-foreground transition-transform ${
               open ? 'rotate-90' : ''
             }`}
           >
@@ -60,11 +60,11 @@ export function CollapsibleSection({
           <h3 className="text-lg font-semibold">{title}</h3>
         </div>
         {badge !== undefined && (
-          <span className="text-xs text-gray-500">{badge}</span>
+          <span className="text-xs text-muted-foreground">{badge}</span>
         )}
       </button>
       {open && (
-        <div className="border-t border-gray-200 dark:border-gray-800">{children}</div>
+        <div className="border-t border-border">{children}</div>
       )}
     </div>
   );
