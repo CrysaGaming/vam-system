@@ -7,6 +7,7 @@ import { PirepHeatmap } from './_widgets/pirep-heatmap';
 import { DiscordPirepBroadcast } from './_widgets/discord-pirep-broadcast';
 import { PilotRankingBoard } from './_widgets/pilot-ranking-board';
 import { BulkImportHub } from './_widgets/bulk-import-hub';
+import { AwardsCraftingDashboard } from './_widgets/awards-crafting-dashboard';
 
 /**
  * Track 3 #11.2.5 v1-Full Innovation-Items aus
@@ -19,7 +20,7 @@ import { BulkImportHub } from './_widgets/bulk-import-hub';
  *   4. ✅ 9.2.10 Realtime-Discord-PIREP-Embed            [M]
  *   5. ✅ 9.2.5  Pilot-Ranking-Board mit Filtern         [M]
  *   6. ✅ 9.2.15 Bulk-Import-Wizards                     [M]
- *   7. ⏳ 9.3.5  Awards-Crafting-System                  [L]
+ *   7. ✅ 9.3.5  Awards-Crafting-System                  [L]
  *   8. ⏳ 9.3.10 Notification-Center (In-App)            [L]
  *   9. ⏳ 9.3.16 Tour-Calendar mit Saisonalen-Events     [L]
  *  10. ⏳ 9.3.20 Airport-Detail-Pages mit Live-Stats     [L]
@@ -176,7 +177,7 @@ function InnovationItems({
       <header className="flex items-baseline gap-3 border-b border-gray-200 dark:border-gray-800 pb-2">
         <h2 className="text-lg font-semibold">Innovation-Items</h2>
         <span className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-          6 / 10 — Track 3 #11.2.5 v1-Full
+          7 / 10 — Track 3 #11.2.5 v1-Full
         </span>
       </header>
 
@@ -186,6 +187,7 @@ function InnovationItems({
         <DiscordPirepBroadcast />
         <PilotRankingBoard searchParams={searchParams} />
         <BulkImportHub />
+        <AwardsCraftingDashboard />
       </div>
 
       <PirepHeatmap />
