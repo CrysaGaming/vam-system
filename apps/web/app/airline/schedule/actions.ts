@@ -4,11 +4,11 @@ import { auth } from '@/auth';
 import { prisma } from '@vam/db';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
+import { parseMinuteUtc } from '@/lib/schedule';
 import {
-  parseMinuteUtc,
   generateInstancesForAirline,
   type BulkGenerateResult,
-} from '@/lib/schedule';
+} from '@/lib/schedule-server';
 
 /**
  * Schedule-template management server-actions (Welle 7 commit 7B-1).
