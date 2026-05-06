@@ -267,3 +267,84 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* ─────────────────────────────────────────────────────────────────────
+ * a11y: globaler focus-visible-ring
+ *
+ * Track 3 #11.2.4 Phase 5 (a11y-polish). Default-browser-focus-rings
+ * sind oft schlecht sichtbar (besonders im dark mode oder auf farbigen
+ * buttons), und tailwind v4 entfernt den default-outline ohne ersatz.
+ * Ohne expliziten focus-style ist keyboard-nav für sehbehinderte oder
+ * power-user (tab-by-tab) effektiv unbenutzbar weil sie nicht sehen
+ * wo der focus grade ist.
+ *
+ * Strategie: ein globaler :focus-visible-style auf alle interaktiven
+ * elemente. :focus-visible (NICHT :focus) sorgt dafür dass der ring
+ * NUR bei keyboard-focus erscheint, nicht bei mouse-clicks — sonst
+ * würde jeder button-click einen unschönen ring hinterlassen.
+ *
+ * Wir nutzen outline statt box-shadow weil:
+ *   - outline rendert AUSSERHALB des box-models, also keine layout-
+ *     verschiebungen oder content-clipping
+ *   - outline-offset gibt einen sauberen abstand zum element, der
+ *     auch bei rounded-corners und farbigen backgrounds gut aussieht
+ *   - moderne browsers respektieren outline-radius (folgt border-radius)
+ *
+ * Farbe: indigo-500 weil das die brand/primary-farbe ist (siehe --primary
+ * im :root oben). Auf beiden themes (light + dark) gut sichtbar weil
+ * indigo-500 mid-saturation ist.
+ *
+ * Components mit eigenen focus-styles (z.B. shadcn-button-variants die
+ * ring-* classes nutzen) überschreiben das automatisch — outline und
+ * ring sind separate properties, also keine konflikte.
+ */
+*:focus-visible {
+  outline: 2px solid oklch(0.585 0.233 277.117); /* indigo-500 */
+  outline-offset: 2px;
+  border-radius: inherit;
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+ * a11y: skip-to-content link
+ *
+ * Track 3 #11.2.4 Phase 5. Erstes element im DOM jeder authed-page,
+ * normalerweise visuell versteckt (sr-only-style), wird aber sichtbar
+ * sobald ein keyboard-user TAB drückt. Click → springt zum #main-content
+ * und überspringt header + sidebar-nav.
+ *
+ * Wer braucht das: keyboard-user (alle tab-by-tab navigators) und
+ * screen-reader-user (die sonst durch ALLE nav-links durch müssten
+ * bevor sie zum echten content kommen). WCAG 2.1 SC 2.4.1 (Bypass
+ * Blocks) requirement.
+ *
+ * Implementation als CSS-class statt component: einfacher, kein extra
+ * react-component nötig, render-overhead = 0. AppShell rendert den
+ * link am anfang seines DOM-tree.
+ *
+ * Visuelle behandlung: position:fixed top:0 left:0 (egal wo im DOM,
+ * springt visuell ganz oben hin), bg = primary, hoher z-index damit's
+ * über header + drawer-backdrop liegt. transform:translateY(-100%) per
+ * default = off-screen oben; bei :focus translateY(0) = sichtbar mit
+ * sanfter animation.
+ */
+.skip-to-content {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 100;
+  padding: 0.75rem 1rem;
+  background: oklch(0.546 0.215 262.4); /* indigo-600 */
+  color: white;
+  font-size: 0.875rem;
+  font-weight: 500;
+  text-decoration: none;
+  border-radius: 0 0 0.375rem 0;
+  transform: translateY(-100%);
+  transition: transform 150ms ease-out;
+}
+
+.skip-to-content:focus,
+.skip-to-content:focus-visible {
+  transform: translateY(0);
+  outline: none; /* haben unseren eigenen sichtbaren-state via transform */
+}

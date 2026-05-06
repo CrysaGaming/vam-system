@@ -130,6 +130,18 @@ export function AppShell({ user, children }: Props) {
 
   return (
     <div className="flex flex-col h-screen">
+      {/* Skip-to-content link für keyboard-user (Track 3 #11.2.4 Phase 5
+          a11y-polish). Default visuell versteckt (transform: translateY(-100%)
+          via .skip-to-content class in globals.css), wird sichtbar wenn ein
+          keyboard-user TAB drückt. Click → springt zum #main-content und
+          überspringt header + sidebar-nav. WCAG 2.1 SC 2.4.1 (Bypass Blocks).
+
+          Erstes element im DOM damit's der erste TAB-stop ist — sonst
+          nutzlos. */}
+      <a href="#main-content" className="skip-to-content">
+        Zum Hauptinhalt springen
+      </a>
+
       {/* HTML5-semantik: shell rendert <header> + <nav> direkt; das
           <main> liegt INNERHALB der page (jede page-component hat
           ihr eigenes <main>) — das ist semantisch sauberer als ein
@@ -169,8 +181,14 @@ export function AppShell({ user, children }: Props) {
             flex-children from forcing horizontal overflow when content
             (long URLs, code blocks) is wider than the viewport.
             overflow-y-auto sorgt dafür dass nur DIESE column scrollt —
-            nav + header bleiben fix. */}
-        <div className="flex-1 min-w-0 overflow-y-auto">{children}</div>
+            nav + header bleiben fix.
+
+            id="main-content" + tabIndex={-1} ist der ziel-anchor des
+            skip-to-content-links (siehe oben). tabIndex={-1} macht das
+            element programmatisch fokussierbar (für skip-link.click → focus
+            jumps here) ohne es in den natürlichen TAB-order aufzunehmen.
+            Track 3 #11.2.4 Phase 5 a11y-polish. */}
+        <div id="main-content" tabIndex={-1} className="flex-1 min-w-0 overflow-y-auto focus:outline-none">{children}</div>
       </div>
     </div>
   );
