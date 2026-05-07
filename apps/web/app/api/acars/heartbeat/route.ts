@@ -8,6 +8,13 @@ import {
   resolveHeartbeatPhase,
 } from '@/lib/acars/heartbeat-phase';
 import { resolveAircraftType } from '@/lib/acars/aircraft-resolution';
+import {
+  detectBlockEvents,
+  buildBlockEventPayload,
+  isSessionStale,
+  buildConnectionLostPayload,
+  type BlockEventInputs,
+} from '@/lib/acars/block-events';
 
 /**
  * POST /api/acars/heartbeat — Welle 9 commit 9C.
@@ -220,7 +227,11 @@ export async function POST(req: NextRequest) {
   // (userId, ACARS_CLIENT, isActive) — a user can only have one live
   // ACARS-session at a time. Concurrent heartbeats can race here in
   // theory; see the file-level docstring for why that's acceptable.
-  const existing = await prisma.liveSession.findFirst({
+  //
+  // We additionally select `lastAcarsHeartbeat` and `connectedAt`:
+  // the former drives the M3.9 stale-session-cleanup below, the
+  // latter feeds the BLOCK_ON event's flightDurationMinutes payload.
+  const existingRaw = await prisma.liveSession.findFirst({
     where: {
       userId,
       dataSource: 'ACARS_CLIENT',
@@ -231,9 +242,53 @@ export async function POST(req: NextRequest) {
       externalId: true,
       currentPhase: true,
       currentPhaseEnteredAt: true,
+      lastAcarsHeartbeat: true,
+      connectedAt: true,
     },
     orderBy: { lastUpdatedAt: 'desc' },
   });
+
+  // ─── Stale-session cleanup (Welle 9 / M3.9) ──────────────────────────
+  // If the last heartbeat is older than STALE_SESSION_THRESHOLD_MS
+  // (10 minutes), the previous session is dead — the user closed the
+  // sim, hit a long Wi-Fi outage, took a phone call, etc. We close
+  // it now (isActive=false) and emit a CONNECTION_LOST event timed
+  // to the actual last heartbeat (NOT to now), so future analytics
+  // see realistic session boundaries instead of multi-hour ghosts.
+  //
+  // After cleanup, we treat `existing` as null so the rest of the
+  // handler creates a brand-new session for this heartbeat. The
+  // close runs in its own transaction — it doesn't need to be
+  // atomic with the new-session create, and keeping them separate
+  // avoids forcing the heartbeat to wait on a needlessly-large tx.
+  let existing = existingRaw;
+  if (existingRaw && isSessionStale(existingRaw.lastAcarsHeartbeat, now)) {
+    // Non-null assertion is safe: isSessionStale returns false when
+    // lastAcarsHeartbeat is null, so we only get here when it's set.
+    const lastHb = existingRaw.lastAcarsHeartbeat!;
+    await prisma.$transaction([
+      prisma.liveSession.update({
+        where: { id: existingRaw.id },
+        data: { isActive: false },
+      }),
+      prisma.acarsEvent.create({
+        data: {
+          sessionId: existingRaw.id,
+          type: 'CONNECTION_LOST',
+          // Timestamp = when the connection actually died, not when
+          // we noticed. Critical for M6 to compute realistic flight
+          // durations from this audit trail.
+          timestamp: lastHb,
+          payload: buildConnectionLostPayload(
+            lastHb,
+            existingRaw.currentPhase,
+            now,
+          ) as unknown as Prisma.InputJsonValue,
+        },
+      }),
+    ]);
+    existing = null;
+  }
 
   // ─── Phase-detection (Welle 9 Phase 5) ───────────────────────────────
   // Server-side state-machine derives phase from telemetry when the
@@ -364,6 +419,40 @@ export async function POST(req: NextRequest) {
       }
     : null;
 
+  // ─── Block-event detection (Welle 9 / M3.9) ──────────────────────────
+  // Translate the phase transition into BLOCK_OFF / TOUCHDOWN / BLOCK_ON
+  // events where applicable. Most heartbeats produce zero events;
+  // genuine transitions produce exactly one. We pre-build the inputs
+  // once so both transaction branches (existing/new session) can iterate
+  // over the same data.
+  const blockEventTypes = resolved.changed
+    ? detectBlockEvents(previousPhaseState.currentPhase, resolved.phase)
+    : [];
+  const blockEventInputs: BlockEventInputs = {
+    resolvedAircraftType: resolvedAircraft.icaoType,
+    aircraftRegistration: data.aircraft.registration,
+    aircraftTitle: data.aircraft.title ?? null,
+    departureIcao: data.flight.departure ?? null,
+    arrivalIcao: data.flight.arrival ?? null,
+    latitude: data.position.latitude,
+    longitude: data.position.longitude,
+    altitudeFt: data.position.altitudeFt,
+    altitudeAglFt: data.position.altitudeAglFt ?? null,
+    groundSpeedKts: data.speed.groundKts,
+    verticalFpm: data.speed.verticalFpm,
+    onGround: data.state.onGround,
+    parkingBrake: data.state.parkingBrake ?? null,
+    fuelTotalKg: data.engine?.fuelTotalKg ?? null,
+    // For existing sessions, use the original connectedAt to compute
+    // realistic flight durations on BLOCK_ON. For new sessions (rare:
+    // would require a heartbeat that *opens* the session at exactly
+    // a block-event-producing transition), we fall back to now —
+    // duration becomes ~0min, which is correct because no flight
+    // time has accumulated yet.
+    sessionConnectedAt: existing?.connectedAt ?? now,
+    now,
+  };
+
   if (existing) {
     sessionId = existing.id;
     // Single transaction: update session + append position + bump user
@@ -390,6 +479,24 @@ export async function POST(req: NextRequest) {
             type: 'PHASE_CHANGE',
             timestamp: now,
             payload: phaseChangePayload,
+          },
+        }),
+      );
+    }
+    // M3.9 block events ride on the same transaction so a phase
+    // transition + its derived event(s) commit atomically. Empty
+    // array (most heartbeats) → no operations added.
+    for (const eventType of blockEventTypes) {
+      operations.push(
+        prisma.acarsEvent.create({
+          data: {
+            sessionId: existing.id,
+            type: eventType,
+            timestamp: now,
+            payload: buildBlockEventPayload(
+              eventType,
+              blockEventInputs,
+            ) as unknown as Prisma.InputJsonValue,
           },
         }),
       );
@@ -427,6 +534,24 @@ export async function POST(req: NextRequest) {
             type: 'PHASE_CHANGE',
             timestamp: now,
             payload: phaseChangePayload,
+          },
+        });
+      }
+      // M3.9 block events — same atomicity rationale as in the
+      // existing-session branch above. In practice we'd rarely
+      // emit a block event on session creation (the phase-detector
+      // needs a previous phase to compute a transition, which is
+      // null here), but if it ever does happen we want it captured.
+      for (const eventType of blockEventTypes) {
+        await tx.acarsEvent.create({
+          data: {
+            sessionId: session.id,
+            type: eventType,
+            timestamp: now,
+            payload: buildBlockEventPayload(
+              eventType,
+              blockEventInputs,
+            ) as unknown as Prisma.InputJsonValue,
           },
         });
       }
