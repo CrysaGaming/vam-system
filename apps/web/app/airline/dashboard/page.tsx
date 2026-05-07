@@ -7,6 +7,7 @@ import { PirepFlowTimeline } from './_components/pirep-flow-timeline';
 import { TopRoutes } from './_components/top-routes';
 import { RecentBookingsPipeline } from './_components/recent-bookings-pipeline';
 import { FleetUtilization } from './_components/fleet-utilization';
+import { PilotRankingBoard } from './_components/pilot-ranking-board';
 
 /**
  * Airline-Admin-Dashboard — Track 3 #11.2.5 Foundation-Slice.
@@ -36,7 +37,11 @@ import { FleetUtilization } from './_components/fleet-utilization';
  * und einzelne sub-routes gaten weiter (z.B. /airline/finance braucht
  * economy-toggle-on).
  */
-export default async function AirlineDashboardPage() {
+export default async function AirlineDashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const user = await requireAirlineManagerWithAirlinePage();
   if (!user.airline) {
     redirect('/dashboard');
@@ -44,6 +49,7 @@ export default async function AirlineDashboardPage() {
 
   const airline = user.airline;
   const airlineId = airline.id;
+  const resolvedSearchParams = await searchParams;
 
   const [memberCount, fleetCount, routeCount, pendingPireps] = await Promise.all([
     prisma.user.count({ where: { airlineId } }),
@@ -80,6 +86,8 @@ export default async function AirlineDashboardPage() {
         <TopRoutes airlineId={airlineId} />
 
         <FleetUtilization airlineId={airlineId} />
+
+        <PilotRankingBoard airlineId={airlineId} searchParams={resolvedSearchParams} />
 
         <section className="mb-10">
           <h2 className="text-lg font-semibold mb-4">Verwaltung</h2>
@@ -192,25 +200,29 @@ function DashboardCard({ href, icon, title, description }: DashboardCardProps) {
 }
 
 /**
- * Platzhalter-section für die verbleibenden widgets aus
- * docs/vision/admin-dashboards-vision.md Section 7.3. Phase B Operations-
- * Widgets werden inkrementell ge-shipped — siehe _components/* für die
- * bereits live widgets. Verbleibend: fleet-utilization, recent-bookings,
- * pilot-ranking-airline-scoped.
+ * Phase-B-completion-marker. Alle 5 Operations-Widgets aus
+ * docs/vision/admin-dashboards-vision.md §7.3 sind ge-shipped:
+ * PIREP-Flow-Timeline, Recent-Bookings-Pipeline, Top-Routes,
+ * Fleet-Utilization, Pilot-Ranking-Board (airline-scoped).
+ *
+ * Section bleibt drin als sichtbare bestätigung dass Track 3 #11.2.5
+ * v1-Full pilot-side abgeschlossen ist und als anker für etwaige
+ * neue ideen die noch nicht ge-shipped sind. Sobald Phase C startet,
+ * wird hier der nächste fokus dokumentiert.
  */
 function TodoSection() {
   return (
-    <section className="rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-700 p-6">
+    <section className="rounded-lg border border-green-300 dark:border-green-800 bg-green-50/30 dark:bg-green-950/20 p-6">
       <h2 className="text-lg font-semibold mb-2">
-        🚧 Weitere Operations-Widgets
+        ✅ Operations-Widgets v1-Full komplett
         <span className="ml-2 text-xs font-normal text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-          Phase B in progress
+          Phase B done
         </span>
       </h2>
-      <p className="text-sm text-gray-500 dark:text-gray-400 max-w-2xl">
-        Phase B widgets-progress: PIREP-Flow-Timeline ✅, Booking-Pipeline ✅,
-        Top-Routen ✅, Flotte-Auslastung ✅. Verbleibend: Pilot-Ranking-Board
-        (airline-scoped). Spec:{' '}
+      <p className="text-sm text-gray-600 dark:text-gray-400 max-w-2xl">
+        Alle 5 widgets ge-shipped: PIREP-Flow-Timeline, Recent-Bookings-Pipeline,
+        Top-Routes, Flotte-Auslastung, Pilot-Ranking-Board. Track 3 #11.2.5
+        v1-Full pilot-side abgeschlossen. Spec:{' '}
         <code className="text-xs">docs/vision/admin-dashboards-vision.md</code> §7.3.
       </p>
     </section>
