@@ -1,4 +1,5 @@
 import { prisma } from '@vam/db';
+import { getUsersWithActiveAcars, detectTrackerPhase } from './tracker-phase.js';
 
 const VATSIM_DATAFEED_URL = 'https://data.vatsim.net/v3/vatsim-data.json';
 const POLL_INTERVAL_MS = 30_000; // 30 Sekunden
@@ -94,6 +95,16 @@ async function pollVatsim(): Promise<void> {
       return;
     }
 
+    // ACARS-priority gating (Welle 9 Phase 5): pilots with an active
+    // ACARS_CLIENT session (heartbeat in last 60s) are tracked from that
+    // primary source — bot must NOT overwrite their LiveSession with
+    // VATSIM data. We compute the skip-set once per poll-cycle and
+    // filter the loop below.
+    const usersWithActiveAcars = await getUsersWithActiveAcars(
+      Array.from(cidToUserId.values()),
+    );
+    let acarsSkipped = 0;
+
     // Filter VATSIM-Piloten auf bekannte CIDs
     const matchedPilots = onlinePilots.filter((p) => cidToUserId.has(p.cid));
     const matchedCids = new Set(matchedPilots.map((p) => p.cid));
@@ -103,6 +114,12 @@ async function pollVatsim(): Promise<void> {
       const userId = cidToUserId.get(pilot.cid);
       if (!userId) continue;
 
+      // Skip pilots with an active ACARS-session — see comment above.
+      if (usersWithActiveAcars.has(userId)) {
+        acarsSkipped++;
+        continue;
+      }
+
       const altitude = Math.round(pilot.altitude);
       const groundSpeed = Math.round(pilot.groundspeed);
       const heading = Math.round(pilot.heading);
@@ -110,6 +127,19 @@ async function pollVatsim(): Promise<void> {
 
       const cruiseAltStr = pilot.flight_plan?.altitude ?? '';
       const cruiseAltitude = parseAltitude(cruiseAltStr);
+
+      // ── Phase-detection (low-fidelity) ──
+      // Reads previous session-row to derive V/S from altitude-diff;
+      // returns the new phase, enteredPhaseAt, and a changed-flag.
+      const sampleTs = new Date(pilot.last_updated);
+      const phaseResult = await detectTrackerPhase({
+        network: 'VATSIM',
+        externalId: pilot.cid,
+        groundSpeedKts: groundSpeed,
+        altitudeFt: altitude,
+        onGround,
+        timestamp: sampleTs,
+      });
 
       const session = await prisma.liveSession.upsert({
         where: {
@@ -137,8 +167,10 @@ async function pollVatsim(): Promise<void> {
           heading,
           transponder: pilot.transponder,
           onGround,
+          currentPhase: phaseResult.phase,
+          currentPhaseEnteredAt: phaseResult.enteredPhaseAt,
           connectedAt: new Date(pilot.logon_time),
-          lastUpdatedAt: new Date(pilot.last_updated),
+          lastUpdatedAt: sampleTs,
           isActive: true,
         },
         update: {
@@ -159,7 +191,9 @@ async function pollVatsim(): Promise<void> {
           heading,
           transponder: pilot.transponder,
           onGround,
-          lastUpdatedAt: new Date(pilot.last_updated),
+          currentPhase: phaseResult.phase,
+          currentPhaseEnteredAt: phaseResult.enteredPhaseAt,
+          lastUpdatedAt: sampleTs,
           isActive: true,
         },
       });
@@ -174,8 +208,26 @@ async function pollVatsim(): Promise<void> {
           groundSpeed,
           heading,
           onGround,
+          phase: phaseResult.phase,
         },
       });
+
+      // Emit PHASE_CHANGE audit-event when phase transitioned. Source
+      // is the public-feed (no client involved), so source='server'.
+      if (phaseResult.changed) {
+        await prisma.acarsEvent.create({
+          data: {
+            sessionId: session.id,
+            type: 'PHASE_CHANGE',
+            timestamp: sampleTs,
+            payload: {
+              from: phaseResult.from,
+              to: phaseResult.phase,
+              source: 'server',
+            },
+          },
+        });
+      }
     }
 
     // Sessions als inactive markieren wenn nicht mehr im Snapshot
@@ -194,7 +246,7 @@ async function pollVatsim(): Promise<void> {
     }
 
     console.log(
-      `[VATSIM-Tracker] ${matchedPilots.length} matched online, ${offlineCids.length} marked offline (total VATSIM pilots: ${onlinePilots.length})`,
+      `[VATSIM-Tracker] ${matchedPilots.length - acarsSkipped} matched online, ${acarsSkipped} skipped (ACARS-priority), ${offlineCids.length} marked offline (total VATSIM pilots: ${onlinePilots.length})`,
     );
   } catch (err) {
     console.error('[VATSIM-Tracker] Poll error:', err);

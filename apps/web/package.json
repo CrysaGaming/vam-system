@@ -36,6 +36,7 @@
         "@remixicon/react": "^4.9.0",
         "@tanstack/react-query": "^5.100.9",
         "@vam/db": "workspace:*",
+        "@vam/shared": "workspace:*",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
         "date-fns": "3.6.0",

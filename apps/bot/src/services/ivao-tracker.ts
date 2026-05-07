@@ -1,4 +1,5 @@
 import { prisma } from '@vam/db';
+import { getUsersWithActiveAcars, detectTrackerPhase } from './tracker-phase.js';
 
 const IVAO_WHAZZUP_URL = 'https://api.ivao.aero/v2/tracker/whazzup';
 const POLL_INTERVAL_MS = 30_000; // 30 Sekunden
@@ -147,6 +148,15 @@ async function pollIvao(): Promise<void> {
       return;
     }
 
+    // ACARS-priority gating (Welle 9 Phase 5): pilots with an active
+    // ACARS_CLIENT session (heartbeat in last 60s) are tracked from that
+    // primary source — bot must NOT overwrite their LiveSession with
+    // IVAO data. We compute the skip-set once per poll-cycle.
+    const usersWithActiveAcars = await getUsersWithActiveAcars(
+      Array.from(vidToUserId.values()),
+    );
+    let acarsSkipped = 0;
+
     // Filter IVAO-Piloten auf bekannte VIDs
     const matchedPilots = onlinePilots.filter((p) => vidToUserId.has(p.userId));
     const matchedVids = new Set(matchedPilots.map((p) => p.userId));
@@ -155,6 +165,12 @@ async function pollIvao(): Promise<void> {
     for (const pilot of matchedPilots) {
       const userId = vidToUserId.get(pilot.userId);
       if (!userId) continue;
+
+      // Skip pilots with an active ACARS-session — see comment above.
+      if (usersWithActiveAcars.has(userId)) {
+        acarsSkipped++;
+        continue;
+      }
 
       const track = pilot.lastTrack;
       if (!track) continue;
@@ -169,6 +185,17 @@ async function pollIvao(): Promise<void> {
       const transponder = track.transponder
         ? track.transponder.toString().padStart(4, '0')
         : null;
+
+      // ── Phase-detection (low-fidelity) ──
+      const sampleTs = new Date(track.timestamp);
+      const phaseResult = await detectTrackerPhase({
+        network: 'IVAO',
+        externalId: pilot.userId,
+        groundSpeedKts: groundSpeed,
+        altitudeFt: altitude,
+        onGround,
+        timestamp: sampleTs,
+      });
 
       const session = await prisma.liveSession.upsert({
         where: {
@@ -196,8 +223,10 @@ async function pollIvao(): Promise<void> {
           heading,
           transponder,
           onGround,
+          currentPhase: phaseResult.phase,
+          currentPhaseEnteredAt: phaseResult.enteredPhaseAt,
           connectedAt: new Date(pilot.createdAt),
-          lastUpdatedAt: new Date(track.timestamp),
+          lastUpdatedAt: sampleTs,
           isActive: true,
         },
         update: {
@@ -218,7 +247,9 @@ async function pollIvao(): Promise<void> {
           heading,
           transponder,
           onGround,
-          lastUpdatedAt: new Date(track.timestamp),
+          currentPhase: phaseResult.phase,
+          currentPhaseEnteredAt: phaseResult.enteredPhaseAt,
+          lastUpdatedAt: sampleTs,
           isActive: true,
         },
       });
@@ -232,8 +263,25 @@ async function pollIvao(): Promise<void> {
           groundSpeed,
           heading,
           onGround,
+          phase: phaseResult.phase,
         },
       });
+
+      // Emit PHASE_CHANGE audit-event when phase transitioned.
+      if (phaseResult.changed) {
+        await prisma.acarsEvent.create({
+          data: {
+            sessionId: session.id,
+            type: 'PHASE_CHANGE',
+            timestamp: sampleTs,
+            payload: {
+              from: phaseResult.from,
+              to: phaseResult.phase,
+              source: 'server',
+            },
+          },
+        });
+      }
     }
 
     // Sessions als inactive markieren wenn nicht mehr im Snapshot
@@ -252,7 +300,7 @@ async function pollIvao(): Promise<void> {
     }
 
     console.log(
-      `[IVAO-Tracker] ${matchedPilots.length} matched online, ${offlineVids.length} marked offline (total IVAO pilots: ${onlinePilots.length})`,
+      `[IVAO-Tracker] ${matchedPilots.length - acarsSkipped} matched online, ${acarsSkipped} skipped (ACARS-priority), ${offlineVids.length} marked offline (total IVAO pilots: ${onlinePilots.length})`,
     );
   } catch (err) {
     console.error('[IVAO-Tracker] Poll error:', err);

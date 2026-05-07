@@ -74,6 +74,9 @@ importers:
       '@vam/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@vam/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       discord.js:
         specifier: ^14.16.3
         version: 14.26.3
@@ -180,6 +183,9 @@ importers:
       '@vam/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@vam/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1

@@ -790,6 +790,11 @@ model LiveSession {
   windDirection Int?
   oatCelsius    Int?
   currentPhase  String? // 'PreFlight'|'Pushback'|'Taxi'|'Takeoff'|'Climb'|'Cruise'|'Descent'|'Approach'|'Landing'|'TaxiIn'|'BlockOn'
+  // Welle 9 Phase 5 (server-side phase-detection): timestamp when we entered
+  // currentPhase. Used for hysteresis (must hold a phase ≥3s before transition,
+  // ≥30s for TaxiIn→BlockOn). Updated by the heartbeat-handler and bot-trackers
+  // when phase changes; left untouched when phase is stable.
+  currentPhaseEnteredAt DateTime?
 
   // Anti-cheat: simRate >1.0 bedeutet sim-time-acceleration; totalPause-
   // Seconds aggregiert pause-zeit über die session. Beides wird in

@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { prisma, NetworkType, Simulator } from '@vam/db';
+import { prisma, NetworkType, Simulator, Prisma } from '@vam/db';
 import { authenticateAcarsRequest } from '@/lib/acars/auth';
+import {
+  buildHeartbeatPhaseInput,
+  buildPreviousPhaseState,
+  resolveHeartbeatPhase,
+} from '@/lib/acars/heartbeat-phase';
 
 /**
  * POST /api/acars/heartbeat — Welle 9 commit 9C.
@@ -220,9 +225,27 @@ export async function POST(req: NextRequest) {
       dataSource: 'ACARS_CLIENT',
       isActive: true,
     },
-    select: { id: true, externalId: true },
+    select: {
+      id: true,
+      externalId: true,
+      currentPhase: true,
+      currentPhaseEnteredAt: true,
+    },
     orderBy: { lastUpdatedAt: 'desc' },
   });
+
+  // ─── Phase-detection (Welle 9 Phase 5) ───────────────────────────────
+  // Server-side state-machine derives phase from telemetry when the
+  // client doesn't send `phase`. When client DOES send it, that value
+  // wins (the client sees mid-frame transitions the server can't see
+  // between heartbeats). On phase-change we emit a PHASE_CHANGE event.
+  const previousPhaseState = buildPreviousPhaseState(
+    existing?.currentPhase ?? null,
+    existing?.currentPhaseEnteredAt ?? null,
+    now,
+  );
+  const phaseInput = buildHeartbeatPhaseInput(data, now);
+  const resolved = resolveHeartbeatPhase(data.phase, phaseInput, previousPhaseState, now);
 
   // Build the field-set used by both create and update so they can't drift.
   const sessionFields = {
@@ -276,7 +299,8 @@ export async function POST(req: NextRequest) {
 
     gForce: data.forces?.gForce ?? null,
 
-    currentPhase: data.phase ?? null,
+    currentPhase: resolved.phase,
+    currentPhaseEnteredAt: resolved.state.enteredPhaseAt,
     transponder: data.transponder ?? null,
 
     simRate: data.simRate ?? null,
@@ -303,18 +327,31 @@ export async function POST(req: NextRequest) {
     bank: data.position.bank ?? null,
     flapsPercent: data.state.flapsPercent ?? null,
     gearDown: data.state.gearDown ?? null,
-    phase: data.phase ?? null,
+    phase: resolved.phase,
     recordedAt: now,
   };
 
   let sessionId: string;
 
+  /**
+   * Build the payload for the optional PHASE_CHANGE event. The audit-row
+   * captures the transition + which source decided it (client knows
+   * mid-frame, server reconstructs from telemetry).
+   */
+  const phaseChangePayload = resolved.changed
+    ? {
+        from: previousPhaseState.currentPhase,
+        to: resolved.phase,
+        source: resolved.source,
+      }
+    : null;
+
   if (existing) {
     sessionId = existing.id;
-    // Single transaction: update session + append position + bump user.
-    // If any step fails, none commit — preserves consistency between
-    // session-state and position-trail.
-    await prisma.$transaction([
+    // Single transaction: update session + append position + bump user
+    // (+ optional phase-change event). If any step fails, none commit —
+    // preserves consistency between session-state and position-trail.
+    const operations: Prisma.PrismaPromise<unknown>[] = [
       prisma.liveSession.update({
         where: { id: existing.id },
         data: sessionFields,
@@ -326,7 +363,20 @@ export async function POST(req: NextRequest) {
         where: { id: userId },
         data: { acarsLastSeen: now },
       }),
-    ]);
+    ];
+    if (phaseChangePayload) {
+      operations.push(
+        prisma.acarsEvent.create({
+          data: {
+            sessionId: existing.id,
+            type: 'PHASE_CHANGE',
+            timestamp: now,
+            payload: phaseChangePayload,
+          },
+        }),
+      );
+    }
+    await prisma.$transaction(operations);
   } else {
     // Brand new session. Need to allocate an externalId — for ACARS,
     // VATSIM/IVAO don't apply, but the schema requires Int. Use the
@@ -352,6 +402,16 @@ export async function POST(req: NextRequest) {
         where: { id: userId },
         data: { acarsLastSeen: now },
       });
+      if (phaseChangePayload) {
+        await tx.acarsEvent.create({
+          data: {
+            sessionId: session.id,
+            type: 'PHASE_CHANGE',
+            timestamp: now,
+            payload: phaseChangePayload,
+          },
+        });
+      }
       return session;
     });
     sessionId = created.id;
