@@ -582,6 +582,25 @@ export async function POST(req: NextRequest) {
   //   client sent `phase` and the server respected it; 'server'
   //   means the server's state-machine determined it from telemetry.
   //   Helps debug "why did the server pick X?".
+  //
+  // Echo the resolved aircraft identity back too (M3.8.1).
+  //
+  // Same single-source-of-truth argument as for phase: the client's
+  // raw SimConnect ATC MODEL simvar is often a localization token
+  // (`ATCCOM.AC_MODEL_A320.0.text`) which is what the live-map fixed
+  // via M3.8's resolver. Without echoing the resolved value the
+  // tray-app and other clients would have to either show the ugly
+  // raw string or duplicate the resolver logic. By including the
+  // already-resolved values in the response we let any client surface
+  // exactly what the live-map shows ("A320 / D-ANNE") with zero extra
+  // logic.
+  //
+  // - aircraftType: M3.8-resolved ICAO designator (fleet-match →
+  //   pattern-match → fallback). Always present.
+  // - aircraftRegistration: tail number from the original heartbeat
+  //   payload. Echoed verbatim — no resolver needed since registration
+  //   is what the client actively types into the form. May be null
+  //   for pilots flying with no registration set.
   return NextResponse.json({
     ok: true,
     sessionId,
@@ -590,5 +609,7 @@ export async function POST(req: NextRequest) {
       resolved.state.enteredPhaseAt?.toISOString() ?? null,
     phaseChanged: resolved.changed,
     phaseSource: resolved.source,
+    aircraftType: resolvedAircraft.icaoType,
+    aircraftRegistration: data.aircraft.registration ?? null,
   });
 }
