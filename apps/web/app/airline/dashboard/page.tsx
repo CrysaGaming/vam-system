@@ -4,6 +4,7 @@ import { requireAirlineManagerWithAirlinePage } from '@/lib/roles';
 import Link from 'next/link';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { PirepFlowTimeline } from './_components/pirep-flow-timeline';
+import { TopRoutes } from './_components/top-routes';
 
 /**
  * Airline-Admin-Dashboard — Track 3 #11.2.5 Foundation-Slice.
@@ -71,6 +72,8 @@ export default async function AirlineDashboardPage() {
         </section>
 
         <PirepFlowTimeline airlineId={airlineId} />
+
+        <TopRoutes airlineId={airlineId} />
 
         <section className="mb-10">
           <h2 className="text-lg font-semibold mb-4">Verwaltung</h2>
@@ -184,10 +187,10 @@ function DashboardCard({ href, icon, title, description }: DashboardCardProps) {
 
 /**
  * Platzhalter-section für die verbleibenden widgets aus
- * docs/vision/admin-dashboards-vision.md Section 7.3. PIREP-flow-timeline
- * ist als erstes widget umgesetzt (siehe _components/pirep-flow-timeline)
- * — fleet-utilization, recent-bookings, top-routes-leaderboard sind v1-
- * full scope, heute reservierter platz.
+ * docs/vision/admin-dashboards-vision.md Section 7.3. Phase B Operations-
+ * Widgets werden inkrementell ge-shipped — siehe _components/* für die
+ * bereits live widgets. Verbleibend: fleet-utilization, recent-bookings,
+ * pilot-ranking-airline-scoped.
  */
 function TodoSection() {
   return (
@@ -195,14 +198,14 @@ function TodoSection() {
       <h2 className="text-lg font-semibold mb-2">
         🚧 Weitere Operations-Widgets
         <span className="ml-2 text-xs font-normal text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-          v1-full pending
+          Phase B in progress
         </span>
       </h2>
       <p className="text-sm text-gray-500 dark:text-gray-400 max-w-2xl">
-        Platzhalter für weitere Operations-Widgets — fleet-utilization,
-        recent-bookings, top-routes-leaderboard. Spec siehe
-        {' '}<code className="text-xs">docs/vision/admin-dashboards-vision.md</code> §7.3.
-        PIREP-flow-timeline ist bereits live (siehe oben).
+        Phase B widgets-progress: PIREP-Flow-Timeline ✅, Top-Routen ✅.
+        Verbleibend: Fleet-Utilization, Recent-Bookings-Pipeline, Pilot-
+        Ranking-Board (airline-scoped). Spec:{' '}
+        <code className="text-xs">docs/vision/admin-dashboards-vision.md</code> §7.3.
       </p>
     </section>
   );
