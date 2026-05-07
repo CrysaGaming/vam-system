@@ -417,5 +417,35 @@ export async function POST(req: NextRequest) {
     sessionId = created.id;
   }
 
-  return NextResponse.json({ ok: true, sessionId });
+  // Echo the resolved phase back to the client (Welle 9 / M3.7).
+  //
+  // The client doesn't run its own phase-detector — we want one source
+  // of truth, the server. By echoing `currentPhase` the client can
+  // surface it in its UI ("Cruise — 0:42 since Climb"), debug
+  // mismatches between client-claimed and server-resolved phases, and
+  // later (M3.9+) trigger PIREP-state changes off transitions.
+  //
+  // Field choices:
+  // - currentPhase: the phase the server has now committed to the
+  //   LiveSession row. Always present.
+  // - currentPhaseEnteredAt: ISO timestamp marking when this phase
+  //   began. Lets the client compute time-in-phase without polling.
+  //   May be null if the schema's never seen a phase transition for
+  //   this session (defensive — should be set in practice).
+  // - phaseChanged: true iff *this* heartbeat caused a transition.
+  //   Useful for clients that want to log/animate transitions without
+  //   tracking the previous value themselves.
+  // - phaseSource: which side decided the phase. 'client' means the
+  //   client sent `phase` and the server respected it; 'server'
+  //   means the server's state-machine determined it from telemetry.
+  //   Helps debug "why did the server pick X?".
+  return NextResponse.json({
+    ok: true,
+    sessionId,
+    currentPhase: resolved.phase,
+    currentPhaseEnteredAt:
+      resolved.state.enteredPhaseAt?.toISOString() ?? null,
+    phaseChanged: resolved.changed,
+    phaseSource: resolved.source,
+  });
 }
