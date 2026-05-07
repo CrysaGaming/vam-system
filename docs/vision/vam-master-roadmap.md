@@ -3969,8 +3969,13 @@ Track 3 #11.2.5 v1-Full ist mit Tag-12-Session erfolgreich abgeschlossen:
 
 **Operations-Widgets für /airline/dashboard:**
 - M1 Item: PIREP-flow-timeline ge-shipped (commit `0df46b1`)
-- v1-Full pending: Fleet-Utilization, Recent-Bookings-Pipeline, Top-Routes (airline-scoped), Pilot-Ranking-Board (airline-scoped)
-- Status: pending → wird in dieser session fortgesetzt
+- v1-Full Phase B 5/5 widgets ge-shipped (commits `799455e` → `1539240`):
+  1. ✅ Top-Routes (airline-scoped) — `799455e`
+  2. ✅ Recent-Bookings-Pipeline — `c2cbe06`
+  3. ✅ Fleet-Utilization — `991d40d`
+  4. ✅ Pilot-Ranking-Board (airline-scoped) — `1539240`
+  5. ✅ PIREP-Flow-Timeline (M1, vor session)
+- main FF-merged auf `1539240` — Track 3 #11.2.5 v1-Full pilot-side komplett
 
 **SystemSetting + AirlineSetting DB-Models:**
 - ⏳ Bewusst v2 — Cascade-Resolver-Foundation steht ohne sie, Encryption-vorbereitung kommt mit echtem Bedarf
@@ -4000,20 +4005,28 @@ Der "echte" velocity-faktor stabilisiert sich:
 
 ## B.6 Was kommt als nächstes (Tag-12 → Tag-N)
 
-Nach diesem Status-update wird die session fortgesetzt mit:
+Nach Phase-B-completion (5/5 Operations-Widgets ge-shipped, main FF-merged auf `1539240`) ist Track 3 #11.2.5 v1-Full **pilot-side komplett**. Verbleibend für die XL-phase-entscheidung:
 
-1. **Operations-Widgets für /airline/dashboard** (Track 3 #11.2.5 v1-Full sauberer abschluss):
-   - Top-Routes (airline-scoped)
-   - Recent-Bookings-Pipeline
-   - Fleet-Utilization
-   - Pilot-Ranking-Board (airline-scoped, analog zu admin-version)
+1. **Track 2 Channel-Points-Rewards (10.2.4)** — 🟠 hoch, 2-4 Wochen
+   - Erste echte Twitch-to-Sim feature
+   - Voraussetzung: ACARS-Client mit SimConnect-Write (= Track 4 first)
+   - Heißt effektiv: Track 4 ACARS Phase 2-5 als prerequisite-paket
 
-2. **Nach v1-Full komplett**: XL-phase entscheiden — entweder
-   - Track 2 channel-points-rewards (10.2.4) bauen (braucht aber ACARS = Track 4 erstmal)
-   - Track 4 ACARS Phase 2-3 (Pairing-Code + Heartbeat-API) — voraussetzung für vieles
-   - Track 5 vorarbeit (z.B. Multi-Tenant-Polish)
+2. **Track 4 ACARS Phase 2-3 (Pairing-Code + Heartbeat-API)** — 🟠 hoch, 6-8 Wochen
+   - Voraussetzung für 10.2.4 + 10.2.5 + PIREP-Analysis-Page
+   - Server-side: API-routes + DB-models + auth-flow
+   - Client-side: .NET 9 ACARS-client (eigentlicher pioneer-aufwand kommt mit Phase 4)
 
-Diese entscheidung ist unabhängig vom appendix und kommt im nächsten user-prompt.
+3. **Track 5 Vorarbeit** — 🟡 mittel, 4-6 Wochen
+   - Multi-Tenant-Polish (Self-Service-Airline-Onboarding, Custom-Domains)
+   - Public-API-Design (NestJS-skeleton in apps/api endlich aktivieren)
+   - Beide erlauben dass weitere airlines parallel zur Default-Airline laufen
+
+4. **Mehr Innovation-Items aus §9.1/9.2** — 🟢 niedrig, je 2-5 tage
+   - Carbon-Footprint-tracker, Random-Flight-Generator, METAR-on-Hover
+   - Nicht-strategisch aber liefern user-engagement und sind quick-wins
+
+Die entscheidung welche dieser 4 paths kommt im nächsten user-prompt — alle 4 sind grundsätzlich machbar im Q2/Q3 2026-zeitfenster, aber nicht parallel (Solo-burnout-risiko, siehe §16.1).
 
 ---
 
