@@ -7,6 +7,7 @@ import {
   buildPreviousPhaseState,
   resolveHeartbeatPhase,
 } from '@/lib/acars/heartbeat-phase';
+import { resolveAircraftType } from '@/lib/acars/aircraft-resolution';
 
 /**
  * POST /api/acars/heartbeat — Welle 9 commit 9C.
@@ -247,12 +248,29 @@ export async function POST(req: NextRequest) {
   const phaseInput = buildHeartbeatPhaseInput(data, now);
   const resolved = resolveHeartbeatPhase(data.phase, phaseInput, previousPhaseState, now);
 
+  // ─── Aircraft-type resolution (Welle 9 / M3.8) ───────────────────────
+  // SimConnect's ATC MODEL simvar is unreliable — many MSFS aircraft
+  // expose a localization token like "ATCCOM.AC_MODEL" instead of a
+  // useful ICAO designator. The resolver tries (1) a fleet-registration
+  // lookup against our Aircraft catalog, then (2) regex pattern matching
+  // against title and type, then (3) falls back to the raw value or
+  // "UNKN" if it looks like a token leak. Result is what we'll persist
+  // in LiveSession.aircraftType — never the raw garbage.
+  const resolvedAircraft = await resolveAircraftType({
+    type: data.aircraft.type,
+    registration: data.aircraft.registration,
+    title: data.aircraft.title ?? null,
+  });
+
   // Build the field-set used by both create and update so they can't drift.
   const sessionFields = {
     network: data.network,
     callsign: data.flight.callsign,
     flightNumber: data.flight.flightNumber ?? null,
-    aircraftType: data.aircraft.type,
+    // Resolved ICAO designator (M3.8) — see resolveAircraftType for source-
+    // hierarchy. The raw value from data.aircraft.type may be a localization
+    // token; never persist it directly here.
+    aircraftType: resolvedAircraft.icaoType,
     aircraftRegistration: data.aircraft.registration,
     aircraftTitle: data.aircraft.title ?? null,
     acarsClientVersion: data.clientVersion,
