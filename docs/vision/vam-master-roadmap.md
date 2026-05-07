@@ -411,12 +411,13 @@ OBS-OVERLAY (in Arbeit):
   🔵 Phase 5-9: Erweiterte Daten, Push-Updates, Trail-Vis, Streamer-Erweiterungen
   💭 Phase 10: Multi-Layout-Editor
 
-ACARS (Tag 5 angefangen):
-  ✅ Phase 1: DataSource-Enum eingebaut
-  ⏳ Phase 2: Pairing-Code-System
-  ⏳ Phase 3: Heartbeat-API-Endpoint
-  ⏳ Phase 4: Eigener ACARS-Client-Build
-  ⏳ Phase 5+: Premium-Features (Wetter-Vergleich, ATC)
+ACARS (Tag 5 angefangen, Welle 9 ge-shipped):
+  ✅ Phase 1: DataSource-Enum eingebaut (commit `42a4582`)
+  ✅ Phase 2: Pairing-Code-System (Welle 9 commits 9A-9B)
+  ✅ Phase 3: Heartbeat-API-Endpoint (Welle 9 commits 9C-9D)
+  ⏳ Phase 4: Eigener ACARS-Client-Build (.NET 9, 3-5 monate)
+  ⏳ Phase 5: Server-side Phase-Detection (state-machine aus heartbeat-stream)
+  ⏳ Phase 6+: Premium-Features (Wetter-Vergleich, ATC)
 ```
 
 ---
@@ -2165,7 +2166,27 @@ AUFWAND TOTAL: 6-15 Monate real
 
 ### 12.2 Track-Items (priorisiert)
 
-#### 12.2.1 ACARS-Client komplettieren (Phase 1-5 von acars-architecture)
+#### 12.2.1 ACARS-Client komplettieren (Phase 1-5 von acars-architecture) 🟨 server-side komplett
+
+> **Stand 2026-05-07:** Phase 1-3 sind **vollständig ge-shipped** (Welle 9
+> commits 9A-9F). Die unten gelistete "Phase 2-3 ⏳"-status ist veraltet.
+> Server-side ist 100% bereit für ACARS-clients zu connecten.
+> Code-Evidenz:
+> - Schema: `User.{acarsToken, acarsPairedAt, acarsLastSeen, preferredNetwork}`,
+>   `AcarsPairingCode` model, `LiveSession.{dataSource, acarsClientVersion,
+>   lastAcarsHeartbeat, flightNumber, aircraftTitle, acarsSimulator,
+>   altitudeAglFt, indicatedAirspeed, trueAirspeed, mach, verticalSpeedFpm}`
+> - Routes: `/api/acars/{heartbeat,event,pairing/redeem,disconnect,status}`
+>   (812 LOC total)
+> - Settings-UI: `apps/web/app/settings/{acars-card.tsx (502 LOC),
+>   acars-actions.ts (266 LOC)}` mit `requestPairingCode`/`disconnectAcars`/
+>   `setPreferredNetwork` server-actions
+> - Lib: `apps/web/lib/acars/{auth,generate-pirep,pairing}.ts`
+> - Bonus: `/api/acars/event` mit `BLOCK_ON`-event triggert auto-PIREP-
+>   generation (commit 9F)
+>
+> **Verbleibend offen:** Phase 4 (.NET-9-client-build, 3-5 monate
+> pioneer-aufwand) und Phase 5 (server-side phase-detection, 2-3 wochen).
 
 ```
 WAS:
@@ -4007,26 +4028,45 @@ Der "echte" velocity-faktor stabilisiert sich:
 
 Nach Phase-B-completion (5/5 Operations-Widgets ge-shipped, main FF-merged auf `1539240`) ist Track 3 #11.2.5 v1-Full **pilot-side komplett**. Verbleibend für die XL-phase-entscheidung:
 
+> **KORREKTUR (gleicher Tag, später):** Track 4 ACARS Phase 2-3 ist
+> bereits in Welle 9 ge-shipped (siehe §12.2.1 callout). Die ursprüngliche
+> option "Track 4 Phase 2-3 als prerequisite" ist obsolet — server-side
+> ist bereit, der echte gap ist Phase 4 (.NET-client) oder Phase 5
+> (server-side phase-detection).
+
 1. **Track 2 Channel-Points-Rewards (10.2.4)** — 🟠 hoch, 2-4 Wochen
    - Erste echte Twitch-to-Sim feature
-   - Voraussetzung: ACARS-Client mit SimConnect-Write (= Track 4 first)
-   - Heißt effektiv: Track 4 ACARS Phase 2-5 als prerequisite-paket
+   - Voraussetzung: ACARS-Client mit SimConnect-Write
+   - **Status:** Server-side ist bereit (Welle 9), aber braucht eigenen
+     .NET-Client (Track 4 Phase 4) der SimConnect-Write kann
+   - Heißt effektiv: Track 4 Phase 4 (.NET-client-build) als prerequisite
 
-2. **Track 4 ACARS Phase 2-3 (Pairing-Code + Heartbeat-API)** — 🟠 hoch, 6-8 Wochen
-   - Voraussetzung für 10.2.4 + 10.2.5 + PIREP-Analysis-Page
-   - Server-side: API-routes + DB-models + auth-flow
-   - Client-side: .NET 9 ACARS-client (eigentlicher pioneer-aufwand kommt mit Phase 4)
+2. **Track 4 Phase 4: Eigener .NET-9 ACARS-Client** — 🔴 sehr-hoch, 3-5 monate
+   - Echter pioneer-aufwand (Windows + .NET + SimConnect-quirks)
+   - Pairs mit dem schon-fertigen server (heartbeat/pairing/event-routes)
+   - Voraussetzung für 10.2.4 + 10.2.5 + PIREP-Analysis-Page mit echtem trail-data
+   - Distribution-aufwand (installer, signing, auto-update)
 
-3. **Track 5 Vorarbeit** — 🟡 mittel, 4-6 Wochen
+3. **Track 4 Phase 5: Server-side Phase-Detection** — 🟡 mittel, 2-3 wochen
+   - State-machine die aus heartbeat-stream `Pushback → Taxi → Takeoff →
+     Climb → Cruise → Descent → Approach → Landing → TaxiIn → BlockOn`
+     automatisch detected
+   - Verbessert auto-PIREP-generator (existing `apps/web/lib/acars/
+     generate-pirep.ts`) und liefert phase-annotations für PIREP-Analysis
+   - Kann ohne client gemacht werden — heartbeat-stream-format ist schon
+     definiert, kann aus VATSIM/IVAO-tracker-data oder client-data gefüttert
+     werden
+
+4. **Track 5 Vorarbeit** — 🟡 mittel, 4-6 Wochen
    - Multi-Tenant-Polish (Self-Service-Airline-Onboarding, Custom-Domains)
    - Public-API-Design (NestJS-skeleton in apps/api endlich aktivieren)
    - Beide erlauben dass weitere airlines parallel zur Default-Airline laufen
 
-4. **Mehr Innovation-Items aus §9.1/9.2** — 🟢 niedrig, je 2-5 tage
+5. **Mehr Innovation-Items aus §9.1/9.2** — 🟢 niedrig, je 2-5 tage
    - Carbon-Footprint-tracker, Random-Flight-Generator, METAR-on-Hover
    - Nicht-strategisch aber liefern user-engagement und sind quick-wins
 
-Die entscheidung welche dieser 4 paths kommt im nächsten user-prompt — alle 4 sind grundsätzlich machbar im Q2/Q3 2026-zeitfenster, aber nicht parallel (Solo-burnout-risiko, siehe §16.1).
+Die entscheidung welche dieser 5 paths kommt im nächsten user-prompt — alle sind grundsätzlich machbar im Q2/Q3 2026-zeitfenster, aber nicht parallel (Solo-burnout-risiko, siehe §16.1).
 
 ---
 
