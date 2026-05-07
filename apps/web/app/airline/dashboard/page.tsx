@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { PirepFlowTimeline } from './_components/pirep-flow-timeline';
 import { TopRoutes } from './_components/top-routes';
+import { RecentBookingsPipeline } from './_components/recent-bookings-pipeline';
 
 /**
  * Airline-Admin-Dashboard — Track 3 #11.2.5 Foundation-Slice.
@@ -72,6 +73,8 @@ export default async function AirlineDashboardPage() {
         </section>
 
         <PirepFlowTimeline airlineId={airlineId} />
+
+        <RecentBookingsPipeline airlineId={airlineId} />
 
         <TopRoutes airlineId={airlineId} />
 
@@ -202,9 +205,9 @@ function TodoSection() {
         </span>
       </h2>
       <p className="text-sm text-gray-500 dark:text-gray-400 max-w-2xl">
-        Phase B widgets-progress: PIREP-Flow-Timeline ✅, Top-Routen ✅.
-        Verbleibend: Fleet-Utilization, Recent-Bookings-Pipeline, Pilot-
-        Ranking-Board (airline-scoped). Spec:{' '}
+        Phase B widgets-progress: PIREP-Flow-Timeline ✅, Booking-Pipeline ✅,
+        Top-Routen ✅. Verbleibend: Fleet-Utilization, Pilot-Ranking-Board
+        (airline-scoped). Spec:{' '}
         <code className="text-xs">docs/vision/admin-dashboards-vision.md</code> §7.3.
       </p>
     </section>
