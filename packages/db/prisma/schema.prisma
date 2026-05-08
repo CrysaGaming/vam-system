@@ -1252,6 +1252,47 @@ model Pirep {
   // the source-event for audit-trail. NULL für manuelle PIREPs (default).
   triggeringEvent AcarsEvent? @relation("PirepTriggeringEvent")
 
+  /// Anti-Cheat structured field (option #20).
+  ///
+  /// Machine-readable mirror of the [ACARS-flag: …] / [Replay-flag: …]
+  /// remarks-prefix splicing that the auto-PIREP path (option #11/#19)
+  /// embeds in the human-readable remarks string. Both surfaces co-exist:
+  /// the remarks-prefix is what pilots see on the detail page, the
+  /// structured field is what queries reach for.
+  ///
+  /// Shape (TypeScript: `PirepFlags` in apps/web/lib/acars/pirep-flags.ts):
+  ///   {
+  ///     simRate?: number;                 // > 1.01 if flagged; absent if normal
+  ///     pauseSec?: number;                // > 60 if flagged; absent if normal
+  ///     replayFlags?: string[];           // verifyReplay heuristic findings
+  ///     hardLanding?: { severity, vsFpm } // option #7 hard-landing INCIDENT
+  ///   }
+  ///
+  /// NULL = no flags fired (the PIREP is "clean"). An empty `{}` would
+  /// mean "we evaluated and nothing fired" but we use NULL for that
+  /// instead — saves a few bytes per row and matches the manual /pireps/new
+  /// flow where flags-evaluation never runs (and shouldn't write `{}`).
+  ///
+  /// Why JSON over dedicated columns: the field-set evolves. simRate +
+  /// pauseSec + replayFlags + hardLanding is the v1 shape; future heuristics
+  /// (route-deviation, callsign-mismatch, fuel-overflow) would need yet
+  /// more migrations as columns. JSON keeps the schema stable and lets us
+  /// version the shape at the app-layer via the PirepFlags TS type.
+  ///
+  /// Indexed querying: postgres JSONB supports `flags->>'simRate'` style
+  /// access in raw SQL. Prisma exposes `flags: { path: ['simRate'], gt: 1.01 }`
+  /// which compiles to the same operator. We don't pre-index any path —
+  /// the per-pilot dataset is small enough that sequential scans are fine,
+  /// and the admin queue's filter-by-flag will use a `not: null` check
+  /// which Prisma handles via `flags IS NOT NULL` — no path-index needed.
+  ///
+  /// Forward-compat: when option #1's flag-filter (PIREP-list page) is
+  /// upgraded to use this column directly, the substring-match fallback
+  /// remains for legacy pre-#20 rows that have flags in remarks but
+  /// nothing in flags-JSON. Once a backfill-script populates structured
+  /// flags for old rows, the substring fallback can be removed.
+  flags Json?
+
   // Welle 13 (Economy MVP): Idempotency-flag für economy-processing.
   // Beim PIREP-approval-flow (apps/web/src/lib/pireps/approve.ts) prüfen
   // wir VOR dem economy-helper-call ob revenueProcessed=false. Wenn true

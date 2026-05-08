@@ -1,6 +1,6 @@
 import { auth } from '@/auth';
 import { redirect } from 'next/navigation';
-import { prisma, type Prisma } from '@vam/db';
+import { prisma, Prisma } from '@vam/db';
 import Link from 'next/link';
 
 /**
@@ -17,13 +17,16 @@ import Link from 'next/link';
  * This filter is the cheapest possible surface: a three-way segmented
  * control above the table (`?flag=all|with|without`) that filters by
  * the same prefix-strings the auto-PIREP path writes. Substring-match
- * via Prisma's `contains` — no schema change, builds directly on the
- * existing remarks-prefix convention.
+ * via Prisma's `contains` plus a structured-field check.
  *
- * Future-proof: when option #20 (Anti-Cheat Structured Field, a
- * `Pirep.flags Json?` column) lands, this filter becomes a thin
- * fallback. Until then it's the canonical way to surface flagged
- * PIREPs without an extra migration.
+ * Two-surface implementation (option #20): the where-clause is an
+ * OR of (a) `flags IS NOT NULL` — the structured Pirep.flags column
+ * populated for any post-#20 auto-PIREP that fired a flag, and
+ * (b) substring-match on the [ACARS-flag / [Replay-flag prefixes —
+ * the legacy surface for pre-#20 PIREPs that have flags only in
+ * remarks. Once a backfill-script populates structured flags for
+ * historical rows, the substring fallback becomes redundant and
+ * can be removed.
  *
  * Why three options not boolean: "with" and "without" are different
  * mental models. "With" = admin-review use case ("show me what to
@@ -41,17 +44,28 @@ function parseFlagFilter(raw: string | undefined): FlagFilter {
 }
 
 /**
- * Build the Prisma where-clause for the active flag-filter. Substring
- * match against the two prefix-strings used by generate-pirep.ts.
+ * Build the Prisma where-clause for the active flag-filter.
  *
- * - 'all'     → no extra constraint (legacy behaviour)
- * - 'with'    → OR-match either prefix (any flag at all)
- * - 'without' → AND-NOT-match both prefixes
+ * Two-surface design (option #20):
+ *   - Primary: `flags IS NOT NULL` on the structured Pirep.flags column.
+ *     Populated for every post-#20 auto-PIREP that fired a flag.
+ *     Prisma's Json-field nullability uses Prisma.DbNull as the sentinel
+ *     (NOT JavaScript null) to distinguish SQL NULL from JSON null-value.
+ *   - Fallback: substring-match on the [ACARS-flag / [Replay-flag
+ *     prefixes in remarks. Catches pre-#20 PIREPs that have flags only
+ *     in the human-readable string but no structured column data, plus
+ *     the edge case where a pilot manually edited remarks to add a
+ *     pseudo-prefix (rare but harmless).
+ *
+ * - 'all'     → no extra constraint
+ * - 'with'    → OR-match (structured set OR either prefix substring)
+ * - 'without' → AND-NOT-match (structured null AND no prefix substring)
  *
  * Mode='insensitive' is unnecessary because the prefixes are emitted
  * with fixed casing by the server. Performance: substring-match is a
  * sequential scan, but the userId-filter narrows to one pilot's
- * PIREPs first so the scan-set is small.
+ * PIREPs first so the scan-set is small. The flags IS NOT NULL check
+ * is a B-tree-skippable null-test, near-free.
  */
 function buildFlagWhere(filter: FlagFilter): Prisma.PirepWhereInput {
     const ACARS_FLAG_PREFIX = '[ACARS-flag';
@@ -60,6 +74,11 @@ function buildFlagWhere(filter: FlagFilter): Prisma.PirepWhereInput {
     if (filter === 'with') {
         return {
             OR: [
+                // Structured field (option #20). Prisma.DbNull = SQL NULL,
+                // distinct from Prisma.JsonNull (which would mean a JSON
+                // null literal). We want "column has any value" so
+                // `not: DbNull` is correct.
+                { flags: { not: Prisma.DbNull } },
                 { remarks: { contains: ACARS_FLAG_PREFIX } },
                 { remarks: { contains: REPLAY_FLAG_PREFIX } },
             ],
@@ -68,6 +87,7 @@ function buildFlagWhere(filter: FlagFilter): Prisma.PirepWhereInput {
     if (filter === 'without') {
         return {
             AND: [
+                { flags: { equals: Prisma.DbNull } },
                 {
                     NOT: { remarks: { contains: ACARS_FLAG_PREFIX } },
                 },
