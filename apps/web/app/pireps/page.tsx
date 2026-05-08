@@ -295,9 +295,10 @@ export default async function PirepsList({
                                                 <span className={
                                                     p.status === 'Approved' ? 'text-green-700 dark:text-green-400' :
                                                         p.status === 'Rejected' ? 'text-red-700 dark:text-red-400' :
-                                                            'text-yellow-700 dark:text-yellow-400'
+                                                            p.status === 'Draft' ? 'text-cyan-700 dark:text-cyan-400' :
+                                                                'text-yellow-700 dark:text-yellow-400'
                                                 }>
-                                                    {p.status}
+                                                    {p.status === 'Draft' ? 'Entwurf' : p.status}
                                                 </span>
                                             </Link>
                                         </td>

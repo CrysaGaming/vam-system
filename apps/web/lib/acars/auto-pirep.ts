@@ -5,29 +5,34 @@ import {
   type BlockOnPayload,
   type GeneratePirepResult,
 } from './generate-pirep';
-import { emitPirepSubmitted } from '@/lib/bot-events';
-import { evaluatePromotion } from '@/lib/ranks';
 
 /**
- * Auto-PIREP trigger orchestration (M6).
+ * Auto-PIREP trigger orchestration (M6, updated for option #19).
  *
- * Bundles the three things that happen when a BLOCK_ON event closes
- * out a flight session:
+ * Bundles the things that happen when a BLOCK_ON event closes out a
+ * flight session:
  *
  *   1. generatePirepFromSession — turns the LiveSession + payload into
- *      a real Pirep row, transfers FlightPlanCache, closes the session,
- *      links the AcarsEvent.triggeredPirepId for the audit-trail.
- *   2. emitPirepSubmitted — fans out to Discord-bot, leaderboards,
- *      anywhere else that wants to hear "pilot just filed a flight".
- *   3. evaluatePromotion — checks if the new flight pushes the pilot
- *      across a rank threshold (hours-based, in-airline).
+ *      a real Pirep row (status=Draft after option #19), transfers
+ *      FlightPlanCache, closes the session, links the AcarsEvent.
+ *      triggeredPirepId for the audit-trail.
+ *   2. (was: emitPirepSubmitted + evaluatePromotion as fire-and-forget
+ *      side-channels). Now DELIBERATELY omitted on the auto-Draft path.
+ *      Both side-channels fire later when the pilot manually clicks
+ *      "Submit zur Review" on /pireps/[id], which calls
+ *      submitDraftPirep → Draft → Submitted transition. The Discord
+ *      embed and rank-promotion are tied to "the pilot is happy with
+ *      this PIREP", not "the auto-generator finished".
  *
- * Both side-channels are best-effort and never block the PIREP itself
- * — they're fire-and-forget with their own .catch handlers, matching
- * the convention from the manual /pireps/new flow.
+ * Why move them out: the original M6 behaviour broadcast every flight
+ * to Discord the moment BLOCK_ON fired, with whatever the heuristic
+ * splice produced in remarks (sim-rate flags, replay-flags). When a
+ * heuristic produced a false-positive the pilot wanted to remove it
+ * before it reached #pireps. The Draft-state (option #19) is the gate
+ * that gives them that chance.
  *
- * Why a separate file: this exact orchestration runs from two call-
- * sites that arrived at it via different paths:
+ * Why a separate file (still): this exact orchestration runs from two
+ * call-sites that arrived at it via different paths:
  *
  *   - POST /api/acars/event with type=BLOCK_ON — original Welle 9
  *     path, where the client explicitly fires an event after seeing
@@ -39,22 +44,20 @@ import { evaluatePromotion } from '@/lib/ranks';
  *   - POST /api/acars/heartbeat detecting a BlockOn phase transition
  *     server-side (M3.9). Heartbeats are best-effort, the client
  *     doesn't expect a pirepId back, and we don't want to make the
- *     2-Hz heartbeat round-trip wait on PIREP-creation + Discord.
+ *     2-Hz heartbeat round-trip wait on PIREP-creation.
  *     So this path fires-and-forgets the helper, the heartbeat ack
  *     goes back fast, and the PIREP lands a moment later.
  *
  * Both paths converge here so future side-channels (twitch-overlay
- * broadcast, webhook fan-out, post-flight metrics push) get added
- * once and benefit both. Without this helper the two routes would
- * accumulate their own divergent copies — exactly the kind of
- * boilerplate that ages badly.
+ * broadcast, post-flight metrics push) can be added once and benefit
+ * both. Without this helper the two routes would accumulate their own
+ * divergent copies — exactly the kind of boilerplate that ages badly.
  *
  * Idempotency guarantee: the underlying helper returns
  * 'session-already-closed' if a previous call already filed the
- * PIREP. Side-channels are skipped on that path so we don't
- * double-broadcast. Caller can distinguish "filed now" (ok=true)
- * from "filed earlier" (ok=false, reason='session-already-closed')
- * and route HTTP status / log-level accordingly.
+ * PIREP. Caller can distinguish "filed now" (ok=true) from "filed
+ * earlier" (ok=false, reason='session-already-closed') and route
+ * HTTP status / log-level accordingly.
  *
  * Failure-event recording: when generatePirepFromSession returns a
  * recoverable failure reason (unknown airport ICAO, missing fields,
@@ -74,40 +77,17 @@ export async function triggerAutoPirep(
   const result = await generatePirepFromSession(sessionId, userId, payload);
 
   if (result.ok) {
-    // Fire side-channels in parallel. void + .catch() is the canonical
-    // fire-and-forget pattern; the caller never awaits these. Errors
-    // get logged but don't propagate — a Discord outage shouldn't
-    // make a successfully-filed PIREP look failed.
-    void emitPirepSubmitted({
-      pirepId: result.pirepId,
-      userId,
-      flightNumber: result.flightNumber,
-      departureIcao: result.departureIcao,
-      arrivalIcao: result.arrivalIcao,
-      flightTimeMin: result.flightTimeMin,
-      aircraftRegistration: result.aircraftRegistration,
-      remarks: result.remarks,
-
-      // Discord embed enrichment (option #17). Forwarded straight
-      // from the helper's result — the helper assembled all of these
-      // from the LiveSession + INCIDENT lookup. The bot service
-      // renders a richer embed when these are present, falls back to
-      // the minimal layout when they're not (e.g., older bot version).
-      pilotName: result.pilotName,
-      aircraftType: result.aircraftType,
-      aircraftTitle: result.aircraftTitle,
-      landingRateFpm: result.landingRateFpm,
-      fuelUsedKg: result.fuelUsedKg,
-      network: result.network,
-      hasHardLanding: result.hasHardLanding,
-      incidentSeverity: result.incidentSeverity,
-    }).catch((err) =>
-      console.warn('[auto-pirep] emitPirepSubmitted failed:', err),
-    );
-
-    void evaluatePromotion(userId).catch((err) =>
-      console.warn('[auto-pirep] evaluatePromotion failed:', err),
-    );
+    // Note (option #19): we deliberately do NOT fire emitPirepSubmitted
+    // or evaluatePromotion here. The PIREP just landed in Draft; the
+    // pilot has not yet decided to publish it. Both side-channels move
+    // to submitDraftPirep (apps/web/app/pireps/actions.ts) and fire on
+    // the Draft → Submitted transition the pilot triggers manually.
+    //
+    // Why even keep this branch then: the result envelope still carries
+    // pilot/aircraft/landing-rate enrichment fields the caller may want
+    // for HTTP-response logging or live-UI feedback. Returning ok=true
+    // also distinguishes "Draft created" from "session-already-closed"
+    // for the heartbeat-route's status-code logic.
 
     return result;
   }

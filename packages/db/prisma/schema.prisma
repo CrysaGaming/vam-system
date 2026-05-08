@@ -21,6 +21,26 @@ enum NetworkType {
 }
 
 enum PirepStatus {
+  /// Auto-PIREP intermediate state (option #19 — Edit-Before-Submit).
+  /// The auto-PIREP path (BLOCK_ON → triggerAutoPirep → generatePirepFromSession)
+  /// lands every flight as Draft so the pilot can review/edit remarks
+  /// before the PIREP is broadcast to Discord and reaches the admin
+  /// approval-queue. Manual /pireps/new submissions skip Draft entirely
+  /// and land as Submitted (the pilot has already typed the remarks
+  /// themselves — no review-step needed).
+  ///
+  /// Side-channels (Discord embed, rank-promotion check) only fire on
+  /// the Draft → Submitted transition, NOT on initial Draft creation.
+  /// This prevents the bot from broadcasting half-cooked auto-PIREPs
+  /// while the pilot is still editing them.
+  ///
+  /// A Draft can be: (a) edited by the pilot, (b) submitted by the
+  /// pilot (→ Submitted), or (c) cancelled by the pilot/admin. There
+  /// is no auto-promotion from Draft to Submitted; the pilot must
+  /// explicitly submit. (Future v2 could add a TTL — auto-submit after
+  /// 24h to keep abandoned drafts from clogging the queue — but for v1
+  /// pilots are responsible for completing their drafts.)
+  Draft
   Submitted
   Approved
   Rejected

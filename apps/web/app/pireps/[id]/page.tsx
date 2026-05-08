@@ -4,6 +4,7 @@ import { prisma, licenseDisplayName, hasReplayDataForPirep } from '@vam/db';
 import Link from 'next/link';
 import { OfpSummary } from '@/components/OfpSummary';
 import { ApprovalActions } from './approval-actions';
+import { DraftActions } from './draft-actions';
 import { isApproverRole } from '@/lib/roles';
 
 export default async function PirepDetail({
@@ -112,24 +113,37 @@ export default async function PirepDetail({
         ? `${hours}h ${mins}min`
         : `${mins}min`;
 
-  // Status-Styling
+  // Status-Styling. Draft (option #19) gets cyan to clearly differentiate
+  // from yellow Submitted — pilot at-a-glance sees "this is mine to act
+  // on" vs "this is in admin queue". Approved/Rejected unchanged.
   const statusStyles =
     pirep.status === 'Approved'
       ? 'bg-green-500/10 border-green-500/30 text-green-400'
       : pirep.status === 'Rejected'
         ? 'bg-red-500/10 border-red-500/30 text-red-400'
-        : 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400';
+        : pirep.status === 'Draft'
+          ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-400'
+          : 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400';
 
   const statusLabel =
     pirep.status === 'Approved'
       ? 'Genehmigt'
       : pirep.status === 'Rejected'
         ? 'Abgelehnt'
-        : 'Eingereicht';
+        : pirep.status === 'Draft'
+          ? 'Entwurf'
+          : 'Eingereicht';
 
-  // Show approval actions: nur für approver UND status=Submitted UND nicht eigener PIREP
+  // Show approval actions: nur für approver UND status=Submitted UND nicht eigener PIREP.
+  // Drafts are explicitly excluded — they're not in the approval queue yet,
+  // the pilot must Submit first (option #19).
   const showApprovalActions =
     isApprover && pirep.status === 'Submitted' && !isOwn;
+
+  // Show draft actions: only the OWNING pilot, only on Draft (option #19).
+  // Suppresses the read-only remarks card below since the editable form
+  // includes its own remarks textarea.
+  const showDraftActions = pirep.status === 'Draft' && isOwn;
 
   return (
     <main className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-white p-8">
@@ -147,7 +161,7 @@ export default async function PirepDetail({
               </span>
             </div>
             <p className="text-gray-500 dark:text-gray-400 text-sm">
-              Eingereicht am{' '}
+              {pirep.status === 'Draft' ? 'Erstellt am ' : 'Eingereicht am '}
               {new Date(pirep.submittedAt).toLocaleString('de-DE', {
                 dateStyle: 'long',
                 timeStyle: 'short',
@@ -182,6 +196,21 @@ export default async function PirepDetail({
           <div className="mb-8">
             <ApprovalActions pirepId={pirep.id} />
           </div>
+        )}
+
+        {/* Draft Actions (nur für owning Pilot bei Draft-PIREPs, option #19).
+            Editable form für remarks + flightTimeMin + fuelUsedKg +
+            landingRateFpm; buttons für Speichern, Submit, Verwerfen.
+            Suppresses the static "Bemerkungen"-card below since the
+            edit-form has its own remarks textarea. */}
+        {showDraftActions && (
+          <DraftActions
+            pirepId={pirep.id}
+            initialRemarks={pirep.remarks}
+            initialFlightTimeMin={pirep.flightTimeMin}
+            initialFuelUsedKg={pirep.fuelUsedKg}
+            initialLandingRateFpm={pirep.landingRateFpm}
+          />
         )}
 
         {/* Approver-Info bei bereits geprüften PIREPs */}
@@ -419,8 +448,12 @@ export default async function PirepDetail({
           </div>
         </section>
 
-        {/* Bemerkungen (falls vorhanden) */}
-        {pirep.remarks && (
+        {/* Bemerkungen (falls vorhanden). Hidden when DraftActions is
+            rendered — that component has its own remarks textarea and
+            showing both would duplicate the text. Other viewers (admin
+            looking at someone's Draft, or the owning pilot once it's
+            Submitted/Approved/Rejected) see the static card as before. */}
+        {pirep.remarks && !showDraftActions && (
           <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6 mb-8">
             <h2 className="text-sm uppercase tracking-wider text-gray-500 mb-4">
               Bemerkungen

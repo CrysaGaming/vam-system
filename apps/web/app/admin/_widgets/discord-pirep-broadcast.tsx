@@ -40,6 +40,10 @@ interface BroadcastEntry {
   pilotName: string | null;
   departureIcao: string;
   arrivalIcao: string;
+  // Drafts (option #19) are deliberately excluded — they're not
+  // broadcast to Discord (the bot only fires on Submit). The status-
+  // narrowing here matches the where-clause in getBroadcastStats which
+  // filters status=Draft out before mapping to BroadcastEntry.
   status: 'Submitted' | 'Approved' | 'Rejected';
   changedAt: Date;
 }
@@ -66,7 +70,13 @@ async function getBroadcastStats() {
 
   const [submitted24h, approved24h, rejected24h, recent] = await Promise.all([
     prisma.pirep.count({
-      where: { submittedAt: { gte: last24h } },
+      // Submitted-broadcasts (24h) means "PIREPs that were actually
+      // submitted to Discord" — Drafts (option #19) write submittedAt
+      // at Draft-create-time but don't fire emitPirepSubmitted until
+      // the pilot manually submits. So filter to status=Submitted
+      // here; Approved/Rejected are also already-broadcast (they
+      // necessarily passed through Submitted earlier).
+      where: { status: 'Submitted', submittedAt: { gte: last24h } },
     }),
     prisma.pirep.count({
       where: { approvedAt: { gte: last24h } },
@@ -76,6 +86,13 @@ async function getBroadcastStats() {
     }),
     prisma.pirep.findMany({
       where: {
+        // Drafts (option #19) are not broadcast — exclude from the
+        // recent-broadcasts list explicitly so the type narrows to
+        // Submitted/Approved/Rejected and matches BroadcastEntry. The
+        // submitted24h count above also stays clean: a Draft has the
+        // default submittedAt=NOW() at create-time, but it doesn't go
+        // out via emitPirepSubmitted until the pilot actually submits.
+        status: { in: ['Submitted', 'Approved', 'Rejected'] },
         OR: [
           { submittedAt: { gte: last24h } },
           { approvedAt: { gte: last24h } },
@@ -111,7 +128,10 @@ async function getBroadcastStats() {
       pilotName: p.user.name,
       departureIcao: p.departure.icao,
       arrivalIcao: p.arrival.icao,
-      status: p.status,
+      // The where-clause above filtered out Draft, but Prisma's
+      // generated PirepStatus type still includes it. Cast is safe
+      // because the runtime guarantees match the type narrowing.
+      status: p.status as BroadcastEntry['status'],
       changedAt,
     };
   });
