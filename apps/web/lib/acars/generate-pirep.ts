@@ -1,5 +1,6 @@
 import 'server-only';
 import { prisma, type Prisma } from '@vam/db';
+import { verifyReplay } from './replay-verify';
 
 /**
  * Auto-PIREP generator (Welle 9 commit 9F).
@@ -319,10 +320,45 @@ export async function generatePirepFromSession(
   if (session.totalPauseSeconds && session.totalPauseSeconds > 60) {
     flagParts.push(`paused ${Math.round(session.totalPauseSeconds / 60)}min`);
   }
-  const flagPrefix =
+
+  // Replay verification (option #11). Heuristics over the position
+  // trail: teleports, sustained supersonic, altitude jumps, continuity
+  // gaps. Soft-failed to empty on any error so a flaky verify-pass
+  // can't block the auto-PIREP. Each flag is a human-readable string
+  // suitable for splicing into remarks alongside simRate / pause flags.
+  //
+  // Why before the tx: read-only against already-committed position
+  // rows, no overlap with the writes the tx is about to do. Doing it
+  // inside the tx would just hold the tx open longer for no benefit.
+  let replayFlags: string[] = [];
+  try {
+    const verification = await verifyReplay(sessionId);
+    replayFlags = verification.flags;
+  } catch (err) {
+    // Verification is supplementary, not load-bearing. A bad query or
+    // unexpected data shape shouldn't block the PIREP from filing —
+    // we already have the user's flight data and they shouldn't lose
+    // it because the heuristic-pass crashed. Log and continue.
+    console.warn(
+      '[generate-pirep] replay-verify failed for session %s: %s',
+      sessionId,
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+
+  // Compose the final flag-prefix. Two-bucket separation: ACARS-flag
+  // for client-attestable runtime state (simRate, pause); Replay-flag
+  // for server-derived heuristic findings. Admin-review can grep
+  // either prefix to filter the PIREP queue. If both are empty the
+  // remarks are clean — same as a freshly-filed manual PIREP.
+  const acarsFlagPrefix =
     flagParts.length > 0 ? `[ACARS-flag: ${flagParts.join(', ')}] ` : '';
+  const replayFlagPrefix =
+    replayFlags.length > 0
+      ? `[Replay-flag: ${replayFlags.join('; ')}] `
+      : '';
   const remarks =
-    `${flagPrefix}Auto-filed by ACARS-client at block-on (callsign ${session.callsign}).`;
+    `${acarsFlagPrefix}${replayFlagPrefix}Auto-filed by ACARS-client at block-on (callsign ${session.callsign}).`;
 
   // Transactional commit: PIREP-create + booking-completion + cache-
   // transfer + LiveSession-close + user-totals-bump + AcarsEvent for
