@@ -809,3 +809,92 @@ function toIntOrNull(value: unknown): number | null {
   }
   return null;
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// Route-Averages (Track 4 #8 — Comparison-Section)
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Per-route average-stats über die approved PIREP-history. Used by der
+ * PIREP-detail-page Comparison-Section (Track 4 option #8) als
+ * baseline-vergleich für "wie schnitt dieser flug ab vs. die anderen
+ * auf der gleichen route".
+ *
+ * # Scope: nur approved PIREPs
+ *
+ * Wir aggregieren NUR über status=Approved damit pending/rejected
+ * submissions die averages nicht skewen. Das hat einen kleinen self-
+ * fulfilling-bias (approver akzeptiert nur "normale" werte → der avg
+ * stays normal), aber alternativen wären schlimmer:
+ *   - Submitted+Approved: rejected-PIREPs (z.B. cheating-attempts mit
+ *     zu hohen fuelUsedKg) würden den avg verzerren
+ *   - all: drafts würden mitzählen, was kein realer comparison ist
+ *
+ * # Excluded: der current PIREP
+ *
+ * Caller passt die eigene pirepId mit, wir excluden sie aus dem avg.
+ * Sonst würde "your value vs. avg" beim ersten approved PIREP einer
+ * route immer 0 delta zeigen (own value vs. avg-of-only-self).
+ *
+ * # Sample-count threshold
+ *
+ * Wenn nach exclude weniger als MIN_SAMPLES (=2) PIREPs übrig sind,
+ * return null. Bei kleinem N ist der avg nicht aussagekräftig — UI
+ * rendert dann gar keine comparison-section.
+ *
+ * # null-handling pro feld
+ *
+ * fuelUsedKg, landingRateFpm sind nullable in Pirep. Avg überspringt
+ * NULL-werte automatisch (Prisma _avg.fieldName ignoriert nulls).
+ * sampleCount ist trotzdem die total-count über alle approved PIREPs
+ * (nicht per-feld) — falls mancher feld bei null ist, bleibt der
+ * count konsistent. Caller weiß durch die jeweiligen avg-fields
+ * (null|number) ob der feld aussagekräftig ist.
+ */
+export type RouteAverages = {
+  avgFlightTimeMin: number | null;
+  avgFuelUsedKg: number | null;
+  avgLandingRateFpm: number | null;
+  /** Total approved PIREPs auf der route (excluding the current PIREP). */
+  sampleCount: number;
+};
+
+const MIN_COMPARISON_SAMPLES = 2;
+
+export async function getRouteAverages(
+  routeId: string,
+  excludePirepId: string,
+): Promise<RouteAverages | null> {
+  const result = await prisma.pirep.aggregate({
+    where: {
+      routeId,
+      status: "Approved",
+      id: { not: excludePirepId },
+    },
+    _avg: {
+      flightTimeMin: true,
+      fuelUsedKg: true,
+      landingRateFpm: true,
+    },
+    _count: { id: true },
+  });
+
+  const sampleCount = result._count.id;
+  if (sampleCount < MIN_COMPARISON_SAMPLES) return null;
+
+  return {
+    avgFlightTimeMin:
+      result._avg.flightTimeMin !== null
+        ? Math.round(result._avg.flightTimeMin)
+        : null,
+    avgFuelUsedKg:
+      result._avg.fuelUsedKg !== null
+        ? Math.round(result._avg.fuelUsedKg)
+        : null,
+    avgLandingRateFpm:
+      result._avg.landingRateFpm !== null
+        ? Math.round(result._avg.landingRateFpm)
+        : null,
+    sampleCount,
+  };
+}

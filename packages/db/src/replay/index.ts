@@ -12,10 +12,12 @@ export {
   getPirepPhaseBreakdown,
   getPirepApproachAnalysis,
   getPirepLandingAnalysis,
+  getRouteAverages,
   type ReplayData,
   type ReplayDataMissing,
   type ReplayDataResult,
   type PhaseBreakdown,
   type ApproachAnalysis,
   type LandingAnalysis,
+  type RouteAverages,
 } from "./queries.js";

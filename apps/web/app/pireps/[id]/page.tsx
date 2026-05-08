@@ -7,6 +7,7 @@ import {
   getPirepPhaseBreakdown,
   getPirepApproachAnalysis,
   getPirepLandingAnalysis,
+  getRouteAverages,
 } from '@vam/db';
 import Link from 'next/link';
 import { OfpSummary } from '@/components/OfpSummary';
@@ -218,12 +219,18 @@ export default async function PirepDetail({
   // alle 3 helpers im Promise.all parallel laufen → kein latency-cost.
   // groupBy-aggregation auf indexed (sessionId, recordedAt) ist
   // billig auch bei 5000+ positions.
+  // Track 4 #8 (Comparison-Section): routeAverages-fetch ist conditional
+  // auf pirep.routeId. Bei standalone-PIREPs ohne route-binding ist es
+  // null, dann skip-fetch — Promise.resolve(null) hält das tuple-shape
+  // konsistent ohne extra-roundtrip. excludePirepId verhindert dass
+  // der eigene flug die avg-baseline beeinflusst.
   const [
     examEnrollment,
     hasReplay,
     phaseBreakdown,
     approachAnalysis,
     landingAnalysis,
+    routeAverages,
   ] = await Promise.all([
     prisma.flightSchoolEnrollment.findFirst({
       where: { practicalExamPirepId: pirep.id },
@@ -240,6 +247,9 @@ export default async function PirepDetail({
     getPirepPhaseBreakdown(pirep.id),
     getPirepApproachAnalysis(pirep.id),
     getPirepLandingAnalysis(pirep.id),
+    pirep.routeId
+      ? getRouteAverages(pirep.routeId, pirep.id)
+      : Promise.resolve(null),
   ]);
 
   // Track 4 #7 — Smoothness-Score wird inline aus den oben gefetchten
@@ -965,6 +975,229 @@ export default async function PirepDetail({
               </div>
             </section>
           )}
+
+        {/* Track 4 #8 (Comparison-Section): how-did-this-flight-compare-
+            to-others-on-the-same-route. routeAverages !== null wenn die
+            route mind. MIN_COMPARISON_SAMPLES (=2) approved peer-PIREPs
+            hat. Für jede metric wird "your value vs avg" mit delta-
+            indikator gerendert.
+
+            Layout: 3-card grid analog zu Approach-Analysis (#5). Pro
+            metric:
+            - Top: dein wert (groß)
+            - Middle: avg + delta in absolute units
+            - Bottom: trend-indikator + qualitative bewertung
+
+            Color-coding: bei flight-time + fuel ist "kleiner = besser"
+            (effizienter, schneller). Bei landing-rate ist "kleiner als
+            avg-magnitude = besser" (smoother). Schwellen: ±5% = neutral
+            (gray), 5-15% besser = green/positiv, >15% besser = strong-
+            green, schlechter analog amber/red.
+
+            Wenn pro metric entweder eigenes value ODER avg null ist,
+            zeigt die zelle einen muted "—"-state ohne delta. Sonst
+            würde z.B. ein PIREP ohne fuelUsedKg eine sinnlose "100%
+            unter avg"-card zeigen. */}
+        {routeAverages && (
+          <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6 mb-8">
+            <div className="flex items-baseline justify-between mb-4 flex-wrap gap-2">
+              <h2 className="text-sm uppercase tracking-wider text-gray-500 font-semibold">
+                Vergleich Route-Schnitt
+              </h2>
+              <p className="text-xs text-gray-400">
+                vs. {routeAverages.sampleCount}{' '}
+                {routeAverages.sampleCount === 1
+                  ? 'anderer Flug'
+                  : 'andere Flüge'}{' '}
+                auf dieser Route
+              </p>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {/* Block-Time vs avg. own = pirep.flightTimeMin (block-to-
+                  block seit option #13). Delta in min, color: green wenn
+                  schneller-als-avg, amber wenn ±5% gleich, red wenn
+                  langsamer. */}
+              {(() => {
+                const ownMin = pirep.flightTimeMin;
+                const avgMin = routeAverages.avgFlightTimeMin;
+                if (ownMin === null || avgMin === null || avgMin === 0) {
+                  return (
+                    <div className="bg-gray-50 dark:bg-gray-800/40 rounded-lg p-4">
+                      <p className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
+                        Block-Time
+                      </p>
+                      <p className="text-2xl font-bold mt-2 leading-tight text-gray-400">
+                        —
+                      </p>
+                      <p className="text-[10px] text-gray-500 mt-1">
+                        kein Vergleich möglich
+                      </p>
+                    </div>
+                  );
+                }
+                const deltaMin = ownMin - avgMin;
+                const deltaPct = (deltaMin / avgMin) * 100;
+                // Schneller-als-avg = positive (green). pirep<avg → deltaMin<0.
+                const colorClasses =
+                  Math.abs(deltaPct) <= 5
+                    ? 'bg-gray-50 dark:bg-gray-800/40 border-transparent'
+                    : deltaMin < 0
+                      ? 'bg-green-500/5 border-green-500/30'
+                      : 'bg-amber-500/5 border-amber-500/30';
+                const arrow = deltaMin < 0 ? '↓' : deltaMin > 0 ? '↑' : '=';
+                const ownH = Math.floor(ownMin / 60);
+                const ownM = ownMin % 60;
+                const ownLabel =
+                  ownH > 0 ? `${ownH}h ${ownM}min` : `${ownM}min`;
+                return (
+                  <div className={`rounded-lg p-4 border ${colorClasses}`}>
+                    <p className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
+                      Block-Time
+                    </p>
+                    <p className="text-2xl font-bold mt-2 leading-tight tabular-nums">
+                      {ownLabel}
+                    </p>
+                    <p className="text-[10px] text-gray-500 mt-1 tabular-nums">
+                      Ø {Math.floor(avgMin / 60)}h {avgMin % 60}min ·{' '}
+                      <span className="font-semibold">
+                        {arrow} {Math.abs(deltaMin)} min
+                      </span>{' '}
+                      ({deltaPct > 0 ? '+' : ''}
+                      {deltaPct.toFixed(1)}%)
+                    </p>
+                  </div>
+                );
+              })()}
+
+              {/* Fuel vs avg. own = pirep.fuelUsedKg. Delta in kg.
+                  Color: less-than-avg = green (efficiency), more = amber. */}
+              {(() => {
+                const ownKg = pirep.fuelUsedKg;
+                const avgKg = routeAverages.avgFuelUsedKg;
+                if (ownKg === null || avgKg === null || avgKg === 0) {
+                  return (
+                    <div className="bg-gray-50 dark:bg-gray-800/40 rounded-lg p-4">
+                      <p className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
+                        Treibstoff
+                      </p>
+                      <p className="text-2xl font-bold mt-2 leading-tight text-gray-400">
+                        —
+                      </p>
+                      <p className="text-[10px] text-gray-500 mt-1">
+                        kein Vergleich möglich
+                      </p>
+                    </div>
+                  );
+                }
+                const deltaKg = ownKg - avgKg;
+                const deltaPct = (deltaKg / avgKg) * 100;
+                const colorClasses =
+                  Math.abs(deltaPct) <= 5
+                    ? 'bg-gray-50 dark:bg-gray-800/40 border-transparent'
+                    : deltaKg < 0
+                      ? 'bg-green-500/5 border-green-500/30'
+                      : 'bg-amber-500/5 border-amber-500/30';
+                const arrow = deltaKg < 0 ? '↓' : deltaKg > 0 ? '↑' : '=';
+                return (
+                  <div className={`rounded-lg p-4 border ${colorClasses}`}>
+                    <p className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
+                      Treibstoff
+                    </p>
+                    <p className="text-2xl font-bold mt-2 leading-tight tabular-nums">
+                      {ownKg}
+                      <span className="text-sm font-normal text-gray-500 ml-1">
+                        kg
+                      </span>
+                    </p>
+                    <p className="text-[10px] text-gray-500 mt-1 tabular-nums">
+                      Ø {avgKg} kg ·{' '}
+                      <span className="font-semibold">
+                        {arrow} {Math.abs(deltaKg)} kg
+                      </span>{' '}
+                      ({deltaPct > 0 ? '+' : ''}
+                      {deltaPct.toFixed(1)}%)
+                    </p>
+                  </div>
+                );
+              })()}
+
+              {/* Landing-Rate vs avg. Comparison via |abs|: smaller-mag
+                  = smoother. own = pirep.landingRateFpm (legacy-bug:
+                  often null für ACARS — siehe #6 docs). Avg ist über
+                  alle approved PIREPs der route. */}
+              {(() => {
+                const ownFpm = pirep.landingRateFpm;
+                const avgFpm = routeAverages.avgLandingRateFpm;
+                if (ownFpm === null || avgFpm === null) {
+                  return (
+                    <div className="bg-gray-50 dark:bg-gray-800/40 rounded-lg p-4">
+                      <p className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
+                        Landing-Rate
+                      </p>
+                      <p className="text-2xl font-bold mt-2 leading-tight text-gray-400">
+                        —
+                      </p>
+                      <p className="text-[10px] text-gray-500 mt-1">
+                        kein Vergleich möglich
+                      </p>
+                    </div>
+                  );
+                }
+                const ownAbs = Math.abs(ownFpm);
+                const avgAbs = Math.abs(avgFpm);
+                if (avgAbs === 0) {
+                  return (
+                    <div className="bg-gray-50 dark:bg-gray-800/40 rounded-lg p-4">
+                      <p className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
+                        Landing-Rate
+                      </p>
+                      <p className="text-2xl font-bold mt-2 leading-tight tabular-nums">
+                        {ownAbs}
+                        <span className="text-sm font-normal text-gray-500 ml-1">
+                          fpm
+                        </span>
+                      </p>
+                      <p className="text-[10px] text-gray-500 mt-1">
+                        kein Vergleich möglich
+                      </p>
+                    </div>
+                  );
+                }
+                const deltaAbs = ownAbs - avgAbs;
+                const deltaPct = (deltaAbs / avgAbs) * 100;
+                // Smoother = smaller magnitude = green
+                const colorClasses =
+                  Math.abs(deltaPct) <= 10
+                    ? 'bg-gray-50 dark:bg-gray-800/40 border-transparent'
+                    : deltaAbs < 0
+                      ? 'bg-green-500/5 border-green-500/30'
+                      : 'bg-amber-500/5 border-amber-500/30';
+                const arrow = deltaAbs < 0 ? '↓' : deltaAbs > 0 ? '↑' : '=';
+                return (
+                  <div className={`rounded-lg p-4 border ${colorClasses}`}>
+                    <p className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
+                      Landing-Rate
+                    </p>
+                    <p className="text-2xl font-bold mt-2 leading-tight tabular-nums">
+                      {ownAbs}
+                      <span className="text-sm font-normal text-gray-500 ml-1">
+                        fpm
+                      </span>
+                    </p>
+                    <p className="text-[10px] text-gray-500 mt-1 tabular-nums">
+                      Ø {avgAbs} fpm ·{' '}
+                      <span className="font-semibold">
+                        {arrow} {Math.abs(deltaAbs)} fpm
+                      </span>{' '}
+                      ({deltaPct > 0 ? '+' : ''}
+                      {deltaPct.toFixed(1)}%)
+                    </p>
+                  </div>
+                );
+              })()}
+            </div>
+          </section>
+        )}
 
         {/* Route - groß und prominent */}
         <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6 mb-8">
