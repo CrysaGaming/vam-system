@@ -303,18 +303,36 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
     [],
   );
 
-  // Track 1 #2: Search-results — fuzzy callsign-match across alle drei
-  // pilot-quellen (member sessions, public VATSIM, public IVAO). Limit 8
-  // für übersichtlichkeit (über 8 results ist die query zu unspezifisch).
-  // Member sessions kommen zuerst — ein admin/streamer der nach einem
-  // member-callsign sucht erwartet den als top-result.
+  // Track 1 #2 (extended in track4 #18): Search-results across alle drei
+  // pilot-quellen (member sessions, public VATSIM, public IVAO). Match-
+  // priorität: callsign → departure → arrival → aircraft-type → pilot-
+  // name. Erste matchende field gewinnt; matchedField wird ans result
+  // angehängt damit die UI den match-reason zeigen kann ("via EDDF" wenn
+  // der match per departure war, "A320" wenn per aircraft).
   //
-  // Performance: O(n) over ~3500 public pilots ist trivial-quick (<1ms),
-  // kein debounce nötig. Wenn das mal langsam wird, wäre ein simple-
-  // index (Map<callsign, pilot>) die nächste optimierung.
+  // Limit 8 für übersichtlichkeit (über 8 results ist die query zu
+  // unspezifisch). Member sessions kommen zuerst — ein admin/streamer
+  // der nach einem member-callsign sucht erwartet den als top-result.
+  //
+  // Performance: O(n) over ~3500 public pilots × 5 fields = ~17k str-
+  // includes. Bleibt unter 5ms in Chrome dev-tools messung; kein
+  // debounce nötig. Wenn das mal langsam wird, wäre ein simple-index
+  // (Map<callsign, pilot> + Map<icao, pilot[]>) die nächste optimierung.
+  type MatchedField =
+    | 'callsign'
+    | 'departure'
+    | 'arrival'
+    | 'aircraft'
+    | 'name';
+
   type SearchResult =
-    | { kind: 'session'; session: LiveSession }
-    | { kind: 'public'; network: 'VATSIM' | 'IVAO'; pilot: PublicPilot };
+    | { kind: 'session'; session: LiveSession; matchedField: MatchedField }
+    | {
+        kind: 'public';
+        network: 'VATSIM' | 'IVAO';
+        pilot: PublicPilot;
+        matchedField: MatchedField;
+      };
 
   const searchResults = useMemo<SearchResult[]>(() => {
     const q = searchQuery.trim().toUpperCase();
@@ -322,11 +340,48 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
     const out: SearchResult[] = [];
     const MAX = 8;
 
+    /**
+     * Helper für public-pilot fields. Returnt das erste matchende field
+     * oder null. Priorität callsign → dep → arr → aircraft (kein name
+     * für public-pilots — die public-API liefert nur die CID).
+     */
+    const matchPublic = (p: PublicPilot): MatchedField | null => {
+      if (p.callsign.toUpperCase().includes(q)) return 'callsign';
+      if (p.departureIcao && p.departureIcao.toUpperCase().includes(q))
+        return 'departure';
+      if (p.arrivalIcao && p.arrivalIcao.toUpperCase().includes(q))
+        return 'arrival';
+      if (p.aircraftType && p.aircraftType.toUpperCase().includes(q))
+        return 'aircraft';
+      return null;
+    };
+
+    /**
+     * Helper für member-session fields. Plus pilot-name (nicht in
+     * public verfügbar) — sucht case-insensitive, nutzt aber den
+     * upper-cased q für konsistente vergleiche. Matching geschieht
+     * upper-case da q schon upper ist und die session-felder
+     * upper-cased werden.
+     */
+    const matchSession = (s: LiveSession): MatchedField | null => {
+      if (s.callsign.toUpperCase().includes(q)) return 'callsign';
+      if (s.flightPlan.departure && s.flightPlan.departure.toUpperCase().includes(q))
+        return 'departure';
+      if (s.flightPlan.arrival && s.flightPlan.arrival.toUpperCase().includes(q))
+        return 'arrival';
+      if (s.aircraft.type && s.aircraft.type.toUpperCase().includes(q))
+        return 'aircraft';
+      if (s.pilot.name && s.pilot.name.toUpperCase().includes(q))
+        return 'name';
+      return null;
+    };
+
     // Member sessions zuerst (höhere relevanz für VAM-eingeloggte user).
     for (const s of sessions) {
       if (out.length >= MAX) break;
-      if (s.callsign.toUpperCase().includes(q)) {
-        out.push({ kind: 'session', session: s });
+      const matchedField = matchSession(s);
+      if (matchedField) {
+        out.push({ kind: 'session', session: s, matchedField });
       }
     }
     if (out.length >= MAX) return out;
@@ -339,8 +394,9 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
     for (const p of publicPilots.vatsim) {
       if (out.length >= MAX) break;
       if (memberKeys.has(`VATSIM:${p.callsign}`)) continue;
-      if (p.callsign.toUpperCase().includes(q)) {
-        out.push({ kind: 'public', network: 'VATSIM', pilot: p });
+      const matchedField = matchPublic(p);
+      if (matchedField) {
+        out.push({ kind: 'public', network: 'VATSIM', pilot: p, matchedField });
       }
     }
     if (out.length >= MAX) return out;
@@ -348,8 +404,9 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
     for (const p of publicPilots.ivao) {
       if (out.length >= MAX) break;
       if (memberKeys.has(`IVAO:${p.callsign}`)) continue;
-      if (p.callsign.toUpperCase().includes(q)) {
-        out.push({ kind: 'public', network: 'IVAO', pilot: p });
+      const matchedField = matchPublic(p);
+      if (matchedField) {
+        out.push({ kind: 'public', network: 'IVAO', pilot: p, matchedField });
       }
     }
 
@@ -1573,7 +1630,7 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
                   (e.target as HTMLInputElement).blur();
                 }
               }}
-              placeholder="Callsign suchen (z.B. DLH123)..."
+              placeholder="Suche: Callsign, ICAO, Aircraft, Name…"
               style={{
                 width: '100%',
                 padding: '0.55rem 2rem 0.55rem 2rem',
@@ -1586,7 +1643,7 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
                 outline: 'none',
                 backdropFilter: 'blur(8px)',
               }}
-              aria-label="Pilot-Callsign suchen"
+              aria-label="Pilot-Suche: Callsign, ICAO, Aircraft, Name"
             />
             {/* Search-icon links */}
             <span
@@ -1759,6 +1816,37 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
                             MEMBER
                           </span>
                         )}
+                        {/*
+                          Track 4 #18: Match-hint badge. Wenn der match
+                          NICHT auf den callsign war, zeigen wir kurz
+                          warum dieses result aufgetaucht ist — sonst
+                          irritiert ein search-result wo der gesuchte
+                          string nicht im callsign zu sehen ist.
+                          "via DEP" = match auf flightplan.departure-ICAO,
+                          "via ARR" = arrival, "via TYPE" = aircraft,
+                          "via NAME" = pilot.name (sessions only).
+                        */}
+                        {r.matchedField !== 'callsign' && (
+                          <span
+                            style={{
+                              fontSize: '0.6rem',
+                              padding: '0.05rem 0.35rem',
+                              borderRadius: '0.2rem',
+                              backgroundColor: 'rgba(168, 85, 247, 0.2)',
+                              color: '#d8b4fe',
+                              border: '1px solid rgba(168, 85, 247, 0.4)',
+                            }}
+                          >
+                            via{' '}
+                            {r.matchedField === 'departure'
+                              ? 'DEP'
+                              : r.matchedField === 'arrival'
+                                ? 'ARR'
+                                : r.matchedField === 'aircraft'
+                                  ? 'TYPE'
+                                  : 'NAME'}
+                          </span>
+                        )}
                       </div>
                       {(aircraft || dep || arr) && (
                         <div
@@ -1801,7 +1889,7 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
                     color: 'rgb(156, 163, 175)',
                   }}
                 >
-                  Keine Pilots mit "{searchQuery}" im Callsign gefunden.
+                  Keine Pilots, Routen oder Flugzeugtypen mit "{searchQuery}" gefunden.
                 </div>
               )}
           </div>
