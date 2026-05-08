@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import type { Award } from '@vam/db';
+import type { FamilyAnnotation } from './tier-detection';
 
 /**
  * Track 1 #1 (Awards UI, 9.2.3) — Reusable award-badge component.
@@ -20,6 +21,10 @@ import type { Award } from '@vam/db';
  *     ("seit DD.MM.YYYY").
  *   - `size`: "default" oder "compact". Compact wird auf user-profile
  *     genutzt wo platz knapp ist.
+ *   - `family` (option #16): tier-progression-info. Wenn gesetzt rendert
+ *     der badge eine kleine "Tier 2/4 · 1 erhalten" zeile + segmented
+ *     progress-bar. Erkennt der caller via `annotateFamilies()` aus
+ *     `tier-detection.ts`. Single-tier awards lassen den prop weg.
  *
  * Icon-handling: iconUrl ist optional. Wenn null/undefined zeigen wir
  * einen 🏆-emoji als placeholder. Bewusst KEIN external image-load mit
@@ -34,12 +39,14 @@ export function AwardBadge({
   awardedAt = null,
   linkable = true,
   size = 'default',
+  family = null,
 }: {
   award: Pick<Award, 'id' | 'name' | 'description' | 'iconUrl'>;
   earned?: boolean;
   awardedAt?: Date | null;
   linkable?: boolean;
   size?: 'default' | 'compact';
+  family?: FamilyAnnotation | null;
 }) {
   const iconSize = size === 'compact' ? 'w-12 h-12' : 'w-16 h-16';
   const padding = size === 'compact' ? 'p-3' : 'p-4';
@@ -104,6 +111,62 @@ export function AwardBadge({
                 day: 'numeric',
               })}
             </p>
+          )}
+          {/*
+            Family-progression display (option #16). Nur sichtbar wenn
+            der award teil einer 2+-tier-family ist (caller annotiert via
+            annotateFamilies). Layout: kleine label-zeile mit
+            "Vielflieger · Tier 2/4 · 1 erhalten", drunter ein segmented
+            progress-bar — ein gefülltes segment pro tier den der user
+            schon hat. Höhere tiers werden visuell heller (zukunftsweisend).
+            Bewusst NICHT bei size=compact rendern; dort fehlt der platz.
+          */}
+          {family && size !== 'compact' && (
+            <div className="mt-2">
+              <p className="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-500">
+                <span className="font-semibold text-gray-600 dark:text-gray-400">
+                  {family.family}
+                </span>
+                {' · '}
+                Tier {family.index}/{family.total}
+                {family.earnedInFamily > 0 && (
+                  <>
+                    {' · '}
+                    <span className="text-amber-600 dark:text-amber-400">
+                      {family.earnedInFamily} erhalten
+                    </span>
+                  </>
+                )}
+              </p>
+              <div className="flex gap-0.5 mt-1" aria-hidden="true">
+                {Array.from({ length: family.total }).map((_, i) => {
+                  // Segmente links → rechts, low → high tier. Filled
+                  // wenn der user den jeweiligen tier-rank schon hat:
+                  // wir wissen earnedInFamily aber nicht welche specific
+                  // ranks earned sind. Konservativ: die ersten N
+                  // segmente filled (low → high), wo N=earnedInFamily.
+                  // Stimmt für die typischen "alle low-tiers erst, dann
+                  // höhere"-progression-flow; wer einen high-tier ohne
+                  // low-tiers erhalten hat (admin-quirk), sieht eine
+                  // leicht falsche position-darstellung — aber die
+                  // count-zahl in der label-zeile bleibt korrekt.
+                  const isFilled = i < family.earnedInFamily;
+                  const isCurrent = i === family.index - 1;
+                  return (
+                    <div
+                      key={i}
+                      className={`h-1.5 flex-1 rounded-sm transition ${
+                        isFilled
+                          ? 'bg-amber-500 dark:bg-amber-400'
+                          : isCurrent
+                            ? 'bg-indigo-300 dark:bg-indigo-600 ring-1 ring-indigo-500/40'
+                            : 'bg-gray-200 dark:bg-gray-700'
+                      }`}
+                    />
+                  );
+                })}
+              </div>
+            </div>
           )}
         </div>
       </div>
