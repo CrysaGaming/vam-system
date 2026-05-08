@@ -26,6 +26,14 @@ function stateStyle(state: BookingState): { className: string; label: string } {
         className: 'bg-green-500/10 border-green-500/30 text-green-400',
         label: 'OFP geplant',
       };
+    case 'InProgress':
+      // Multi-leg tour-state (option #12). Cyan = mid-tour, distinct
+      // from planning-blue/green and abgeschlossen-grey. Single-leg
+      // bookings (legCount=1) never enter InProgress.
+      return {
+        className: 'bg-cyan-500/10 border-cyan-500/30 text-cyan-400',
+        label: 'Tour läuft',
+      };
     case 'Cancelled':
       return {
         className: 'bg-red-500/10 border-red-500/30 text-red-400',

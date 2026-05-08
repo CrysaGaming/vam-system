@@ -382,12 +382,24 @@ export async function generatePirepFromSession(
             userId,
             airlineId,
             routeId,
-            state: { in: ['Created', 'SimBriefDispatched'] },
+            // Multi-leg (option #12): 'InProgress' is the in-between
+            // state for tour-bookings (legCount > 1) where some but
+            // not all legs have been filed. Including it here lets
+            // the next leg find its parent booking. Single-leg
+            // bookings never enter InProgress, so legacy behaviour
+            // is unchanged.
+            state: { in: ['Created', 'SimBriefDispatched', 'InProgress'] },
           },
           select: {
             id: true,
             flightType: true,
             flightPlanCache: { select: { id: true } },
+            // Multi-leg fields (#12). For single-leg bookings
+            // (legCount=1, legsCompleted=0 → 1) the math collapses
+            // to "this is the last/only leg" and state flips to
+            // Completed exactly as before.
+            legCount: true,
+            legsCompleted: true,
           },
           orderBy: { createdAt: 'desc' },
         })
@@ -436,9 +448,24 @@ export async function generatePirepFromSession(
           },
         });
       }
+      // Multi-leg (option #12): increment legsCompleted and decide the
+      // booking's next state. If this PIREP completes the final leg
+      // (legsCompleted+1 >= legCount), flip to Completed exactly as
+      // before. Otherwise the tour continues — flip to InProgress so
+      // the next leg's auto-PIREP can find this booking via the
+      // 'InProgress' state-filter above.
+      //
+      // For single-leg bookings (the overwhelming majority): legCount=1,
+      // legsCompleted=0 → nextLegsCompleted=1 ≥ legCount=1 → Completed.
+      // Identical to the legacy behaviour, no observable change.
+      const nextLegsCompleted = matchingBooking.legsCompleted + 1;
+      const isFinalLeg = nextLegsCompleted >= matchingBooking.legCount;
       await tx.booking.update({
         where: { id: matchingBooking.id },
-        data: { state: 'Completed' },
+        data: {
+          legsCompleted: { increment: 1 },
+          state: isFinalLeg ? 'Completed' : 'InProgress',
+        },
       });
     }
 

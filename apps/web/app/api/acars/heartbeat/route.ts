@@ -221,6 +221,41 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // ─── simRate enforcement (option #19) ──────────────────────────────
+  // If the pilot's airline opts into simRate-enforcement and the client
+  // reports simRate > 1.01 (sim-time-acceleration), reject the heartbeat
+  // with 422 so the client can surface the rejection to the user.
+  //
+  // Default behaviour (Airline.enforceSimRate=false): no rejection — the
+  // existing remarks-prefix flag in generate-pirep.ts continues to surface
+  // the violation at PIREP-approval time. Strict-realism airlines opt in
+  // explicitly per row in Airline.enforceSimRate.
+  //
+  // Why 1.01 not 1.0: SimConnect occasionally reports 1.0001/0.9999 for
+  // legitimate real-time flight due to floating-point/clock-jitter. 1%
+  // headroom avoids false-positives without giving meaningful cheat room.
+  //
+  // One DB query per offending heartbeat — the vast majority of heartbeats
+  // have simRate=1.0 (or omit the field entirely) and skip the lookup.
+  // Acceptable cost given the airline-id is already known from auth.
+  if (data.simRate && data.simRate > 1.01 && auth.user.airlineId) {
+    const airline = await prisma.airline.findUnique({
+      where: { id: auth.user.airlineId },
+      select: { enforceSimRate: true, callsign: true, name: true },
+    });
+    if (airline?.enforceSimRate) {
+      return NextResponse.json(
+        {
+          error: 'sim-rate-rejected',
+          airline: airline.callsign ?? airline.name,
+          simRate: data.simRate,
+          message: `${airline.name} does not allow sim-rate acceleration (you reported ${data.simRate}x). Pause time-acceleration to continue.`,
+        },
+        { status: 422 },
+      );
+    }
+  }
+
   const userId = auth.user.id;
   const now = new Date();
 

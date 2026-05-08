@@ -18,6 +18,15 @@ function stateStyle(state: BookingState): { className: string; label: string } {
         className: 'bg-green-500/10 border-green-500/30 text-green-700 dark:text-green-400',
         label: 'OFP geplant',
       };
+    case 'InProgress':
+      // Multi-leg tour-state (option #12). A tour-booking sits here
+      // between legs. Cyan distinguishes it from planning-blue (Created)
+      // and planning-green (SimBriefDispatched) — at-a-glance "this one
+      // is mid-tour". Single-leg bookings never enter this state.
+      return {
+        className: 'bg-cyan-500/10 border-cyan-500/30 text-cyan-700 dark:text-cyan-400',
+        label: 'Tour läuft',
+      };
     case 'Cancelled':
       return {
         className: 'bg-red-500/10 border-red-500/30 text-red-700 dark:text-red-400',
@@ -78,12 +87,20 @@ export default async function BookingsList() {
 
   // Active = anything the user can still act on. Surfaced separately at the
   // top so a freshly created or in-flight booking is one click away even
-  // when older closed bookings have piled up.
+  // when older closed bookings have piled up. 'InProgress' (option #12
+  // multi-leg tours) belongs here too — a tour mid-leg is the most active
+  // booking-state there is.
   const activeBookings = bookings.filter(
-    (b) => b.state === 'Created' || b.state === 'SimBriefDispatched',
+    (b) =>
+      b.state === 'Created' ||
+      b.state === 'SimBriefDispatched' ||
+      b.state === 'InProgress',
   );
   const closedBookings = bookings.filter(
-    (b) => b.state !== 'Created' && b.state !== 'SimBriefDispatched',
+    (b) =>
+      b.state !== 'Created' &&
+      b.state !== 'SimBriefDispatched' &&
+      b.state !== 'InProgress',
   );
 
   return (

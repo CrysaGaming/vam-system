@@ -37,6 +37,14 @@ enum DataSource {
 enum BookingState {
   Created
   SimBriefDispatched
+  // Multi-leg tour-state (option #12). Used when a Booking has
+  // legCount > 1 and at least one but not all legs have a filed
+  // PIREP. The auto-PIREP path bumps `legsCompleted` and flips
+  // the booking to InProgress; only the final leg flips it back
+  // to Completed. Single-leg bookings (legCount=1) skip this
+  // state entirely — the manual flow and ACARS auto-flow both
+  // go Created/SimBriefDispatched → Completed in one step.
+  InProgress
   Completed
   Cancelled
   Expired
@@ -380,6 +388,22 @@ model Airline {
   // Passenger-Booking-Tabs, Revenue-Reports, etc. Per-airline opt-in
   // damit reine roleplay-airlines kein "money game" UI sehen.
   economyEnabled Boolean @default(false)
+
+  // ─── ACARS simRate enforcement (option #19) ────────────────────────
+  // Per-airline opt-in for hard-rejecting heartbeats from clients that
+  // report simRate > 1.0 (sim-time-acceleration). When false (default),
+  // simRate-cheats are merely flagged in the PIREP remarks via the
+  // existing [ACARS-flag: sim-rate Nx] prefix — admin sees them at
+  // approval time. When true, the heartbeat-route returns 422 the
+  // moment the client reports simRate > 1.01 and the client surfaces
+  // the rejection to the user.
+  //
+  // Why per-airline rather than global: VAs vary in their realism
+  // tolerance. A casual roleplay airline may accept 4x-cruise-skip as
+  // legitimate ("I had to AFK for dinner"); a strict simulation-focused
+  // airline wants the hard line. Default false keeps existing behaviour
+  // for everyone — admin opts in explicitly.
+  enforceSimRate Boolean @default(false)
 
   // Welle 13E (Career-System): Career-Foundation-Flag. Analog zu
   // economyEnabled — per-airline opt-in (default false). Aktiviert wenn
@@ -1358,6 +1382,30 @@ model Booking {
   route   Route  @relation(fields: [routeId], references: [id])
 
   state BookingState @default(Created)
+
+  // ─── Multi-leg tour support (option #12) ───────────────────────────
+  // legCount: how many legs this booking represents end-to-end.
+  // Default 1 = standard single-leg booking, identical legacy behaviour.
+  // legCount > 1 = multi-leg tour: same Booking is reused as the
+  // anchor for N consecutive PIREPs. Admin sets this at booking-create
+  // time (no UI in v1 — must be set via direct DB update or future
+  // admin-UI). Once set, immutable.
+  //
+  // legsCompleted: counter incremented by the auto-PIREP path each
+  // time a PIREP files against this booking. When legsCompleted ==
+  // legCount the booking flips to Completed; until then it sits in
+  // InProgress (or Created/SimBriefDispatched if no PIREP yet).
+  // Manual /pireps/new flow never decrements — orphan PIREPs that
+  // get rejected are admin's problem to reconcile.
+  //
+  // Why two ints rather than computing legsCompleted on the fly from
+  // pirep-count: the auto-PIREP transaction already updates the
+  // booking row (state-flip), so adding `legsCompleted: { increment: 1 }`
+  // to the same update keeps the work in one statement. Computing
+  // via count(pireps) on each lookup would scale poorly once a
+  // booking accumulates legs over weeks.
+  legCount      Int @default(1)
+  legsCompleted Int @default(0)
 
   // Welle 4: Flight-Type-Klassifizierung für die booking. Default SCHEDULED
   // (additive — alle existing bookings sind scheduled-typed). FREE-bookings
