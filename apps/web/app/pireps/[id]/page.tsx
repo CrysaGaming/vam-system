@@ -6,6 +6,7 @@ import {
   hasReplayDataForPirep,
   getPirepPhaseBreakdown,
   getPirepApproachAnalysis,
+  getPirepLandingAnalysis,
 } from '@vam/db';
 import Link from 'next/link';
 import { OfpSummary } from '@/components/OfpSummary';
@@ -155,23 +156,29 @@ export default async function PirepDetail({
   // alle 3 helpers im Promise.all parallel laufen → kein latency-cost.
   // groupBy-aggregation auf indexed (sessionId, recordedAt) ist
   // billig auch bei 5000+ positions.
-  const [examEnrollment, hasReplay, phaseBreakdown, approachAnalysis] =
-    await Promise.all([
-      prisma.flightSchoolEnrollment.findFirst({
-        where: { practicalExamPirepId: pirep.id },
-        select: {
-          id: true,
-          schoolId: true,
-          licenseType: true,
-          status: true,
-          practicalExamPassedAt: true,
-          school: { select: { name: true, airportIcao: true } },
-        },
-      }),
-      hasReplayDataForPirep(pirep.id),
-      getPirepPhaseBreakdown(pirep.id),
-      getPirepApproachAnalysis(pirep.id),
-    ]);
+  const [
+    examEnrollment,
+    hasReplay,
+    phaseBreakdown,
+    approachAnalysis,
+    landingAnalysis,
+  ] = await Promise.all([
+    prisma.flightSchoolEnrollment.findFirst({
+      where: { practicalExamPirepId: pirep.id },
+      select: {
+        id: true,
+        schoolId: true,
+        licenseType: true,
+        status: true,
+        practicalExamPassedAt: true,
+        school: { select: { name: true, airportIcao: true } },
+      },
+    }),
+    hasReplayDataForPirep(pirep.id),
+    getPirepPhaseBreakdown(pirep.id),
+    getPirepApproachAnalysis(pirep.id),
+    getPirepLandingAnalysis(pirep.id),
+  ]);
 
   // Flugzeit formatieren
   const hours = Math.floor((pirep.flightTimeMin ?? 0) / 60);
@@ -703,6 +710,136 @@ export default async function PirepDetail({
                     {approachAnalysis.stabilizationSampleCount > 0
                       ? `final 1000ft, VSI/bank/pitch ok`
                       : 'keine daten'}
+                  </p>
+                </div>
+              </div>
+            </section>
+          )}
+
+        {/* Track 4 #6 (Landing-Analysis): Touchdown-metrics aus dem
+            TOUCHDOWN AcarsEvent payload. Conditional auf
+            landingAnalysis.verticalFpmAtTouchdown !== null — manual +
+            VATSIM/IVAO PIREPs haben kein TOUCHDOWN-event, dann hidden.
+
+            Drei sanity-card-cells:
+            - Touchdown-Rate (VSI): Hauptmetric, color-coded nach
+              industry severity-bands (smooth <200, normal 200-400,
+              firm 400-600, hard 600-1000, severe >1000 fpm). Math.abs()
+              wird vor display angewandt da raw-VSI negativ ist (descent).
+            - Groundspeed @ touchdown: neutral, kein pass/fail
+            - Touchdown-airport: sanity-check (sollte = arrival ICAO)
+
+            Note: pirep.landingRateFpm bleibt im legacy-bug bei null
+            (generate-pirep.ts liest 'verticalSpeedFpm' aber payload
+            nutzt 'verticalFpmAtTouchdown'). Diese section liest direkt
+            aus dem event-payload und ist damit accurate, unabhängig
+            vom legacy-bug. */}
+        {landingAnalysis &&
+          landingAnalysis.verticalFpmAtTouchdown !== null && (
+            <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6 mb-8">
+              <h2 className="text-sm uppercase tracking-wider text-gray-500 font-semibold mb-4">
+                Landing-Analysis
+              </h2>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                {/* Touchdown-Rate. Color-bands per industry guidance.
+                    Math.abs() weil raw-VSI negativ. Sublabel zeigt
+                    severity-label + raw-fpm. */}
+                {(() => {
+                  const fpm = landingAnalysis.verticalFpmAtTouchdown;
+                  // fpm ist nicht null hier (siehe outer guard). Defensive
+                  // narrow für TS:
+                  const absFpm = Math.abs(fpm ?? 0);
+                  const severityLabel =
+                    absFpm < 200
+                      ? 'smooth'
+                      : absFpm < 400
+                        ? 'normal'
+                        : absFpm < 600
+                          ? 'firm'
+                          : absFpm < 1000
+                            ? 'hard'
+                            : 'severe';
+                  const colorClasses =
+                    absFpm < 200
+                      ? 'bg-green-500/5 border-green-500/30'
+                      : absFpm < 400
+                        ? 'bg-blue-500/5 border-blue-500/30'
+                        : absFpm < 600
+                          ? 'bg-amber-500/5 border-amber-500/30'
+                          : absFpm < 1000
+                            ? 'bg-orange-500/5 border-orange-500/30'
+                            : 'bg-red-500/5 border-red-500/30';
+                  return (
+                    <div
+                      className={`rounded-lg p-4 border ${colorClasses}`}
+                    >
+                      <p className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
+                        Touchdown-Rate
+                      </p>
+                      <p className="text-2xl font-bold mt-2 leading-tight tabular-nums">
+                        {absFpm}
+                        <span className="text-sm font-normal text-gray-500 ml-1">
+                          fpm
+                        </span>
+                      </p>
+                      <p className="text-[10px] text-gray-500 mt-1">
+                        {severityLabel}
+                      </p>
+                    </div>
+                  );
+                })()}
+
+                {/* Groundspeed @ touchdown — neutral. Sublabel:
+                    AGL altitude des touchdowns als sanity-check (sollte
+                    nahe 0 liegen, sonst war's eher ein flare-out oder
+                    sensor-noise). */}
+                <div className="bg-gray-50 dark:bg-gray-800/40 rounded-lg p-4">
+                  <p className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
+                    Groundspeed
+                  </p>
+                  <p className="text-2xl font-bold mt-2 leading-tight tabular-nums">
+                    {landingAnalysis.groundSpeedKtsAtTouchdown !== null
+                      ? landingAnalysis.groundSpeedKtsAtTouchdown
+                      : '—'}
+                    {landingAnalysis.groundSpeedKtsAtTouchdown !==
+                      null && (
+                      <span className="text-sm font-normal text-gray-500 ml-1">
+                        kt
+                      </span>
+                    )}
+                  </p>
+                  <p className="text-[10px] text-gray-500 mt-1">
+                    {landingAnalysis.altitudeAglAtTouchdown !== null
+                      ? `@ ${landingAnalysis.altitudeAglAtTouchdown}ft AGL`
+                      : 'bei touchdown'}
+                  </p>
+                </div>
+
+                {/* Touchdown-Airport — sanity check, sollte arrival
+                    matchen. Bei mismatch (z.B. divert) sieht admin
+                    sofort dass landing-airport != filed-arrival. */}
+                <div className="bg-gray-50 dark:bg-gray-800/40 rounded-lg p-4">
+                  <p className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
+                    Touchdown @
+                  </p>
+                  <p className="text-2xl font-bold mt-2 leading-tight font-mono">
+                    {landingAnalysis.atIcao ?? '—'}
+                  </p>
+                  <p className="text-[10px] text-gray-500 mt-1">
+                    {landingAnalysis.touchdownAt
+                      ? new Date(
+                          landingAnalysis.touchdownAt,
+                        ).toLocaleTimeString('de-DE', {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                          second: '2-digit',
+                        })
+                      : ''}
+                    {landingAnalysis.atIcao &&
+                    pirep.arrival.icao &&
+                    landingAnalysis.atIcao !== pirep.arrival.icao
+                      ? ' ⚠ ≠ Arrival'
+                      : ''}
                   </p>
                 </div>
               </div>

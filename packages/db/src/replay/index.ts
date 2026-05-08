@@ -11,9 +11,11 @@ export {
   hasReplayDataForPirep,
   getPirepPhaseBreakdown,
   getPirepApproachAnalysis,
+  getPirepLandingAnalysis,
   type ReplayData,
   type ReplayDataMissing,
   type ReplayDataResult,
   type PhaseBreakdown,
   type ApproachAnalysis,
+  type LandingAnalysis,
 } from "./queries.js";

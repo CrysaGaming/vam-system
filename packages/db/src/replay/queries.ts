@@ -672,3 +672,140 @@ export async function getPirepApproachAnalysis(
     stabilizationSampleCount: stabilizationSamples,
   };
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// Landing-Analysis (Track 4 #6)
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Landing-Analysis pulled from the TOUCHDOWN AcarsEvent payload (Welle 9
+ * M3.9 / block-events.ts). Used by the PIREP-detail-page Landing-Analysis-
+ * Section (Track 4 option #6).
+ *
+ * # Quelle
+ *
+ * Der TOUCHDOWN event wird beim Approach→Landing phase-transition vom
+ * heartbeat-route eingefügt. Payload-shape in block-events.ts:
+ *
+ *   {
+ *     kind: 'TOUCHDOWN',
+ *     atIcao,
+ *     position: { latitude, longitude, altitudeAglFt },
+ *     verticalFpmAtTouchdown,
+ *     groundSpeedKtsAtTouchdown,
+ *     aircraft: { type, registration }
+ *   }
+ *
+ * Nicht jeder PIREP hat eins — nur ACARS-PIREPs mit completed touchdown-
+ * detection. Manual + VATSIM/IVAO PIREPs haben keinen TOUCHDOWN-event,
+ * dann return null.
+ *
+ * Bei session-match nehmen wir den LETZTEN TOUCHDOWN (orderBy timestamp
+ * desc, take 1). Bei ungewöhnlichen sessions mit mehreren landings
+ * (z.B. touch-and-go training-flights) reflectet der landing-analysis
+ * den endgültigen touchdown.
+ *
+ * # Severity-bands
+ *
+ * Industry-guidance landing-rate-bands:
+ *   - smooth   : 0..200 fpm — butter
+ *   - normal   : 200..400 fpm — standard
+ *   - firm     : 400..600 fpm — hart aber legal
+ *   - hard     : 600..1000 fpm — reportable
+ *   - severe   : 1000+ fpm — gear-inspection territory
+ *
+ * Werte sind absolute (descent ist negativ in den raw daten). UI macht
+ * Math.abs() vor display + color-coding.
+ */
+export type LandingAnalysis = {
+  /** Vertical-speed bei touchdown in fpm (negative = descent). null wenn kein TOUCHDOWN-event. */
+  verticalFpmAtTouchdown: number | null;
+  /** Groundspeed bei touchdown in knots. */
+  groundSpeedKtsAtTouchdown: number | null;
+  /** AGL altitude bei touchdown — sollte ~0 sein, sanity check. */
+  altitudeAglAtTouchdown: number | null;
+  /** Touchdown-airport ICAO (sollte = pirep.arrival.icao). */
+  atIcao: string | null;
+  /** Event-timestamp des touchdowns. */
+  touchdownAt: Date | null;
+};
+
+export async function getPirepLandingAnalysis(
+  pirepId: string,
+): Promise<LandingAnalysis | null> {
+  // Match session — selber pattern wie phaseBreakdown + approachAnalysis
+  const pirep = await prisma.pirep.findUnique({
+    where: { id: pirepId },
+    select: {
+      userId: true,
+      submittedAt: true,
+      arrival: { select: { icao: true } },
+      departure: { select: { icao: true } },
+      triggeringEvent: { select: { sessionId: true } },
+    },
+  });
+  if (!pirep) return null;
+
+  let sessionId: string | null = pirep.triggeringEvent?.sessionId ?? null;
+  if (!sessionId) {
+    const submittedMs = pirep.submittedAt.getTime();
+    const minUpdatedAt = new Date(submittedMs - 24 * 60 * 60 * 1000);
+    const maxUpdatedAt = new Date(submittedMs + 60 * 60 * 1000);
+    const session = await prisma.liveSession.findFirst({
+      where: {
+        userId: pirep.userId,
+        departureIcao: pirep.departure.icao,
+        arrivalIcao: pirep.arrival.icao,
+        lastUpdatedAt: { gte: minUpdatedAt, lte: maxUpdatedAt },
+      },
+      orderBy: { lastUpdatedAt: "desc" },
+      select: { id: true },
+    });
+    sessionId = session?.id ?? null;
+  }
+  if (!sessionId) return null;
+
+  // Latest TOUCHDOWN event in der session
+  const touchdown = await prisma.acarsEvent.findFirst({
+    where: { sessionId, type: "TOUCHDOWN" },
+    orderBy: { timestamp: "desc" },
+    select: { payload: true, timestamp: true },
+  });
+  if (!touchdown || !touchdown.payload) return null;
+
+  // Defensive payload-extraction. Json-column ist unstructured am DB-
+  // level, daher tolerant gegenüber number | string | missing.
+  const payload = touchdown.payload as Record<string, unknown>;
+  const position =
+    payload.position && typeof payload.position === "object"
+      ? (payload.position as Record<string, unknown>)
+      : null;
+
+  return {
+    verticalFpmAtTouchdown: toIntOrNull(payload.verticalFpmAtTouchdown),
+    groundSpeedKtsAtTouchdown: toIntOrNull(
+      payload.groundSpeedKtsAtTouchdown,
+    ),
+    altitudeAglAtTouchdown: position
+      ? toIntOrNull(position.altitudeAglFt)
+      : null,
+    atIcao: typeof payload.atIcao === "string" ? payload.atIcao : null,
+    touchdownAt: touchdown.timestamp,
+  };
+}
+
+/**
+ * Best-effort number-coercion für JSON payloads. Returns null wenn der
+ * value weder number noch numeric-string ist. Handles numeric edge-
+ * cases (NaN, Infinity) als null.
+ */
+function toIntOrNull(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Math.round(value);
+  }
+  if (typeof value === "string") {
+    const n = Number(value);
+    if (Number.isFinite(n)) return Math.round(n);
+  }
+  return null;
+}
