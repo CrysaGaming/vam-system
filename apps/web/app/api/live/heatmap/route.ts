@@ -22,6 +22,14 @@
  * client-side transformation. Die `weight`-property wird im Layer
  * via heatmap-weight expression auf die heat-intensität gemappt.
  *
+ * # Track 4 #19 (Section C polish) — Timeframe-filter via ?timeframe param
+ *
+ * Akzeptiert `?timeframe=7d|30d|90d|all`. Default = "all" (vollständige
+ * historie, das alte verhalten). Andere werte mappen auf relativen
+ * sinceSubmittedAt-cutoff (now - N tage). Unbekannte werte → "all"
+ * (defensiv). Validation hier statt im DB-helper damit der helper
+ * agnostisch bleibt — er nimmt einen Date, das mapping ist API-policy.
+ *
  * Caching: Heatmap-content ändert sich nur wenn neue PIREPs approved
  * werden (typisch sub-täglich). Ein in-memory cache + ETag wäre eine
  * spätere optimierung; für MVP fragen wir live ab, der query ist
@@ -32,7 +40,26 @@ import { auth } from "@/auth";
 import { getPirepHeatmapPoints, prisma } from "@vam/db";
 import { NextResponse } from "next/server";
 
-export async function GET() {
+/**
+ * Erlaubte timeframe-werte. "all" = kein cutoff. Andere werte sind
+ * tag-basierte windows (heatmap ist eine "wo wird geflogen"-langzeit-
+ * sicht; sub-tag-windows wären zu noisy).
+ */
+type TimeframeValue = '7d' | '30d' | '90d' | 'all';
+const TIMEFRAME_DAYS: Record<Exclude<TimeframeValue, 'all'>, number> = {
+  '7d': 7,
+  '30d': 30,
+  '90d': 90,
+};
+
+function parseTimeframe(raw: string | null): TimeframeValue {
+  if (raw === '7d' || raw === '30d' || raw === '90d' || raw === 'all') {
+    return raw;
+  }
+  return 'all';
+}
+
+export async function GET(request: Request) {
   const session = await auth();
   if (!session?.user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -50,8 +77,20 @@ export async function GET() {
     });
   }
 
+  const url = new URL(request.url);
+  const timeframe = parseTimeframe(url.searchParams.get('timeframe'));
+
+  // Map timeframe → optional sinceSubmittedAt. "all" lässt das feld
+  // weg, der DB-helper interpretiert das als "no cutoff".
+  let sinceSubmittedAt: Date | undefined;
+  if (timeframe !== 'all') {
+    const days = TIMEFRAME_DAYS[timeframe];
+    sinceSubmittedAt = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  }
+
   const points = await getPirepHeatmapPoints({
     airlineId: currentUser.airlineId,
+    sinceSubmittedAt,
   });
 
   return NextResponse.json({
