@@ -343,6 +343,95 @@ export default async function BookingDetail({
           </div>
         </section>
 
+        {/* Tour-Progress (option #17). Only rendered for multi-leg bookings
+            (legCount > 1) — single-leg bookings see no extra card and the
+            page looks identical to before this commit. The card shows:
+
+            - Leg counter "Leg 2 / 4" — current position in the tour.
+              "Current" = legsCompleted + 1, because legsCompleted reflects
+              what's already done; the next PIREP file becomes that leg.
+              For a finished tour (state=Completed) we show "Tour
+              abgeschlossen" instead — legsCompleted == legCount and there
+              is no "next" leg.
+
+            - Progress bar — visual % of completion. Cyan to match the
+              "Tour läuft" badge color used in the booking-list page.
+
+            - Per-leg dots underneath — N filled circles for completed,
+              N empty for remaining. Lets the pilot count at a glance
+              without doing the math, and surfaces the structure of the
+              tour even when it's just N×same-route. */}
+        {booking.legCount > 1 && (
+          <section className="bg-cyan-50 dark:bg-cyan-950/20 border border-cyan-200 dark:border-cyan-900/50 rounded-lg p-6 mb-8">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-sm uppercase tracking-wider text-cyan-700 dark:text-cyan-400 mb-1">
+                  Tour-Progress
+                </h2>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                  {booking.state === 'Completed'
+                    ? 'Tour abgeschlossen'
+                    : `Leg ${Math.min(booking.legsCompleted + 1, booking.legCount)} / ${booking.legCount}`}
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                  Abgeschlossen
+                </p>
+                <p className="text-3xl font-bold font-mono text-cyan-700 dark:text-cyan-400">
+                  {booking.legsCompleted}
+                  <span className="text-gray-400 dark:text-gray-600 text-xl">
+                    /{booking.legCount}
+                  </span>
+                </p>
+              </div>
+            </div>
+
+            {/* Progress bar — pure CSS width-percentage calc, no client-
+                side JS needed. Rounded to nearest %; for legCount=10 each
+                leg adds 10% which divides cleanly. */}
+            <div className="h-2 bg-cyan-100 dark:bg-cyan-900/50 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-cyan-500 dark:bg-cyan-400 rounded-full transition-all"
+                style={{
+                  width: `${Math.round((booking.legsCompleted / booking.legCount) * 100)}%`,
+                }}
+              />
+            </div>
+
+            {/* Per-leg dots. Visual sugar for sub-10 tour-lengths — the
+                schema caps legCount at 10 (see CreateBookingSchema in
+                actions.ts) so this never grows past 10 dots. flex-wrap is
+                a defensive belt for future cap-bumps. */}
+            <div className="flex flex-wrap gap-2 mt-4">
+              {Array.from({ length: booking.legCount }, (_, i) => (
+                <div
+                  key={i}
+                  className={`w-3 h-3 rounded-full ${
+                    i < booking.legsCompleted
+                      ? 'bg-cyan-500 dark:bg-cyan-400'
+                      : 'bg-cyan-200 dark:bg-cyan-900/50 border border-cyan-300 dark:border-cyan-800'
+                  }`}
+                  title={
+                    i < booking.legsCompleted
+                      ? `Leg ${i + 1} abgeschlossen`
+                      : `Leg ${i + 1} ausstehend`
+                  }
+                />
+              ))}
+            </div>
+
+            {booking.state !== 'Completed' && (
+              <p className="text-xs text-gray-600 dark:text-gray-400 mt-4">
+                Diese Tour besteht aus {booking.legCount} Legs auf der
+                gleichen Route. Nach jedem PIREP wird der Counter um 1 erhöht
+                und das Booking bleibt auf <code className="text-gray-700 dark:text-gray-300">Tour
+                läuft</code> bis das letzte Leg gefiled ist.
+              </p>
+            )}
+          </section>
+        )}
+
         <div className="grid md:grid-cols-3 gap-6 mb-8">
           <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6">
             <h2 className="text-sm uppercase tracking-wider text-gray-500 mb-4">

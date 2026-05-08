@@ -77,6 +77,7 @@ export default async function NewBooking() {
     const routeId = formData.get('routeId');
     const networkRaw = formData.get('intendedNetwork');
     const scheduledRaw = formData.get('scheduledDeparture');
+    const legCountRaw = formData.get('legCount');
 
     if (typeof routeId !== 'string' || routeId === '') {
       throw new Error('Route is required');
@@ -103,10 +104,20 @@ export default async function NewBooking() {
         ? new Date(scheduledRaw).toISOString()
         : undefined;
 
+    // Multi-leg tour-count (option #17 UI). Parse to integer, clamp at the
+    // schema's [1, 10] range so a tampered form can't bypass server-side
+    // validation. Empty/absent → undefined → schema default of 1, identical
+    // to legacy single-flight booking.
+    const legCount =
+      typeof legCountRaw === 'string' && legCountRaw !== ''
+        ? Math.max(1, Math.min(10, parseInt(legCountRaw, 10) || 1))
+        : undefined;
+
     const result = await createBooking({
       routeId,
       intendedNetwork,
       scheduledDeparture,
+      legCount,
     });
 
     redirect(`/bookings/${result.id}`);
@@ -325,6 +336,43 @@ export default async function NewBooking() {
                   an SimBrief übergeben damit METAR/TAF zur richtigen Zeit gezogen
                   werden. Eingabe in deiner lokalen Zeitzone — wird intern als UTC
                   gespeichert.
+                </p>
+              </div>
+
+              {/* Multi-leg tour input (option #17). Default 1 = legacy single-
+                  flight booking — most pilots leave this untouched and won't
+                  notice the field. legCount > 1 turns the booking into a
+                  same-route-N-times tour: the booking stays InProgress
+                  between PIREP files until legsCompleted reaches legCount.
+                  Use cases: round-trip practice ("4× EDDF→LEMD-EDDF this
+                  weekend"), training repetition, multi-day position-flight
+                  exercises. The "same route" limitation is documented inline
+                  so pilots don't try to use this for true multi-destination
+                  tours (which would need a v2 BookingLeg model). */}
+              <div>
+                <label
+                  htmlFor="legCount"
+                  className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
+                >
+                  Tour: Anzahl Legs (optional)
+                </label>
+                <input
+                  type="number"
+                  id="legCount"
+                  name="legCount"
+                  min={1}
+                  max={10}
+                  defaultValue={1}
+                  className="w-full bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded px-3 py-2 text-gray-900 dark:text-white focus:outline-none focus:border-indigo-500"
+                />
+                <p className="text-xs text-gray-500 mt-2">
+                  Standardmäßig <code className="text-gray-600 dark:text-gray-400">1</code> = einzelner
+                  Flug. Wenn du dieselbe Route mehrfach hintereinander fliegen
+                  willst (z.B. 4× EDDF→LEMD), trag die Anzahl ein. Das Booking
+                  bleibt zwischen den Legs auf <code className="text-gray-600 dark:text-gray-400">Tour
+                  läuft</code> und schließt erst nach dem letzten PIREP. Max
+                  10 Legs pro Booking. Für Touren mit verschiedenen Routen leg
+                  bitte separate Bookings an.
                 </p>
               </div>
             </div>

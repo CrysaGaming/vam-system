@@ -78,6 +78,25 @@ const CreateBookingSchema = z.object({
     .datetime()
     .optional()
     .transform((s) => (s ? new Date(s) : undefined)),
+  // Multi-leg tour support (option #17 UI for the option #12 schema).
+  // legCount=1 (default) → legacy single-flight booking, no observable
+  // change. legCount>1 → tour-booking that stays in InProgress between
+  // each PIREP file until legsCompleted reaches legCount, then flips
+  // to Completed.
+  //
+  // Cap at 10 because (a) UI input becomes unwieldy past 10, (b) longer
+  // tours are better split into multiple bookings for navigation, and
+  // (c) the same-route-repeat semantics break down at scale (nobody
+  // flies EDDF→LEMD twenty times in a row). For real cross-route
+  // tours a future v2 would introduce a BookingLeg model with per-leg
+  // routeId — see commit message for the design discussion.
+  legCount: z
+    .number()
+    .int()
+    .min(1)
+    .max(10)
+    .optional()
+    .default(1),
 });
 
 const CancelBookingSchema = z.object({
@@ -105,7 +124,7 @@ const PlanSimBriefBookingSchema = z.object({
 export async function createBooking(
   input: z.input<typeof CreateBookingSchema>,
 ) {
-  const { routeId, intendedNetwork, scheduledDeparture } =
+  const { routeId, intendedNetwork, scheduledDeparture, legCount } =
     CreateBookingSchema.parse(input);
 
   const { id: userId, airlineId } = await requireUserWithAirline();
@@ -124,11 +143,17 @@ export async function createBooking(
   // throws mit deutscher message wenn was fehlt.
   await enforceCareerGateForRoute(userId, airlineId, route.aircraftTypeIcao);
 
+  // Active-booking guard. 'InProgress' (option #12 multi-leg) belongs
+  // here too — a tour-booking with legCount>1 sits in InProgress
+  // between legs and the pilot must finish (or cancel) it before
+  // starting another booking. Without InProgress in this filter the
+  // pilot could create a second booking mid-tour and silently abandon
+  // the first.
   const existing = await prisma.booking.findFirst({
     where: {
       userId,
       airlineId,
-      state: { in: ['Created', 'SimBriefDispatched'] },
+      state: { in: ['Created', 'SimBriefDispatched', 'InProgress'] },
     },
     select: { id: true },
   });
@@ -146,6 +171,7 @@ export async function createBooking(
       routeId,
       intendedNetwork,
       scheduledDeparture,
+      legCount,
       expiresAt,
     },
     select: { id: true, state: true, expiresAt: true },
@@ -171,7 +197,17 @@ export async function cancelBooking(
     throw new Error('Booking not found or not yours');
   }
 
-  if (booking.state !== 'Created' && booking.state !== 'SimBriefDispatched') {
+  // Cancellable states: anything that's not already in a terminal state.
+  // 'InProgress' (option #12 multi-leg) is allowed because a pilot may
+  // need to abort a tour mid-leg (illness, sim-crash, change of plans).
+  // Cancellation completes any partial-progress without reverting the
+  // already-filed PIREPs — those stay as standalone PIREPs. The booking
+  // itself just transitions to Cancelled.
+  if (
+    booking.state !== 'Created' &&
+    booking.state !== 'SimBriefDispatched' &&
+    booking.state !== 'InProgress'
+  ) {
     throw new Error(`Cannot cancel booking in state ${booking.state}`);
   }
 
@@ -507,12 +543,14 @@ export async function cloneBooking(
 
   // Same active-booking constraint as createBooking — prevent the user
   // from accumulating multiple in-flight clones. They must cancel/
-  // complete the current active one first.
+  // complete the current active one first. 'InProgress' belongs in
+  // the filter for the same reason as in createBooking (option #12
+  // multi-leg tours).
   const existing = await prisma.booking.findFirst({
     where: {
       userId,
       airlineId,
-      state: { in: ['Created', 'SimBriefDispatched'] },
+      state: { in: ['Created', 'SimBriefDispatched', 'InProgress'] },
     },
     select: { id: true },
   });
@@ -597,7 +635,7 @@ export async function createBookingFromScheduledFlight(
     where: {
       userId,
       airlineId,
-      state: { in: ['Created', 'SimBriefDispatched'] },
+      state: { in: ['Created', 'SimBriefDispatched', 'InProgress'] },
     },
     select: { id: true },
   });
