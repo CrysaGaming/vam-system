@@ -243,8 +243,15 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
   // ersten enable des heatmap-toggles, dann gecached für die gesamte
   // session-dauer. Heatmap-content ändert sich nur bei neuen approvals
   // (typisch sub-täglich), refresh-rate ist nicht kritisch.
+  //
+  // Track 4 #19 (Section C polish): Timeframe-selector. Beim wechsel
+  // zwischen 7d/30d/90d/all wird die heatmap re-fetched (state →
+  // dependency vom useEffect, der heatmapData wieder auf null cleart
+  // wenn der timeframe wechselt). Filter passiert server-seitig in
+  // /api/live/heatmap?timeframe=...
   const [heatmapData, setHeatmapData] = useState<GeoJSON.FeatureCollection | null>(null);
   const [heatmapLoading, setHeatmapLoading] = useState(false);
+  const [heatmapTimeframe, setHeatmapTimeframe] = useState<'7d' | '30d' | '90d' | 'all'>('all');
 
   const selected = useMemo(
     () => sessions.find((s) => s.id === selectedId) ?? null,
@@ -712,9 +719,14 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
   // Wenn der user den toggle off-on togglet, kein refetch (cached data
   // bleibt valid bis page-reload). Trade-off: minimal-staleness vs.
   // unnötige API-calls bei toggle-spam.
+  //
+  // Track 4 #19: Beim wechsel des heatmapTimeframe wird heatmapData auf
+  // null gesetzt (separater useEffect unten) → dieser hier feuert dann
+  // erneut mit dem neuen ?timeframe-param. Cache pro session, neu pro
+  // timeframe-toggle. Server filtert via ?timeframe=7d|30d|90d|all.
   useEffect(() => {
     if (!filters.heatmap) return;
-    if (heatmapData !== null) return; // schon geladen
+    if (heatmapData !== null) return; // schon geladen für aktuellen timeframe
     if (heatmapLoading) return; // race-guard
 
     let cancelled = false;
@@ -722,7 +734,7 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
 
     (async () => {
       try {
-        const res = await fetch('/api/live/heatmap');
+        const res = await fetch(`/api/live/heatmap?timeframe=${heatmapTimeframe}`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data: GeoJSON.FeatureCollection = await res.json();
         if (!cancelled) {
@@ -740,7 +752,22 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
     return () => {
       cancelled = true;
     };
-  }, [filters.heatmap, heatmapData, heatmapLoading]);
+  }, [filters.heatmap, heatmapData, heatmapLoading, heatmapTimeframe]);
+
+  // Track 4 #19: Cache-invalidation bei timeframe-wechsel. Cleart
+  // heatmapData → der fetch-useEffect oben sieht heatmapData === null
+  // und triggert refetch mit neuem timeframe. Separater effect statt
+  // im fetch-useEffect, weil sonst bei timeframe-wechsel ohne aktiven
+  // heatmap-toggle gar nichts passieren würde — und wir wollen, dass
+  // beim nächsten enable des toggles direkt der korrekte timeframe
+  // gefetched wird.
+  useEffect(() => {
+    setHeatmapData(null);
+    // Bewusst nur heatmapTimeframe in deps — wir wollen NICHT bei
+    // jedem heatmap-toggle reset, sondern nur wenn der timeframe selbst
+    // sich ändert.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [heatmapTimeframe]);
 
   // Trail-Loading bei Session-Click
   const loadTrail = useCallback(async (sessionId: string) => {
@@ -1988,6 +2015,63 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
             onChange={(v) => setFilter('heatmap', v)}
             color="#ef4444"
           />
+          {/* Track 4 #19: Timeframe-selector. Nur sichtbar wenn der
+              heatmap-toggle aktiv ist — sonst wäre es UI-noise (man würde
+              einen filter sehen für eine layer die garnicht angezeigt
+              wird). 4 segmented buttons (7T/30T/90T/Alle). Bei click
+              wird heatmapTimeframe gewechselt → useEffect cleart
+              heatmapData → refetch mit neuem ?timeframe-param.
+              Tagesbasierte windows (sub-tag wäre zu noisy für eine
+              "wo wird geflogen"-langzeit-sicht). */}
+          {filters.heatmap && (
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(4, 1fr)',
+                gap: '0.2rem',
+                padding: '0 0.5rem 0.25rem',
+              }}
+            >
+              {(['7d', '30d', '90d', 'all'] as const).map((tf) => {
+                const label =
+                  tf === '7d'
+                    ? '7T'
+                    : tf === '30d'
+                      ? '30T'
+                      : tf === '90d'
+                        ? '90T'
+                        : 'Alle';
+                const active = heatmapTimeframe === tf;
+                return (
+                  <button
+                    key={tf}
+                    onClick={() => setHeatmapTimeframe(tf)}
+                    style={{
+                      padding: '0.25rem 0.1rem',
+                      fontSize: '0.65rem',
+                      fontWeight: 600,
+                      border: `1px solid ${
+                        active
+                          ? 'rgba(239, 68, 68, 0.6)'
+                          : 'rgba(255, 255, 255, 0.1)'
+                      }`,
+                      borderRadius: '0.2rem',
+                      backgroundColor: active
+                        ? 'rgba(239, 68, 68, 0.2)'
+                        : 'transparent',
+                      color: active ? '#fca5a5' : 'rgb(156, 163, 175)',
+                      cursor: 'pointer',
+                      transition: 'background-color 120ms, border-color 120ms',
+                    }}
+                    aria-pressed={active}
+                    aria-label={`Heatmap-Zeitraum: ${label}`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
           <div
             style={{
               borderTop: '1px solid rgba(255, 255, 255, 0.08)',
