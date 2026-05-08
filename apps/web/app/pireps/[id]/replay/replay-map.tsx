@@ -315,6 +315,130 @@ export function ReplayMap({
     [],
   );
 
+  // ─── Track 4 #20: Jump-to-Phase + Keyboard-Shortcuts ────────────
+  //
+  // # Phase-marker computation
+  //
+  // Position.phase ist optional und wird vom ACARS-client (oder
+  // heuristik bei nicht-ACARS sessions) gesetzt. Werte sind canonical
+  // upper-case strings (BOARDING, PUSHBACK, TAXI_OUT, TAKEOFF, CLIMB,
+  // CRUISE, DESCENT, APPROACH, LANDING, TAXI_IN, ARRIVED). Der
+  // user-facing replay-control möchte schnell zu "wann hat der
+  // takeoff angefangen" springen können.
+  //
+  // Wir scannen die positions linear und merken uns das erste frame
+  // pro unique phase-string. Die reihenfolge der markers folgt dem
+  // chronologischen ablauf (erst-occurrence → ascending frame-index).
+  // Falls die phase im laufe des fluges wechselt und zurück (z.B.
+  // CLIMB → CRUISE → DESCENT → CRUISE → DESCENT bei step-climbs),
+  // zeigen wir nur den ersten match — das ist die typische "jump to
+  // beginning of phase"-semantik die user erwarten.
+  const phaseMarkers = useMemo(() => {
+    if (!data || !data.available) return [];
+    const seen = new Set<string>();
+    const markers: Array<{ phase: string; frameIndex: number }> = [];
+    data.positions.forEach((p, idx) => {
+      if (p.phase && !seen.has(p.phase)) {
+        seen.add(p.phase);
+        markers.push({ phase: p.phase, frameIndex: idx });
+      }
+    });
+    // Bereits chronologisch durch forEach in array-order, aber
+    // explizit sortieren falls jemand in zukunft die scan-reihenfolge
+    // ändert.
+    markers.sort((a, b) => a.frameIndex - b.frameIndex);
+    return markers;
+  }, [data]);
+
+  // # Time-based seek
+  //
+  // Frame-rate ist nicht konstant: ACARS feeds positions ~1Hz, network-
+  // polling ~30s, manche frames können fehlen. Stattdessen über die
+  // recordedAt-timestamps suchen wir das frame das ±5s vom aktuellen
+  // entfernt liegt. Linear scan ist O(n) aber n ist <few-thousand
+  // frames; binary search wäre overkill für die typischen
+  // replay-längen.
+  //
+  // Pause beim seek — sonst würde der play-loop direkt wieder
+  // weiterspielen und der jump wäre kaum sichtbar.
+  const seekByMs = useCallback(
+    (deltaMs: number) => {
+      if (!data || !data.available || data.positions.length === 0) return;
+      const positions = data.positions;
+      const currentIdx = Math.min(frameIndex, positions.length - 1);
+      const currentMs = new Date(positions[currentIdx].recordedAt).getTime();
+      const targetMs = currentMs + deltaMs;
+
+      // Find frame closest to targetMs. Early-exit wenn wir an targetMs
+      // vorbei sind (positions sind chronologisch sortiert).
+      let bestIdx = 0;
+      let bestDiff = Infinity;
+      for (let i = 0; i < positions.length; i++) {
+        const ms = new Date(positions[i].recordedAt).getTime();
+        const diff = Math.abs(ms - targetMs);
+        if (diff < bestDiff) {
+          bestDiff = diff;
+          bestIdx = i;
+        } else if (ms > targetMs) {
+          // Schon über target hinaus — distance kann nur wachsen
+          break;
+        }
+      }
+      setFrameIndex(bestIdx);
+      setPlaying(false);
+    },
+    [data, frameIndex],
+  );
+
+  // # Phase-jump helper
+  const jumpToPhase = useCallback((targetFrame: number) => {
+    setFrameIndex(targetFrame);
+    setPlaying(false);
+  }, []);
+
+  // # Keyboard shortcuts
+  //
+  //   Space    → play/pause toggle
+  //   ←/→      → seek -5s / +5s
+  //   Home/End → jump to start / end
+  //
+  // Skip wenn focus in input/textarea/contenteditable — sonst kollidiert
+  // Space mit text-input. preventDefault auf den keys verhindert
+  // page-scroll (Space) und browser-history-back (←).
+  useEffect(() => {
+    if (!data || !data.available) return;
+    const handler = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target) {
+        const tag = target.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable) {
+          return;
+        }
+      }
+
+      if (e.key === ' ' || e.code === 'Space') {
+        e.preventDefault();
+        togglePlay();
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        seekByMs(-5000);
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        seekByMs(5000);
+      } else if (e.key === 'Home') {
+        e.preventDefault();
+        setFrameIndex(0);
+        setPlaying(false);
+      } else if (e.key === 'End') {
+        e.preventDefault();
+        setFrameIndex(data.positions.length - 1);
+        setPlaying(false);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [data, togglePlay, seekByMs]);
+
   // ─── Render ─────────────────────────────────────────────────────
   if (loading) {
     return (
@@ -483,7 +607,53 @@ export function ReplayMap({
 
       {/* Bottom controls bar */}
       <div className="absolute bottom-0 left-0 right-0 bg-white/95 dark:bg-gray-900/95 backdrop-blur border-t border-gray-200 dark:border-gray-800 p-4">
-        <div className="max-w-5xl mx-auto flex items-center gap-4 flex-wrap">
+        <div className="max-w-5xl mx-auto space-y-2">
+          {/* Track 4 #20: Phase-jump chips. Nur rendern wenn die positions
+              überhaupt phase-werte haben (sonst leere row mit nur dem
+              shortcut-hint, was hässlich ist). Aktive phase
+              (frameIndex >= phaseMarker.frameIndex && < nächster marker)
+              wird highlighted. */}
+          {phaseMarkers.length > 0 && (
+            <div className="flex items-center gap-1.5 flex-wrap text-xs">
+              <span className="text-gray-500 dark:text-gray-400 font-medium mr-1">
+                Phasen:
+              </span>
+              {phaseMarkers.map((m, idx) => {
+                // Aktiv = current frame liegt zwischen diesem marker und
+                // dem nächsten (oder ende des trails wenn das hier der
+                // letzte marker ist).
+                const nextStart =
+                  idx < phaseMarkers.length - 1
+                    ? phaseMarkers[idx + 1].frameIndex
+                    : totalFrames;
+                const isActive =
+                  frameIndex >= m.frameIndex && frameIndex < nextStart;
+                return (
+                  <button
+                    key={m.phase}
+                    type="button"
+                    onClick={() => jumpToPhase(m.frameIndex)}
+                    className={[
+                      'px-2 py-0.5 rounded font-mono transition',
+                      isActive
+                        ? 'bg-amber-500 text-white shadow'
+                        : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-amber-100 dark:hover:bg-amber-900/40 hover:text-amber-900 dark:hover:text-amber-200',
+                    ].join(' ')}
+                    aria-label={`Springe zu phase ${m.phase} bei frame ${m.frameIndex + 1}`}
+                    title={`Frame ${m.frameIndex + 1} · ${formatTime(data.positions[m.frameIndex].recordedAt)}`}
+                  >
+                    {m.phase}
+                  </button>
+                );
+              })}
+              <span className="ml-auto text-[10px] text-gray-400 dark:text-gray-500 font-mono hidden sm:inline">
+                Space = Play/Pause · ←/→ = ±5s · Home/End = Start/Ende
+              </span>
+            </div>
+          )}
+
+          {/* Hauptzeile: play + slider + speed + follow + meta */}
+          <div className="flex items-center gap-4 flex-wrap">
           <button
             type="button"
             onClick={togglePlay}
@@ -555,6 +725,7 @@ export function ReplayMap({
             >
               {data.sessionInfo.network}
             </span>
+          </div>
           </div>
         </div>
       </div>
