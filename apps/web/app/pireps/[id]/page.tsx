@@ -10,6 +10,7 @@ import Link from 'next/link';
 import { OfpSummary } from '@/components/OfpSummary';
 import { ApprovalActions } from './approval-actions';
 import { DraftActions } from './draft-actions';
+import { VerticalProfileChart } from './vertical-profile-chart';
 import { isApproverRole } from '@/lib/roles';
 
 /**
@@ -546,6 +547,25 @@ export default async function PirepDetail({
                   </div>
                 ))}
             </div>
+          </section>
+        )}
+
+        {/* Track 4 #3 (Vertical-Profile-Chart): altitude vs. time recharts
+            area-chart. Conditional auf hasReplay — wenn keine session-data
+            vorhanden, hidden. Selber gate wie Phase-Breakdown aber als
+            separate condition damit eines unabhängig vom anderen
+            funktioniert (z.B. session existiert aber alle phases=null).
+
+            Client-component render — siehe vertical-profile-chart.tsx
+            docstring für reasoning (lazy-fetch via API statt server-
+            payload-bloat). Wrapper-section gibt das chart eine konsistente
+            card-styling matching #1+#2. */}
+        {hasReplay && (
+          <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6 mb-8">
+            <h2 className="text-sm uppercase tracking-wider text-gray-500 font-semibold mb-4">
+              Vertical-Profile
+            </h2>
+            <VerticalProfileChart pirepId={pirep.id} />
           </section>
         )}
 
