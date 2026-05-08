@@ -67,6 +67,68 @@ function formatPhaseDuration(ms: number): string {
   return `${totalSec}s`;
 }
 
+/**
+ * Track 4 #7 — Smoothness-Score (combined-metric).
+ *
+ * Kombiniert die drei verfügbaren approach + landing-metrics zu einem
+ * 0-100 score der "wie smooth war der flug" zusammenfasst. Fills den
+ * Score-placeholder im Hero-KPI-strip aus #1.
+ *
+ * # Components & weights
+ *
+ *   Touchdown-VSI    → weight 0.5  (most directly perceived, gear-stress)
+ *   Stabilization    → weight 0.3  (FAA stable-approach criteria #5)
+ *   Glideslope       → weight 0.2  (3°-deviation from ILS-standard)
+ *
+ * Wenn nicht alle 3 verfügbar (z.B. VATSIM ohne ACARS = nur stabilization
+ * + glideslope, kein touchdown), werden die weights re-normalisiert auf
+ * 1.0. Score bleibt vergleichbar wenn auch leicht degraded in confidence.
+ *
+ * # Touchdown-VSI scoring-curve
+ *
+ * Linear: score = max(0, 100 - |fpm|/15)
+ *   0 fpm   → 100  (impossible-perfect)
+ *   200 fpm → 87   (smooth)
+ *   400 fpm → 73   (normal)
+ *   600 fpm → 60   (firm)
+ *   1000 fpm → 33  (hard)
+ *   1500+ fpm → 0  (severe)
+ *
+ * Maps gut zur intuition: smooth-landings sind 85+, normal 70+, firm 55+,
+ * hard ≤40, severe ≤20.
+ *
+ * Returns null wenn keine component verfügbar — caller rendert dann
+ * den placeholder. Sonst Math.round'd integer 0-100.
+ */
+function computeSmoothnessScore(
+  touchdownFpm: number | null | undefined,
+  stabilizationPercent: number | null | undefined,
+  glideslopePercent: number | null | undefined,
+): number | null {
+  const components: { score: number; weight: number }[] = [];
+
+  if (touchdownFpm !== null && touchdownFpm !== undefined) {
+    const absFpm = Math.abs(touchdownFpm);
+    const tdScore = Math.max(0, 100 - absFpm / 15);
+    components.push({ score: tdScore, weight: 0.5 });
+  }
+  if (stabilizationPercent !== null && stabilizationPercent !== undefined) {
+    components.push({ score: stabilizationPercent, weight: 0.3 });
+  }
+  if (glideslopePercent !== null && glideslopePercent !== undefined) {
+    components.push({ score: glideslopePercent, weight: 0.2 });
+  }
+
+  if (components.length === 0) return null;
+
+  const totalWeight = components.reduce((sum, c) => sum + c.weight, 0);
+  const weighted = components.reduce(
+    (sum, c) => sum + c.score * (c.weight / totalWeight),
+    0,
+  );
+  return Math.round(weighted);
+}
+
 export default async function PirepDetail({
   params,
 }: {
@@ -179,6 +241,16 @@ export default async function PirepDetail({
     getPirepApproachAnalysis(pirep.id),
     getPirepLandingAnalysis(pirep.id),
   ]);
+
+  // Track 4 #7 — Smoothness-Score wird inline aus den oben gefetchten
+  // metrics berechnet. Kein zusätzlicher DB-roundtrip, einfach pure-
+  // function über die bestehenden values. Returns null wenn keine
+  // component verfügbar — Hero-Score-cell rendert dann den placeholder.
+  const smoothnessScore = computeSmoothnessScore(
+    landingAnalysis?.verticalFpmAtTouchdown,
+    approachAnalysis?.stabilizationScorePercent,
+    approachAnalysis?.glideslopeQualityPercent,
+  );
 
   // Flugzeit formatieren
   const hours = Math.floor((pirep.flightTimeMin ?? 0) / 60);
@@ -465,21 +537,69 @@ export default async function PirepDetail({
               </p>
             )}
           </div>
-          {/* Score-Slot — placeholder bis Track 4 #7. Bewusst muted-style
-              damit klar ist "hier kommt noch was". Nicht hidden weil
-              das KPI-grid sonst eine spalte verliert und unausgewogen
-              wirkt. */}
-          <div className="bg-gray-50 dark:bg-gray-900/50 border border-dashed border-gray-300 dark:border-gray-700 rounded-lg p-4">
-            <p className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
-              Score
-            </p>
-            <p className="text-2xl font-bold mt-2 leading-tight text-gray-400 dark:text-gray-600">
-              —
-            </p>
-            <p className="text-[10px] text-gray-400 dark:text-gray-600 mt-1">
-              bald verfügbar
-            </p>
-          </div>
+          {/* Track 4 #7 — Smoothness-Score-Cell. Bisher Placeholder,
+              jetzt echter combined-metric aus computeSmoothnessScore.
+              Returns null wenn weder touchdown noch approach-data
+              verfügbar (z.B. manual-PIREP) — fallback auf den dashed-
+              placeholder so dass das KPI-grid weiterhin balanced wirkt.
+
+              Color-coding nach score-tier:
+                ≥85   green  ("excellent")
+                70-84 emerald
+                55-69 amber  ("acceptable")
+                40-54 orange ("needs work")
+                <40   red    ("rough flight")
+              Border-color matches damit die zelle zwischen den anderen
+              KPI-cells visuell hervorsticht — das IST die headline-
+              metric, die anderen sind raw-zahlen. */}
+          {smoothnessScore !== null ? (
+            <div
+              className={`rounded-lg p-4 border ${
+                smoothnessScore >= 85
+                  ? 'bg-green-500/5 border-green-500/40'
+                  : smoothnessScore >= 70
+                    ? 'bg-emerald-500/5 border-emerald-500/40'
+                    : smoothnessScore >= 55
+                      ? 'bg-amber-500/5 border-amber-500/40'
+                      : smoothnessScore >= 40
+                        ? 'bg-orange-500/5 border-orange-500/40'
+                        : 'bg-red-500/5 border-red-500/40'
+              }`}
+            >
+              <p className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
+                Smoothness
+              </p>
+              <p className="text-2xl font-bold mt-2 leading-tight tabular-nums">
+                {smoothnessScore}
+                <span className="text-sm font-normal text-gray-500 ml-1">
+                  /100
+                </span>
+              </p>
+              <p className="text-[10px] text-gray-500 mt-1">
+                {smoothnessScore >= 85
+                  ? 'excellent'
+                  : smoothnessScore >= 70
+                    ? 'good'
+                    : smoothnessScore >= 55
+                      ? 'acceptable'
+                      : smoothnessScore >= 40
+                        ? 'needs work'
+                        : 'rough'}
+              </p>
+            </div>
+          ) : (
+            <div className="bg-gray-50 dark:bg-gray-900/50 border border-dashed border-gray-300 dark:border-gray-700 rounded-lg p-4">
+              <p className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
+                Smoothness
+              </p>
+              <p className="text-2xl font-bold mt-2 leading-tight text-gray-400 dark:text-gray-600">
+                —
+              </p>
+              <p className="text-[10px] text-gray-400 dark:text-gray-600 mt-1">
+                keine ACARS-daten
+              </p>
+            </div>
+          )}
         </section>
 
         {/* Track 4 #2 (Phase-Breakdown-Bar): horizontal stacked-bar das
