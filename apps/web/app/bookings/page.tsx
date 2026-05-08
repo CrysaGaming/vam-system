@@ -62,9 +62,56 @@ const bookingInclude = {
 
 type BookingRow = Prisma.BookingGetPayload<{ include: typeof bookingInclude }>;
 
-export default async function BookingsList() {
+// All BookingState values, in the order the filter chips display.
+// Used both to validate the URL searchparam and to render the chip row.
+const ALL_BOOKING_STATES: BookingState[] = [
+  'Created',
+  'SimBriefDispatched',
+  'InProgress',
+  'Cancelled',
+  'Completed',
+  'Expired',
+];
+
+/**
+ * Track 4 #15 (Section C polish) — Bookings filter UI.
+ *
+ * URL-driven filter pattern (matches sceneries / events): all filter
+ * state lives in searchparams. `q` is a free-text query that matches
+ * against flightNumber / departure ICAO / arrival ICAO / aircraft
+ * registration; `status` is a single BookingState value. Both flow
+ * server-side into the Prisma where clause so the database does the
+ * narrowing — no in-memory filter on top of an unfiltered fetch.
+ *
+ * Why URL params over client-side useState:
+ *   - Filter state is shareable (link copy preserves the view).
+ *   - Browser-back navigates between filter states naturally.
+ *   - SSR-friendly, no hydration-mismatch risk.
+ *   - Reload returns the same view.
+ *
+ * The "Aktiv" / "Abgeschlossen" split is preserved when filtering — when
+ * the status filter is set to a single state, exactly one of the two
+ * sections will render (or neither, if the user has no bookings in that
+ * state). The empty-state message branches between "no bookings yet"
+ * (no filter) and "no matches for this filter" (filter active).
+ */
+export default async function BookingsList({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const session = await auth();
   if (!session?.user) redirect('/');
+
+  const params = await searchParams;
+  const textQuery =
+    typeof params.q === 'string' ? params.q.trim() : '';
+  const statusParam =
+    typeof params.status === 'string' ? params.status : '';
+  const statusFilter: BookingState | null =
+    ALL_BOOKING_STATES.includes(statusParam as BookingState)
+      ? (statusParam as BookingState)
+      : null;
 
   const currentUser = await prisma.user.findUnique({
     where: { id: session.user.id },
@@ -72,18 +119,46 @@ export default async function BookingsList() {
   });
   if (!currentUser?.airlineId) redirect('/dashboard');
 
-  // Scope: only this user's bookings within their airline. The airlineId
-  // filter is defense-in-depth — userId already implies airlineId via the
-  // booking schema, but doubling the predicate makes the multi-tenant
-  // boundary explicit at the query level.
-  const bookings = await prisma.booking.findMany({
-    where: {
-      userId: currentUser.id,
-      airlineId: currentUser.airlineId,
-    },
-    include: bookingInclude,
-    orderBy: { createdAt: 'desc' },
-  });
+  // Build the where clause dynamically. Top-level keys AND together; the
+  // OR array combines text-search columns. Skipping OR when no query
+  // lets Prisma avoid the join-fanout, keeping the unfiltered case as
+  // fast as before this option landed. Mode 'insensitive' is the
+  // PostgreSQL ILIKE path — case folding without forcing the user to
+  // type ICAO codes in upper-case.
+  const baseWhere = {
+    userId: currentUser.id,
+    airlineId: currentUser.airlineId,
+  } satisfies Prisma.BookingWhereInput;
+
+  const filteredWhere: Prisma.BookingWhereInput = {
+    ...baseWhere,
+    ...(statusFilter && { state: statusFilter }),
+    ...(textQuery && {
+      OR: [
+        { route: { flightNumber: { contains: textQuery, mode: 'insensitive' } } },
+        { route: { departure: { icao: { contains: textQuery, mode: 'insensitive' } } } },
+        { route: { arrival: { icao: { contains: textQuery, mode: 'insensitive' } } } },
+        { route: { aircraft: { registration: { contains: textQuery, mode: 'insensitive' } } } },
+      ],
+    }),
+  };
+
+  // When any filter is active, also fetch the unfiltered total so the
+  // user can see "12 of 87 sichtbar" — useful context for "did the
+  // filter find what I expected, or is my dataset just small?". Skip
+  // the extra round-trip when no filter is set (the visible count is
+  // the total).
+  const filterActive = textQuery !== '' || statusFilter !== null;
+  const [bookings, totalUnfiltered] = await Promise.all([
+    prisma.booking.findMany({
+      where: filteredWhere,
+      include: bookingInclude,
+      orderBy: { createdAt: 'desc' },
+    }),
+    filterActive
+      ? prisma.booking.count({ where: baseWhere })
+      : Promise.resolve(-1), // sentinel; we use bookings.length below
+  ]);
 
   // Active = anything the user can still act on. Surfaced separately at the
   // top so a freshly created or in-flight booking is one click away even
@@ -103,6 +178,8 @@ export default async function BookingsList() {
       b.state !== 'InProgress',
   );
 
+  const totalForHeader = filterActive ? totalUnfiltered : bookings.length;
+
   return (
     <main className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-white p-4 sm:p-6 lg:p-8">
       <div className="max-w-[100rem] mx-auto">
@@ -110,9 +187,9 @@ export default async function BookingsList() {
           <div>
             <h1 className="text-3xl font-bold">Meine Bookings</h1>
             <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">
-              {bookings.length}{' '}
-              {bookings.length === 1 ? 'Booking gesamt' : 'Bookings gesamt'}
-              {activeBookings.length > 0 &&
+              {totalForHeader}{' '}
+              {totalForHeader === 1 ? 'Booking gesamt' : 'Bookings gesamt'}
+              {!filterActive && activeBookings.length > 0 &&
                 ` · ${activeBookings.length} aktiv`}
             </p>
           </div>
@@ -132,17 +209,41 @@ export default async function BookingsList() {
           </div>
         </header>
 
+        <FilterBar
+          textQuery={textQuery}
+          statusFilter={statusFilter}
+          filterActive={filterActive}
+          visibleCount={bookings.length}
+          totalUnfiltered={totalUnfiltered}
+        />
+
         {bookings.length === 0 ? (
           <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-12 text-center">
-            <p className="text-gray-500 dark:text-gray-400 mb-4">
-              Du hast noch keine Bookings angelegt.
-            </p>
-            <Link
-              href="/bookings/new"
-              className="inline-block px-6 py-3 bg-indigo-600 hover:bg-indigo-700 rounded font-medium transition"
-            >
-              Erstes Booking anlegen →
-            </Link>
+            {filterActive ? (
+              <>
+                <p className="text-gray-500 dark:text-gray-400 mb-4">
+                  Keine Bookings entsprechen dem Filter.
+                </p>
+                <Link
+                  href="/bookings"
+                  className="inline-block px-6 py-3 bg-indigo-600 hover:bg-indigo-700 rounded font-medium transition text-white"
+                >
+                  Filter zurücksetzen
+                </Link>
+              </>
+            ) : (
+              <>
+                <p className="text-gray-500 dark:text-gray-400 mb-4">
+                  Du hast noch keine Bookings angelegt.
+                </p>
+                <Link
+                  href="/bookings/new"
+                  className="inline-block px-6 py-3 bg-indigo-600 hover:bg-indigo-700 rounded font-medium transition text-white"
+                >
+                  Erstes Booking anlegen →
+                </Link>
+              </>
+            )}
           </div>
         ) : (
           <div className="space-y-8">
@@ -160,6 +261,148 @@ export default async function BookingsList() {
         )}
       </div>
     </main>
+  );
+}
+
+/**
+ * URL builder for filter-chip links. Preserves the orthogonal axis when
+ * one filter is being changed — e.g. clicking a status chip while a
+ * text query is active keeps the query in place. Passing `null` for
+ * `newStatus` drops the status filter (used by the "Alle" chip and by
+ * the global "zurücksetzen" link).
+ */
+function buildBookingsUrl(
+  textQuery: string,
+  newStatus: BookingState | null,
+): string {
+  const usp = new URLSearchParams();
+  if (textQuery) usp.set('q', textQuery);
+  if (newStatus) usp.set('status', newStatus);
+  const qs = usp.toString();
+  return qs ? `/bookings?${qs}` : '/bookings';
+}
+
+interface FilterBarProps {
+  textQuery: string;
+  statusFilter: BookingState | null;
+  filterActive: boolean;
+  visibleCount: number;
+  totalUnfiltered: number;
+}
+
+function FilterBar({
+  textQuery,
+  statusFilter,
+  filterActive,
+  visibleCount,
+  totalUnfiltered,
+}: FilterBarProps) {
+  return (
+    <div className="mb-6 space-y-3">
+      {/*
+        Search form — plain HTML form with method=GET so submission
+        navigates to the same page with new ?q=... param. SSR re-renders
+        with the new where-clause. No client component needed; this
+        works without JS.
+
+        We carry the current statusFilter through as a hidden input so
+        a search submission preserves the active status chip — losing
+        it on submit would feel like the chip "broke" when the user
+        typed in the search box.
+      */}
+      <form method="GET" className="flex gap-2">
+        <input
+          type="text"
+          name="q"
+          defaultValue={textQuery}
+          placeholder="Suche: Flugnummer, ICAO, Aircraft-Registration…"
+          className="flex-1 px-3 py-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded text-sm focus:outline-none focus:border-indigo-500 dark:focus:border-indigo-400"
+        />
+        {statusFilter && (
+          <input type="hidden" name="status" value={statusFilter} />
+        )}
+        <button
+          type="submit"
+          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-sm transition"
+        >
+          Suchen
+        </button>
+      </form>
+
+      {/*
+        Status-filter chip row. "Alle" reset chip on the left, then one
+        chip per BookingState. Each chip's accent uses the same color
+        palette as the booking-row state-pill so the filter UI feels
+        consistent with the result rows.
+      */}
+      <div className="flex gap-2 flex-wrap items-center">
+        <FilterChip
+          label="Alle"
+          href={buildBookingsUrl(textQuery, null)}
+          active={!statusFilter}
+        />
+        {ALL_BOOKING_STATES.map((s) => {
+          const style = stateStyle(s);
+          return (
+            <FilterChip
+              key={s}
+              label={style.label}
+              href={buildBookingsUrl(textQuery, s)}
+              active={statusFilter === s}
+              accentClass={style.className}
+            />
+          );
+        })}
+      </div>
+
+      {/*
+        Filter-status row. Only rendered when something is active —
+        otherwise it's noise. Shows "X / Y sichtbar" + a single-click
+        reset link so the user can always escape the filter.
+      */}
+      {filterActive && (
+        <p className="text-xs text-gray-500 dark:text-gray-400">
+          {visibleCount} / {totalUnfiltered}{' '}
+          {totalUnfiltered === 1 ? 'Booking sichtbar' : 'Bookings sichtbar'}{' '}
+          ·{' '}
+          <Link
+            href="/bookings"
+            className="text-indigo-600 dark:text-indigo-400 hover:underline"
+          >
+            × Filter zurücksetzen
+          </Link>
+        </p>
+      )}
+    </div>
+  );
+}
+
+interface FilterChipProps {
+  label: string;
+  href: string;
+  active: boolean;
+  /**
+   * Optional accent classes for the active state — mirrors the
+   * booking-row state-pill colors. Falls back to a neutral indigo
+   * for the "Alle" chip which has no associated state color.
+   */
+  accentClass?: string;
+}
+
+function FilterChip({ label, href, active, accentClass }: FilterChipProps) {
+  // Inactive: subdued neutral that fades into the page. Active: either
+  // the state's own accent (so the chip mirrors the row pill) or
+  // indigo for "Alle" (the catch-all has no state color of its own).
+  const base =
+    'px-3 py-1 rounded-full text-xs font-medium border transition whitespace-nowrap';
+  const inactive =
+    'bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800';
+  const activeAccent =
+    accentClass ?? 'bg-indigo-600 text-white border-indigo-600';
+  return (
+    <Link href={href} className={`${base} ${active ? activeAccent : inactive}`}>
+      {label}
+    </Link>
   );
 }
 
