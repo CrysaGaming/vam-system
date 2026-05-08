@@ -1,11 +1,67 @@
 import { auth } from '@/auth';
 import { redirect, notFound } from 'next/navigation';
-import { prisma, licenseDisplayName, hasReplayDataForPirep } from '@vam/db';
+import {
+  prisma,
+  licenseDisplayName,
+  hasReplayDataForPirep,
+  getPirepPhaseBreakdown,
+} from '@vam/db';
 import Link from 'next/link';
 import { OfpSummary } from '@/components/OfpSummary';
 import { ApprovalActions } from './approval-actions';
 import { DraftActions } from './draft-actions';
 import { isApproverRole } from '@/lib/roles';
+
+/**
+ * Track 4 #2 (Phase-Breakdown-Bar): bg-color pro flight-phase.
+ *
+ * Hardcoded literal-strings damit Tailwind v4 sie als content findet.
+ * Dynamic-template-literals würden silent-not-emitted weil v4's content-
+ * scanner nur literal-strings detected (siehe `cdf6cb6` für ähnlichen
+ * fix mit `lg:`-classes).
+ *
+ * Color-philosophie: stationary phases gray, ground-roll phases blue,
+ * climb/descent transitions amber/orange (achtung-color), cruise
+ * green (entspanntes "going somewhere"), landing red (high-attention
+ * moment). Spiegelt die phase-importance: cruise+ground sind safe-zones,
+ * transitions sind die kritischen momente.
+ */
+const PHASE_BAR_CLASSES: Record<string, string> = {
+  PreFlight: 'bg-gray-400 dark:bg-gray-600',
+  Pushback: 'bg-slate-500 dark:bg-slate-600',
+  Taxi: 'bg-blue-400 dark:bg-blue-600',
+  Takeoff: 'bg-orange-400 dark:bg-orange-600',
+  Climb: 'bg-amber-400 dark:bg-amber-600',
+  Cruise: 'bg-green-500 dark:bg-green-600',
+  Descent: 'bg-amber-600 dark:bg-amber-700',
+  Approach: 'bg-orange-500 dark:bg-orange-700',
+  Landing: 'bg-red-500 dark:bg-red-600',
+  TaxiIn: 'bg-blue-500 dark:bg-blue-700',
+  BlockOn: 'bg-gray-600 dark:bg-gray-700',
+};
+
+const PHASE_LABELS: Record<string, string> = {
+  PreFlight: 'Pre-Flight',
+  Pushback: 'Pushback',
+  Taxi: 'Taxi-Out',
+  Takeoff: 'Takeoff',
+  Climb: 'Climb',
+  Cruise: 'Cruise',
+  Descent: 'Descent',
+  Approach: 'Approach',
+  Landing: 'Landing',
+  TaxiIn: 'Taxi-In',
+  BlockOn: 'Block-On',
+};
+
+function formatPhaseDuration(ms: number): string {
+  const totalSec = Math.round(ms / 1000);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  if (h > 0) return `${h}h ${m}min`;
+  if (m > 0) return `${m}min`;
+  return `${totalSec}s`;
+}
 
 export default async function PirepDetail({
   params,
@@ -88,7 +144,15 @@ export default async function PirepDetail({
   // "Play Flight"-button-conditional. Cheap-genug check (3 selects + 1
   // count) — parallel mit examEnrollment damit kein zusätzliches
   // round-trip-latency.
-  const [examEnrollment, hasReplay] = await Promise.all([
+  //
+  // Track 4 #2 (Phase-Breakdown-Bar): phaseBreakdown auch parallel.
+  // Macht eigenes session-matching (gleiche logic wie hasReplayData)
+  // — das wäre theoretisch dedupable wenn wir den match-helper
+  // refactor'n. Für jetzt akzeptieren wir die kleine duplication weil
+  // alle 3 helpers im Promise.all parallel laufen → kein latency-cost.
+  // groupBy-aggregation auf indexed (sessionId, recordedAt) ist
+  // billig auch bei 5000+ positions.
+  const [examEnrollment, hasReplay, phaseBreakdown] = await Promise.all([
     prisma.flightSchoolEnrollment.findFirst({
       where: { practicalExamPirepId: pirep.id },
       select: {
@@ -101,6 +165,7 @@ export default async function PirepDetail({
       },
     }),
     hasReplayDataForPirep(pirep.id),
+    getPirepPhaseBreakdown(pirep.id),
   ]);
 
   // Flugzeit formatieren
@@ -404,6 +469,85 @@ export default async function PirepDetail({
             </p>
           </div>
         </section>
+
+        {/* Track 4 #2 (Phase-Breakdown-Bar): horizontal stacked-bar das
+            zeigt wieviel zeit in jeder phase verbracht wurde. Pure visual
+            tool — keine actions, nur info.
+
+            Conditional render: nur wenn phaseBreakdown !== null (= session
+            matched, hat positions, hat klassifizierte phases). Bei manual-
+            PIREPs ohne ACARS-data oder bei VATSIM-only-flights mit
+            niedrigem signal-to-noise wird die section gehidden statt eine
+            sinnlose 100%-PreFlight-bar anzuzeigen.
+
+            Approximation: positionCount × samplerate ≈ time. Bei ACARS
+            (1Hz) ist das exakt; bei VATSIM/IVAO (30s polling) gibt's
+            grobere granularität. Caveat documentiert in der helper-
+            docstring (getPirepPhaseBreakdown).
+
+            Render-strategie: ein 8px-hohe stacked bar mit colored segments,
+            darunter ein 2-spaltiges grid mit phase-name + duration für
+            jede phase die ≥0.1% hat. Filtert raus phases mit weniger als
+            0.1% (z.B. 1 position in einer 1000-position-session) damit
+            der legend nicht mit 11 zeilen zugespammt wird. */}
+        {phaseBreakdown && phaseBreakdown.phases.length > 0 && (
+          <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6 mb-8">
+            <div className="flex items-baseline justify-between mb-4 flex-wrap gap-2">
+              <h2 className="text-sm uppercase tracking-wider text-gray-500 font-semibold">
+                Phase-Breakdown
+              </h2>
+              <p className="text-xs text-gray-400">
+                {formatPhaseDuration(phaseBreakdown.totalDurationMs)}
+                {' · '}
+                {phaseBreakdown.totalPositionCount.toLocaleString('de-DE')}{' '}
+                Datenpunkte
+              </p>
+            </div>
+
+            {/* Horizontal stacked-bar. flex statt grid weil width per
+                segment dynamisch via inline-style basierend auf percent
+                gesetzt wird. min-w-[2px] damit auch winzige phases
+                visible bleiben (sonst wären 0.5%-segments unsichtbar). */}
+            <div className="h-3 rounded-full overflow-hidden flex bg-gray-100 dark:bg-gray-800">
+              {phaseBreakdown.phases.map((p) => (
+                <div
+                  key={p.phase}
+                  className={`${PHASE_BAR_CLASSES[p.phase] ?? 'bg-gray-400'} min-w-[2px] transition-all`}
+                  style={{ width: `${p.percent}%` }}
+                  title={`${PHASE_LABELS[p.phase] ?? p.phase}: ${p.percent.toFixed(1)}% (${formatPhaseDuration(p.estDurationMs)})`}
+                />
+              ))}
+            </div>
+
+            {/* Legend-grid. 2 cols mobile, 3 cols tablet+. Filter < 0.1%
+                damit der legend kompakt bleibt (1-position-noise-phases
+                landen unter dem cutoff). */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-2 mt-4">
+              {phaseBreakdown.phases
+                .filter((p) => p.percent >= 0.1)
+                .map((p) => (
+                  <div
+                    key={p.phase}
+                    className="flex items-baseline gap-2 text-xs"
+                  >
+                    <span
+                      className={`${PHASE_BAR_CLASSES[p.phase] ?? 'bg-gray-400'} h-3 w-3 rounded shrink-0 self-center`}
+                      aria-hidden="true"
+                    />
+                    <span className="text-gray-700 dark:text-gray-300 font-medium">
+                      {PHASE_LABELS[p.phase] ?? p.phase}
+                    </span>
+                    <span className="text-gray-500 ml-auto tabular-nums">
+                      {p.percent.toFixed(1)}%
+                    </span>
+                    <span className="text-gray-400 dark:text-gray-500 tabular-nums">
+                      {formatPhaseDuration(p.estDurationMs)}
+                    </span>
+                  </div>
+                ))}
+            </div>
+          </section>
+        )}
 
         {/* Route - groß und prominent */}
         <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6 mb-8">
