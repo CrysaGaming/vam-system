@@ -454,6 +454,54 @@ export async function POST(req: NextRequest) {
     now,
   };
 
+  // ─── Hard-landing INCIDENT detection (option #7) ─────────────────────
+  //
+  // When TOUCHDOWN fires, look at the verticalFpm in the inputs. Negative
+  // values (descending into the runway) below the threshold trigger an
+  // additional INCIDENT AcarsEvent that admins can surface during PIREP-
+  // review. This catches accidental hard landings so they're flagged in
+  // the queue rather than disappearing into the average.
+  //
+  // Severity bands match common industry guidance:
+  //   - "firm"   :    -200 to -400 fpm — hard but normal in turbulence
+  //   - "hard"   :    -400 to -600 fpm — reportable in real-world ops
+  //   - "severe" :    -600 to -1000 fpm — gear inspection territory
+  //   - "crash"  :    < -1000 fpm — write-off
+  // We emit INCIDENT only at "hard" or worse (≤ -600 fpm). Firm landings
+  // are common in MSFS without a real flare and don't need flagging.
+  //
+  // Why a separate event rather than augmenting the TOUCHDOWN payload:
+  // INCIDENT is a discrete kind in the AcarsEventType enum with its own
+  // schema-comment-documented payload shape ({ kind, severity, value }).
+  // Keeping the two events separate lets future incident-types (STALL,
+  // OVERSPEED, OVERBANK) plug into the same INCIDENT event flow without
+  // needing TOUCHDOWN-specific payload growth. It also lets the admin
+  // queue filter on type=INCIDENT to find ALL incidents regardless of
+  // kind, which is the normal review-flow.
+  const HARD_LANDING_THRESHOLD_FPM = -600;
+  const SEVERE_LANDING_THRESHOLD_FPM = -1000;
+  const incidentPayload: Prisma.InputJsonValue | null =
+    blockEventTypes.includes('TOUCHDOWN') &&
+    data.speed.verticalFpm <= HARD_LANDING_THRESHOLD_FPM
+      ? {
+          kind: 'HARD_LANDING',
+          // Severity is computed at flag-time so the queue UI can display
+          // it directly without re-deriving from value. "crash" reserved
+          // for future use; we don't want to crash-flag an MSFS bounced
+          // landing on first iteration without seeing real-world examples.
+          severity:
+            data.speed.verticalFpm <= SEVERE_LANDING_THRESHOLD_FPM
+              ? 'severe'
+              : 'hard',
+          value: data.speed.verticalFpm,
+          // Co-located ICAO + aircraft type so admin-review doesn't have
+          // to join back to LiveSession just to know what plane / where.
+          // Mirrors the convenience fields in the TOUCHDOWN payload.
+          aircraftType: resolvedAircraft.icaoType,
+          arrivalIcao: data.flight.arrival ?? null,
+        }
+      : null;
+
   if (existing) {
     sessionId = existing.id;
     // Single transaction: update session + append position + bump user
@@ -498,6 +546,21 @@ export async function POST(req: NextRequest) {
               eventType,
               blockEventInputs,
             ) as unknown as Prisma.InputJsonValue,
+          },
+        }),
+      );
+    }
+    // Hard-landing INCIDENT (option #7) rides on the same tx — atomic
+    // with the TOUCHDOWN that triggered it. Same timestamp; admins
+    // viewing the audit-trail see them paired without an ordering race.
+    if (incidentPayload) {
+      operations.push(
+        prisma.acarsEvent.create({
+          data: {
+            sessionId: existing.id,
+            type: 'INCIDENT',
+            timestamp: now,
+            payload: incidentPayload,
           },
         }),
       );
@@ -553,6 +616,22 @@ export async function POST(req: NextRequest) {
               eventType,
               blockEventInputs,
             ) as unknown as Prisma.InputJsonValue,
+          },
+        });
+      }
+      // INCIDENT (option #7) — same-tx as the TOUCHDOWN above. New-
+      // session branch is unlikely to hit this path (a heartbeat that
+      // *opens* a session AND triggers TOUCHDOWN simultaneously means
+      // the user reconnected mid-flight at the exact moment of touch-
+      // down, which is rare) but the symmetry with the existing-session
+      // branch makes the code obvious and robust.
+      if (incidentPayload) {
+        await tx.acarsEvent.create({
+          data: {
+            sessionId: session.id,
+            type: 'INCIDENT',
+            timestamp: now,
+            payload: incidentPayload,
           },
         });
       }
