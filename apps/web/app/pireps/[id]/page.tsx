@@ -11,6 +11,7 @@ import { OfpSummary } from '@/components/OfpSummary';
 import { ApprovalActions } from './approval-actions';
 import { DraftActions } from './draft-actions';
 import { VerticalProfileChart } from './vertical-profile-chart';
+import { AircraftPerformanceChart } from './aircraft-performance-chart';
 import { isApproverRole } from '@/lib/roles';
 
 /**
@@ -566,6 +567,31 @@ export default async function PirepDetail({
               Vertical-Profile
             </h2>
             <VerticalProfileChart pirepId={pirep.id} />
+          </section>
+        )}
+
+        {/* Track 4 #4 (Aircraft-Performance-Chart): IAS + VSI dual-axis
+            line-chart über die zeit. Selbe gate wie Vertical-Profile —
+            client-component fetcht via /api/replay endpoint und rendert
+            nur wenn data verfügbar.
+
+            Im roadmap-vision war das ursprünglich "Engine-Performance"
+            mit N1/fuelFlow — aber LiveSessionPosition speichert keine
+            per-frame engine-data, nur session-level-aggregates auf
+            LiveSession. Daher rename → "Aircraft-Performance" mit den
+            tatsächlich verfügbaren ACARS-fields IAS + VSI. Siehe
+            aircraft-performance-chart.tsx docstring "Naming-disclaimer".
+
+            Beide charts (Vertical-Profile + Aircraft-Performance) nutzen
+            denselben fetch-endpoint. Browser-cache stellt sicher dass
+            der zweite chart instant lädt nach dem ersten — kein
+            duplicate-network-roundtrip. */}
+        {hasReplay && (
+          <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6 mb-8">
+            <h2 className="text-sm uppercase tracking-wider text-gray-500 font-semibold mb-4">
+              Aircraft-Performance
+            </h2>
+            <AircraftPerformanceChart pirepId={pirep.id} />
           </section>
         )}
 
