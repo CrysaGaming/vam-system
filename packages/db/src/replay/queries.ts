@@ -410,3 +410,265 @@ export async function getPirepPhaseBreakdown(
     phases,
   };
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// Approach-Analysis (Track 4 #5)
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Approach-Analysis aggregates die "wie war der approach" metrics aus
+ * dem position-trail. Used by the PIREP-detail-page Approach-Analysis-
+ * Section (Track 4 option #5).
+ *
+ * # Drei metrics
+ *
+ * 1. **iasAt1000ft** — IAS bei der position deren altitudeAglFt am
+ *    nächsten zu 1000ft ist (klassischer stabilized-approach gate).
+ *    Generic thresholds: typical narrowbody Vapp ~130-150kt, regional
+ *    ~110-130kt, widebody ~140-160kt. Wir flaggen NICHT als pass/fail
+ *    weil das aircraft-spezifisch ist — der pilot/admin sieht die zahl
+ *    und interpretiert selbst.
+ *
+ * 2. **glideslopeQuality** — % of approach-positions die innerhalb
+ *    ±300ft des standard 3° glideslopes lagen. Approach-fenster: alle
+ *    positions mit altitudeAglFt zwischen 50ft und 3000ft (= ~10nm bei
+ *    3°). Bei jeder position berechnen wir expected_aglFt = distance_nm
+ *    × 318ft (3° = tan(3°) × 6076ft/nm ≈ 318ft/nm), vergleichen mit
+ *    actual und zählen pass/fail.
+ *
+ * 3. **stabilizationScore** — % of positions im final-approach-fenster
+ *    (1000ft → 50ft AGL) die alle drei stability-criteria gepasst
+ *    haben:
+ *      - VSI zwischen -1100 und -300 fpm (descending aber nicht crash)
+ *      - bank zwischen ±30° (kein excessive maneuvering)
+ *      - pitch zwischen ±10° (no excessive pitch up/down)
+ *
+ * # Distance computation
+ *
+ * Haversine-formel zwischen position und arrival-airport. flat-earth
+ * approximation würde bei 50nm-final ~0.4% off, akzeptabel — aber
+ * haversine ist trivial und wir haben die coords parat.
+ *
+ * # Returns null wenn
+ *
+ *   - PIREP existiert nicht oder keine session matched
+ *   - Keine positions mit altitudeAglFt im approach-fenster
+ *   - Keine arrival-coords (sollte nie passieren da arrival required)
+ *
+ * # Caveat: 3° glideslope assumption
+ *
+ * Standard-glideslope ist 3° für die meisten ILS-approaches, aber:
+ *   - LDA/visual approaches können andere angles haben
+ *   - Steep-approach-airports (z.B. EGLC London City: 5.5°) würden
+ *     hier "zu hoch" flaggen obwohl der pilot korrekt geflogen ist
+ *
+ * Future-improvement: per-runway glideslope-angle aus AIP-data oder
+ * SimBrief-OFP holen. Für v1 akzeptabel — die meisten flüge sind 3°.
+ */
+export type ApproachAnalysis = {
+  /** IAS in knots bei der position closest to 1000ft AGL. null wenn keine AGL-data. */
+  iasAt1000ft: number | null;
+  /** Actual AGL altitude der gewählten position (zur transparency). */
+  agAtIasMeasurement: number | null;
+
+  /** Glideslope-quality: 0..100 = % positions within ±300ft of 3° slope */
+  glideslopeQualityPercent: number | null;
+  /** Sample-count behind glideslopeQualityPercent (für caller-confidence). */
+  glideslopeSampleCount: number;
+
+  /** Stabilization-score: 0..100 = % of final-1000ft positions that passed all 3 criteria */
+  stabilizationScorePercent: number | null;
+  /** Sample-count behind stabilizationScorePercent. */
+  stabilizationSampleCount: number;
+};
+
+/**
+ * Haversine-distance in nautical miles.
+ *
+ * lat/lng inputs in degrees. nm-output (1 nm ≈ 1.852 km, earth-radius
+ * 6371 km × 0.539957 nm/km).
+ */
+function haversineNm(
+  lat1: number,
+  lng1: number,
+  lat2: number,
+  lng2: number,
+): number {
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const R_NM = 3440.065; // earth radius in nautical miles
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) *
+      Math.cos(toRad(lat2)) *
+      Math.sin(dLng / 2) ** 2;
+  return 2 * R_NM * Math.asin(Math.sqrt(a));
+}
+
+export async function getPirepApproachAnalysis(
+  pirepId: string,
+): Promise<ApproachAnalysis | null> {
+  // Match session — selber pattern wie hasReplayDataForPirep + phaseBreakdown
+  const pirep = await prisma.pirep.findUnique({
+    where: { id: pirepId },
+    select: {
+      userId: true,
+      submittedAt: true,
+      arrival: {
+        select: { icao: true, latitude: true, longitude: true },
+      },
+      departure: { select: { icao: true } },
+      triggeringEvent: { select: { sessionId: true } },
+    },
+  });
+  if (!pirep) return null;
+
+  let sessionId: string | null = pirep.triggeringEvent?.sessionId ?? null;
+  if (!sessionId) {
+    const submittedMs = pirep.submittedAt.getTime();
+    const minUpdatedAt = new Date(submittedMs - 24 * 60 * 60 * 1000);
+    const maxUpdatedAt = new Date(submittedMs + 60 * 60 * 1000);
+    const session = await prisma.liveSession.findFirst({
+      where: {
+        userId: pirep.userId,
+        departureIcao: pirep.departure.icao,
+        arrivalIcao: pirep.arrival.icao,
+        lastUpdatedAt: { gte: minUpdatedAt, lte: maxUpdatedAt },
+      },
+      orderBy: { lastUpdatedAt: "desc" },
+      select: { id: true },
+    });
+    sessionId = session?.id ?? null;
+  }
+  if (!sessionId) return null;
+
+  // Approach-fenster: positions mit altitudeAglFt ≤ 3000ft. Das deckt
+  // sowohl die glideslope-window (50-3000ft AGL) als auch den final-
+  // 1000ft-window für stabilization. Cap bei 3000ft damit wir nicht
+  // den ganzen descent von cruise-altitude laden.
+  //
+  // Auch filter on arrival-side: nur positions in den letzten 30min vor
+  // session-end. Bei round-trip-flights würde der departure-takeoff
+  // sonst auch als "approach" miscount werden (er ist auch < 3000 AGL).
+  // 30min ist großzügig genug für lange final-approaches.
+  const sessionEnd = await prisma.liveSession.findUnique({
+    where: { id: sessionId },
+    select: { lastUpdatedAt: true },
+  });
+  if (!sessionEnd) return null;
+  const approachWindowStart = new Date(
+    sessionEnd.lastUpdatedAt.getTime() - 30 * 60 * 1000,
+  );
+
+  const approachPositions = await prisma.liveSessionPosition.findMany({
+    where: {
+      sessionId,
+      altitudeAglFt: { not: null, lte: 3000 },
+      recordedAt: { gte: approachWindowStart },
+    },
+    select: {
+      latitude: true,
+      longitude: true,
+      altitudeAglFt: true,
+      indicatedAirspeed: true,
+      verticalSpeedFpm: true,
+      pitch: true,
+      bank: true,
+    },
+    orderBy: { recordedAt: "asc" },
+  });
+
+  if (approachPositions.length === 0) return null;
+
+  // ─── Metric 1: IAS @ 1000ft AGL ──────────────────────────────────
+  // Position deren altitudeAglFt am nächsten zu 1000 ist.
+  let closestTo1000:
+    | (typeof approachPositions)[number]
+    | null = null;
+  let closestDelta = Infinity;
+  for (const p of approachPositions) {
+    if (p.altitudeAglFt === null) continue;
+    const delta = Math.abs(p.altitudeAglFt - 1000);
+    if (delta < closestDelta) {
+      closestDelta = delta;
+      closestTo1000 = p;
+    }
+  }
+  const iasAt1000ft = closestTo1000?.indicatedAirspeed ?? null;
+  const agAtIasMeasurement = closestTo1000?.altitudeAglFt ?? null;
+
+  // ─── Metric 2: Glideslope-Quality ────────────────────────────────
+  // Für jede position: expected_aglFt = haversine(pos, arrival) × 318.
+  // Pass wenn |actual - expected| <= 300ft. % der passenden positions.
+  // Window: alle approach-positions mit altitudeAglFt zwischen 50 und 3000.
+  let glideslopePass = 0;
+  let glideslopeSamples = 0;
+  for (const p of approachPositions) {
+    if (
+      p.altitudeAglFt === null ||
+      p.altitudeAglFt < 50 ||
+      p.altitudeAglFt > 3000
+    )
+      continue;
+    const distNm = haversineNm(
+      p.latitude,
+      p.longitude,
+      pirep.arrival.latitude,
+      pirep.arrival.longitude,
+    );
+    // Expected AGL on 3° slope: distance_nm × tan(3°) × 6076 ft/nm.
+    // tan(3°) × 6076 ≈ 318.5. Wir nutzen 318 als convenient round number.
+    const expectedAglFt = distNm * 318;
+    if (Math.abs(p.altitudeAglFt - expectedAglFt) <= 300) {
+      glideslopePass++;
+    }
+    glideslopeSamples++;
+  }
+  const glideslopeQualityPercent =
+    glideslopeSamples > 0
+      ? (glideslopePass / glideslopeSamples) * 100
+      : null;
+
+  // ─── Metric 3: Stabilization-Score ───────────────────────────────
+  // Window: 1000ft → 50ft AGL. Pro position: VSI ∈ [-1100,-300],
+  // bank ∈ [-30,30], pitch ∈ [-10,10]. Pass nur wenn alle drei.
+  let stabilizationPass = 0;
+  let stabilizationSamples = 0;
+  for (const p of approachPositions) {
+    if (
+      p.altitudeAglFt === null ||
+      p.altitudeAglFt < 50 ||
+      p.altitudeAglFt > 1000
+    )
+      continue;
+    if (
+      p.verticalSpeedFpm === null ||
+      p.bank === null ||
+      p.pitch === null
+    ) {
+      // Skip positions ohne complete data — sample-count bleibt
+      // niedriger statt false-failures zu zählen.
+      continue;
+    }
+    const vsiOk =
+      p.verticalSpeedFpm >= -1100 && p.verticalSpeedFpm <= -300;
+    const bankOk = Math.abs(p.bank) <= 30;
+    const pitchOk = Math.abs(p.pitch) <= 10;
+    if (vsiOk && bankOk && pitchOk) stabilizationPass++;
+    stabilizationSamples++;
+  }
+  const stabilizationScorePercent =
+    stabilizationSamples > 0
+      ? (stabilizationPass / stabilizationSamples) * 100
+      : null;
+
+  return {
+    iasAt1000ft,
+    agAtIasMeasurement,
+    glideslopeQualityPercent,
+    glideslopeSampleCount: glideslopeSamples,
+    stabilizationScorePercent,
+    stabilizationSampleCount: stabilizationSamples,
+  };
+}

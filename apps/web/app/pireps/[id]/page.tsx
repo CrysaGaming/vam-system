@@ -5,6 +5,7 @@ import {
   licenseDisplayName,
   hasReplayDataForPirep,
   getPirepPhaseBreakdown,
+  getPirepApproachAnalysis,
 } from '@vam/db';
 import Link from 'next/link';
 import { OfpSummary } from '@/components/OfpSummary';
@@ -154,21 +155,23 @@ export default async function PirepDetail({
   // alle 3 helpers im Promise.all parallel laufen → kein latency-cost.
   // groupBy-aggregation auf indexed (sessionId, recordedAt) ist
   // billig auch bei 5000+ positions.
-  const [examEnrollment, hasReplay, phaseBreakdown] = await Promise.all([
-    prisma.flightSchoolEnrollment.findFirst({
-      where: { practicalExamPirepId: pirep.id },
-      select: {
-        id: true,
-        schoolId: true,
-        licenseType: true,
-        status: true,
-        practicalExamPassedAt: true,
-        school: { select: { name: true, airportIcao: true } },
-      },
-    }),
-    hasReplayDataForPirep(pirep.id),
-    getPirepPhaseBreakdown(pirep.id),
-  ]);
+  const [examEnrollment, hasReplay, phaseBreakdown, approachAnalysis] =
+    await Promise.all([
+      prisma.flightSchoolEnrollment.findFirst({
+        where: { practicalExamPirepId: pirep.id },
+        select: {
+          id: true,
+          schoolId: true,
+          licenseType: true,
+          status: true,
+          practicalExamPassedAt: true,
+          school: { select: { name: true, airportIcao: true } },
+        },
+      }),
+      hasReplayDataForPirep(pirep.id),
+      getPirepPhaseBreakdown(pirep.id),
+      getPirepApproachAnalysis(pirep.id),
+    ]);
 
   // Flugzeit formatieren
   const hours = Math.floor((pirep.flightTimeMin ?? 0) / 60);
@@ -594,6 +597,117 @@ export default async function PirepDetail({
             <AircraftPerformanceChart pirepId={pirep.id} />
           </section>
         )}
+
+        {/* Track 4 #5 (Approach-Analysis): drei stabilized-approach
+            metrics aus dem position-trail. Conditional auf
+            approachAnalysis !== null (= session matched + es gab
+            positions mit altitudeAglFt im 3000ft-window in den letzten
+            30min vor session-end).
+
+            Nicht jeder PIREP hat AGL-data: VATSIM/IVAO-tracker schreiben
+            keine altitudeAglFt-felder. Bei manual PIREPs ohne ACARS-trail
+            wird die section gehidden — kein "0% glideslope-quality"-
+            phantom-flag.
+
+            Color-coding pro metric: green ≥80%, amber 50-80%, red <50%
+            für glideslope + stabilization. IAS bleibt neutral (kein
+            pass/fail weil aircraft-spezifisch).
+
+            Alle drei sind compact-card-cells in einem 3-spaltigen grid. */}
+        {approachAnalysis &&
+          (approachAnalysis.iasAt1000ft !== null ||
+            approachAnalysis.glideslopeQualityPercent !== null ||
+            approachAnalysis.stabilizationScorePercent !== null) && (
+            <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6 mb-8">
+              <h2 className="text-sm uppercase tracking-wider text-gray-500 font-semibold mb-4">
+                Approach-Analysis
+              </h2>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                {/* IAS @ 1000ft AGL — neutral, kein pass/fail (aircraft-
+                    specific Vapp). Sublabel zeigt actual AGL für transparency
+                    (z.B. "@ 987ft AGL" wenn die nächstliegende position
+                    nicht exakt 1000 war). */}
+                <div className="bg-gray-50 dark:bg-gray-800/40 rounded-lg p-4">
+                  <p className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
+                    IAS @ 1000ft AGL
+                  </p>
+                  <p className="text-2xl font-bold mt-2 leading-tight">
+                    {approachAnalysis.iasAt1000ft !== null
+                      ? approachAnalysis.iasAt1000ft
+                      : '—'}
+                    {approachAnalysis.iasAt1000ft !== null && (
+                      <span className="text-sm font-normal text-gray-500 ml-1">
+                        kt
+                      </span>
+                    )}
+                  </p>
+                  <p className="text-[10px] text-gray-500 mt-1">
+                    {approachAnalysis.agAtIasMeasurement !== null
+                      ? `@ ${approachAnalysis.agAtIasMeasurement}ft AGL`
+                      : 'keine AGL-daten'}
+                  </p>
+                </div>
+
+                {/* Glideslope-Quality. Color-coded: green ≥80%, amber
+                    50-80%, red <50%. Sublabel: sample-count für
+                    transparency. */}
+                <div
+                  className={`rounded-lg p-4 border ${
+                    approachAnalysis.glideslopeQualityPercent === null
+                      ? 'bg-gray-50 dark:bg-gray-800/40 border-transparent'
+                      : approachAnalysis.glideslopeQualityPercent >= 80
+                        ? 'bg-green-500/5 border-green-500/30'
+                        : approachAnalysis.glideslopeQualityPercent >= 50
+                          ? 'bg-amber-500/5 border-amber-500/30'
+                          : 'bg-red-500/5 border-red-500/30'
+                  }`}
+                >
+                  <p className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
+                    Glideslope (3°)
+                  </p>
+                  <p className="text-2xl font-bold mt-2 leading-tight">
+                    {approachAnalysis.glideslopeQualityPercent !== null
+                      ? `${approachAnalysis.glideslopeQualityPercent.toFixed(0)}%`
+                      : '—'}
+                  </p>
+                  <p className="text-[10px] text-gray-500 mt-1">
+                    {approachAnalysis.glideslopeSampleCount > 0
+                      ? `${approachAnalysis.glideslopeSampleCount} positions, ±300ft`
+                      : 'keine daten'}
+                  </p>
+                </div>
+
+                {/* Stabilization-Score. Selbe color-thresholds wie
+                    glideslope. Sublabel hint auf die kriterien (VSI/bank/
+                    pitch) ohne ins detail zu gehen. */}
+                <div
+                  className={`rounded-lg p-4 border ${
+                    approachAnalysis.stabilizationScorePercent === null
+                      ? 'bg-gray-50 dark:bg-gray-800/40 border-transparent'
+                      : approachAnalysis.stabilizationScorePercent >= 80
+                        ? 'bg-green-500/5 border-green-500/30'
+                        : approachAnalysis.stabilizationScorePercent >= 50
+                          ? 'bg-amber-500/5 border-amber-500/30'
+                          : 'bg-red-500/5 border-red-500/30'
+                  }`}
+                >
+                  <p className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
+                    Stabilized-Approach
+                  </p>
+                  <p className="text-2xl font-bold mt-2 leading-tight">
+                    {approachAnalysis.stabilizationScorePercent !== null
+                      ? `${approachAnalysis.stabilizationScorePercent.toFixed(0)}%`
+                      : '—'}
+                  </p>
+                  <p className="text-[10px] text-gray-500 mt-1">
+                    {approachAnalysis.stabilizationSampleCount > 0
+                      ? `final 1000ft, VSI/bank/pitch ok`
+                      : 'keine daten'}
+                  </p>
+                </div>
+              </div>
+            </section>
+          )}
 
         {/* Route - groß und prominent */}
         <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6 mb-8">
