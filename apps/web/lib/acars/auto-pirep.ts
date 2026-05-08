@@ -87,6 +87,20 @@ export async function triggerAutoPirep(
       flightTimeMin: result.flightTimeMin,
       aircraftRegistration: result.aircraftRegistration,
       remarks: result.remarks,
+
+      // Discord embed enrichment (option #17). Forwarded straight
+      // from the helper's result — the helper assembled all of these
+      // from the LiveSession + INCIDENT lookup. The bot service
+      // renders a richer embed when these are present, falls back to
+      // the minimal layout when they're not (e.g., older bot version).
+      pilotName: result.pilotName,
+      aircraftType: result.aircraftType,
+      aircraftTitle: result.aircraftTitle,
+      landingRateFpm: result.landingRateFpm,
+      fuelUsedKg: result.fuelUsedKg,
+      network: result.network,
+      hasHardLanding: result.hasHardLanding,
+      incidentSeverity: result.incidentSeverity,
     }).catch((err) =>
       console.warn('[auto-pirep] emitPirepSubmitted failed:', err),
     );

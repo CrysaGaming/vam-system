@@ -52,6 +52,21 @@ export type GeneratePirepResult =
       aircraftRegistration: string | null;
       remarks: string | null;
       userDiscordId: string | null;
+
+      // ─── Discord embed enrichment fields (option #17) ──────────────
+      // The Discord-bot service running on localhost:3001 renders the
+      // PIREP embed; we ship it the data it needs to make the embed
+      // rich. These fields are populated from the same session/PIREP
+      // data we already have in scope — no extra queries beyond the
+      // INCIDENT lookup needed for hard-landing flagging.
+      pilotName: string | null;
+      aircraftType: string | null;
+      aircraftTitle: string | null;
+      landingRateFpm: number | null;
+      fuelUsedKg: number | null;
+      network: string | null;
+      hasHardLanding: boolean;
+      incidentSeverity: 'hard' | 'severe' | null;
     }
   | {
       ok: false;
@@ -102,6 +117,7 @@ export async function generatePirepFromSession(
       flightNumber: true,
       aircraftType: true,
       aircraftRegistration: true,
+      aircraftTitle: true,
       departureIcao: true,
       arrivalIcao: true,
       connectedAt: true,
@@ -433,6 +449,37 @@ export async function generatePirepFromSession(
     return { ok: false, reason: 'session-already-closed' };
   }
 
+  // ─── Discord embed enrichment lookups (option #17) ─────────────────
+  // Run after the PIREP is committed so we can include the freshly-
+  // emitted INCIDENT row (option #7's hard-landing flag) in the
+  // payload sent to the Discord-bot. Single query: bot wants only
+  // a yes/no + severity, not the full event row.
+  //
+  // Why after the tx rather than inside: the INCIDENT event was
+  // written from the heartbeat-route (M3.9), not from this helper.
+  // Reading it back is a separate query against committed data —
+  // clean separation, and avoids holding the tx open for the lookup.
+  const incidentEvent = await prisma.acarsEvent.findFirst({
+    where: { sessionId, type: 'INCIDENT' },
+    orderBy: { timestamp: 'desc' },
+    select: { payload: true },
+  });
+  let hasHardLanding = false;
+  let incidentSeverity: 'hard' | 'severe' | null = null;
+  if (incidentEvent?.payload && typeof incidentEvent.payload === 'object') {
+    const p = incidentEvent.payload as Prisma.JsonObject;
+    if (p.kind === 'HARD_LANDING') {
+      hasHardLanding = true;
+      // Defensive parse: severity is documented as 'hard'|'severe'|'crash'
+      // but JSON columns are unstructured. Anything we don't recognise
+      // falls through to null — bot can render the boolean alone.
+      const sev = p.severity;
+      if (sev === 'hard' || sev === 'severe') {
+        incidentSeverity = sev;
+      }
+    }
+  }
+
   return {
     ok: true,
     pirepId: result.pirepId,
@@ -444,6 +491,18 @@ export async function generatePirepFromSession(
     aircraftRegistration: session.aircraftRegistration,
     remarks,
     userDiscordId: session.user.discordId,
+
+    // Discord embed enrichment (option #17). All optional from the
+    // bot's perspective — it can render a minimal embed if any of
+    // these are null. We populate everything we have available.
+    pilotName: session.user.name,
+    aircraftType: session.aircraftType,
+    aircraftTitle: session.aircraftTitle,
+    landingRateFpm,
+    fuelUsedKg,
+    network: session.network,
+    hasHardLanding,
+    incidentSeverity,
   };
 }
 

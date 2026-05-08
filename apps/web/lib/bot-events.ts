@@ -12,6 +12,30 @@ export type PirepSubmittedPayload = {
   flightTimeMin: number;
   aircraftRegistration: string | null;
   remarks: string | null;
+
+  // ─── Discord embed enrichment fields (option #17) ──────────────
+  // All optional so existing callers (and the manual /pireps/new
+  // flow) don't break — bot renders a minimal embed if any are
+  // missing, and a richer one as more fields land. Fields chosen
+  // for what the bot needs to build a useful at-a-glance card:
+  // who flew (pilotName), what they flew (aircraftType +
+  // aircraftTitle), how it ended (landingRateFpm + hasHardLanding +
+  // incidentSeverity), how much fuel (fuelUsedKg), and on what
+  // network (Offline/VATSIM/IVAO).
+  //
+  // Why optional: the manual /pireps/new flow only knows a subset
+  // of these (no ACARS-derived landingRate or INCIDENT data).
+  // Forcing all fields would either require dummy values or split
+  // the payload into two types — both worse than letting the bot
+  // handle nulls gracefully.
+  pilotName?: string | null;
+  aircraftType?: string | null;
+  aircraftTitle?: string | null;
+  landingRateFpm?: number | null;
+  fuelUsedKg?: number | null;
+  network?: string | null;
+  hasHardLanding?: boolean;
+  incidentSeverity?: 'hard' | 'severe' | null;
 };
 
 export type RankUpgradedPayload = {
