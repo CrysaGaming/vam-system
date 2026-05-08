@@ -1199,6 +1199,170 @@ export default async function PirepDetail({
           </section>
         )}
 
+        {/* Track 4 #9 (Anti-Cheat-Indicators): badge-row mit den
+            structured Pirep.flags aus #20 (commit d3820d9). Conditional
+            render nur wenn mindestens ein flag fired — clean PIREPs
+            sehen die section gar nicht.
+
+            Flag-types (siehe lib/acars/pirep-flags.ts):
+            - simRate: float > 1.01 (faster-than-realtime sim)
+            - pauseSec: integer > 60 (significant pause-time)
+            - replayFlags: string[] aus verifyReplay (teleport, time-skip,
+              speed-impossible, altitude-impossible)
+            - hardLanding: { severity: 'hard'|'severe', vsiFpm? }
+
+            Color-philosophy: simRate ist grenzwertig-cheat (amber);
+            pauseSec ist meist legitim (toilet break, phone call) aber
+            erwähnenswert (slate); replayFlags sind hard signals (red);
+            hardLanding hard=orange, severe=red.
+
+            Klick-target: gibt es noch nicht — die badges sind aktuell
+            display-only. Future-improvement: link auf admin-review oder
+            replay-page mit auto-jump zur betroffenen position. Für v1
+            reicht display + sublabel (\"sim-rate 2.5x\"). */}
+        {pirep.flags &&
+          typeof pirep.flags === 'object' &&
+          !Array.isArray(pirep.flags) &&
+          (() => {
+            // Defensive narrow zu unserem PirepFlags-shape. Json-column
+            // ist unstructured am DB-level, daher tolerieren wir das
+            // worst-case und filtern fields by-type. Pseudo-type-guard:
+            const flags = pirep.flags as {
+              simRate?: number;
+              pauseSec?: number;
+              replayFlags?: string[];
+              hardLanding?: { severity?: string; verticalSpeedFpm?: number };
+            };
+            const hasSimRate = typeof flags.simRate === 'number';
+            const hasPause = typeof flags.pauseSec === 'number';
+            const hasReplayFlags =
+              Array.isArray(flags.replayFlags) &&
+              flags.replayFlags.length > 0;
+            const hasHardLanding =
+              flags.hardLanding && typeof flags.hardLanding === 'object';
+            // Wenn nichts fired → ganze section verstecken (außer flags
+            // wäre {} — sollte nicht passieren weil buildPirepFlags
+            // returns undefined statt {} bei clean PIREPs, aber defensive)
+            return (
+              hasSimRate || hasPause || hasReplayFlags || hasHardLanding
+            );
+          })() && (
+            <section className="bg-white dark:bg-gray-900 border border-amber-300/50 dark:border-amber-600/30 rounded-lg p-6 mb-8">
+              <div className="flex items-baseline gap-3 mb-4">
+                <h2 className="text-sm uppercase tracking-wider text-amber-700 dark:text-amber-400 font-semibold">
+                  🚩 Flags
+                </h2>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Anti-Cheat-Hinweise aus der ACARS-Verifizierung
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {(() => {
+                  const flags = pirep.flags as {
+                    simRate?: number;
+                    pauseSec?: number;
+                    replayFlags?: string[];
+                    hardLanding?: {
+                      severity?: string;
+                      verticalSpeedFpm?: number;
+                    };
+                  };
+                  const badges: React.ReactNode[] = [];
+
+                  // sim-rate badge — amber (\"this looks fishy aber not
+                  // proof\"). Format: \"⏩ sim-rate 2.5×\"
+                  if (typeof flags.simRate === 'number') {
+                    badges.push(
+                      <span
+                        key="simRate"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-500/10 border border-amber-500/40 text-amber-700 dark:text-amber-300 rounded-md text-xs font-medium"
+                        title="Sim-rate über Realzeit. Erlaubt nur wenn explizit von Airline genehmigt."
+                      >
+                        <span aria-hidden="true">⏩</span>
+                        Sim-Rate {flags.simRate.toFixed(1)}×
+                      </span>,
+                    );
+                  }
+
+                  // pause-time badge — slate (legit-meistens, info-only).
+                  // Format an total-duration anpassen: < 5min als sec,
+                  // sonst min.
+                  if (typeof flags.pauseSec === 'number') {
+                    const sec = flags.pauseSec;
+                    const label =
+                      sec < 300
+                        ? `${sec}s`
+                        : `${Math.round(sec / 60)}min`;
+                    badges.push(
+                      <span
+                        key="pauseSec"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-500/10 border border-slate-500/40 text-slate-700 dark:text-slate-300 rounded-md text-xs font-medium"
+                        title="Sim wurde während der Session pausiert. Meist legitim aber dokumentiert."
+                      >
+                        <span aria-hidden="true">⏸</span>
+                        Pause {label}
+                      </span>,
+                    );
+                  }
+
+                  // hardLanding badge — orange/red je severity.
+                  if (
+                    flags.hardLanding &&
+                    typeof flags.hardLanding === 'object'
+                  ) {
+                    const sev = flags.hardLanding.severity;
+                    const isSevere = sev === 'severe' || sev === 'crash';
+                    const colorClasses = isSevere
+                      ? 'bg-red-500/10 border-red-500/40 text-red-700 dark:text-red-300'
+                      : 'bg-orange-500/10 border-orange-500/40 text-orange-700 dark:text-orange-300';
+                    const fpm = flags.hardLanding.verticalSpeedFpm;
+                    const fpmLabel =
+                      typeof fpm === 'number'
+                        ? ` (${Math.abs(fpm)} fpm)`
+                        : '';
+                    badges.push(
+                      <span
+                        key="hardLanding"
+                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 border rounded-md text-xs font-medium ${colorClasses}`}
+                        title={
+                          isSevere
+                            ? 'Severe touchdown — gear-inspection erforderlich'
+                            : 'Hard touchdown — über industry-threshold'
+                        }
+                      >
+                        <span aria-hidden="true">💥</span>
+                        {isSevere ? 'Severe Landing' : 'Hard Landing'}
+                        {fpmLabel}
+                      </span>,
+                    );
+                  }
+
+                  // replayFlags — pro flag ein eigenes badge in red.
+                  // Diese sind hard signals (teleport, time-skip etc).
+                  if (
+                    Array.isArray(flags.replayFlags) &&
+                    flags.replayFlags.length > 0
+                  ) {
+                    flags.replayFlags.forEach((rf, idx) => {
+                      badges.push(
+                        <span
+                          key={`replay-${idx}`}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-red-500/10 border border-red-500/40 text-red-700 dark:text-red-300 rounded-md text-xs font-medium"
+                          title="Verifikation der Replay-Daten hat eine Anomalie erkannt"
+                        >
+                          <span aria-hidden="true">⚠</span>
+                          {rf}
+                        </span>,
+                      );
+                    });
+                  }
+
+                  return badges;
+                })()}
+              </div>
+            </section>
+          )}
+
         {/* Route - groß und prominent */}
         <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6 mb-8">
           <div className="flex items-center justify-between gap-8">
