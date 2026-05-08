@@ -215,12 +215,69 @@ export async function generatePirepFromSession(
       ? extractIntegerField(touchdown.payload as Prisma.JsonObject, 'verticalSpeedFpm')
       : null;
 
-  // Flight time: prefer client-reported totalFlightTimeMin, fall back
-  // to (lastUpdatedAt - connectedAt) wall-clock as a last resort. The
-  // wall-clock fallback is dirty (includes pause-time) but better than
-  // nothing for sessions where the client didn't include the field.
+  // Block-to-block flight time (M7 refinement). Look up the earliest
+  // BLOCK_OFF and the latest BLOCK_ON for this session. The delta is
+  // the canonical "block-time" (chocks-off → chocks-on) which is what
+  // commercial PIREPs actually report — what every airline operations
+  // department tracks.
+  //
+  // Why this is more accurate than wall-clock: (lastUpdatedAt -
+  // connectedAt) includes pre-flight time (cockpit setup, ATC clearance
+  // wait, before the engines start) and any post-BLOCK_ON tail (sitting
+  // at the gate after parking-brake before disconnecting). Block-to-
+  // block strips both ends and matches what the FAA / ICAO call
+  // "block time" in flight logs.
+  //
+  // Why findFirst with asc/desc rather than findMany: at most we'd
+  // expect one BLOCK_OFF (start of flight) and one BLOCK_ON (end). In
+  // practice push-then-stop-then-push-again could emit multiple
+  // BLOCK_OFFs (M3.9's detector fires on every PreFlight → {Pushback,
+  // Taxi, Takeoff} transition). Picking the earliest BLOCK_OFF
+  // captures the first commitment-to-flight; picking the latest
+  // BLOCK_ON captures the final stop-at-gate. Together they bound
+  // the longest plausible block period, which is what we want.
+  //
+  // Why NOT use this as the primary source: the client may eventually
+  // post BLOCK_ON events to /api/acars/event with a richer payload
+  // including a totalFlightTimeMin field that's been computed against
+  // the client's own simulator-clock (which honours pause + sim-rate
+  // correctly). When that happens we trust it. Server-derived block-
+  // to-block is the next-best — better than wall-clock but still
+  // server-side, so simRate>1.0 cheats are baked in. The remarks
+  // anti-cheat prefix flags those at admin-review time.
+  const blockOffEvent = await prisma.acarsEvent.findFirst({
+    where: { sessionId, type: 'BLOCK_OFF' },
+    orderBy: { timestamp: 'asc' },
+    select: { timestamp: true },
+  });
+  const blockOnEvent = await prisma.acarsEvent.findFirst({
+    where: { sessionId, type: 'BLOCK_ON' },
+    orderBy: { timestamp: 'desc' },
+    select: { timestamp: true },
+  });
+  const blockToBlockMin =
+    blockOffEvent && blockOnEvent
+      ? Math.max(
+          1,
+          Math.round(
+            (blockOnEvent.timestamp.getTime() - blockOffEvent.timestamp.getTime()) / 60000,
+          ),
+        )
+      : null;
+
+  // Flight time: three-tier fallback chain.
+  //   1. Client-reported totalFlightTimeMin (most accurate — honours
+  //      sim-internal clock + pause-detection on the client side)
+  //   2. Server-derived block-to-block delta (M7) — strips pre-flight
+  //      + post-BLOCK_ON tail. Wall-clock-based, so simRate-affected.
+  //   3. (lastUpdatedAt - connectedAt) — last resort, includes
+  //      everything from cockpit-setup to disconnect.
+  // Each tier is "better than nothing"; the chain ensures we always
+  // file *some* flight time rather than null, even on degraded
+  // sessions (no BLOCK events at all = first-iteration client).
   const flightTimeMin =
     payload?.totalFlightTimeMin ??
+    blockToBlockMin ??
     Math.max(
       1,
       Math.round(
