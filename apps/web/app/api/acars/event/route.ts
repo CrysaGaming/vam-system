@@ -2,12 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma, AcarsEventType, type Prisma } from '@vam/db';
 import { authenticateAcarsRequest } from '@/lib/acars/auth';
-import {
-  generatePirepFromSession,
-  type BlockOnPayload,
-} from '@/lib/acars/generate-pirep';
-import { emitPirepSubmitted } from '@/lib/bot-events';
-import { evaluatePromotion } from '@/lib/ranks';
+import { type BlockOnPayload } from '@/lib/acars/generate-pirep';
+import { triggerAutoPirep } from '@/lib/acars/auto-pirep';
 
 /**
  * POST /api/acars/event — Welle 9 commit 9F.
@@ -133,50 +129,22 @@ export async function POST(req: NextRequest) {
 
   // ─────────────────────────────────────────────────────────────────
   // BLOCK_ON: auto-PIREP path
+  //
+  // Delegates to the shared helper which also records failure-events,
+  // fires Discord broadcast, and triggers rank-promotion checks. We
+  // only handle the HTTP-status mapping here — see auto-pirep.ts for
+  // the orchestration. The same helper runs from heartbeat-route on
+  // server-side BLOCK_ON detection (M3.9), so any new side-channel
+  // gets added in one place.
   // ─────────────────────────────────────────────────────────────────
   if (data.type === 'BLOCK_ON') {
-    const result = await generatePirepFromSession(
+    const result = await triggerAutoPirep(
       data.sessionId,
       auth.user.id,
       (data.payload ?? null) as BlockOnPayload | null,
     );
 
     if (!result.ok) {
-      // Even when PIREP-creation fails (e.g., unknown airport ICAO),
-      // we still want to record the BLOCK_ON event for the audit-trail.
-      // Otherwise the client would have no way to surface "your sim
-      // was at FOO airport but FOO isn't in our catalog, file manually".
-      //
-      // Skip recording when reason is session-already-closed (the helper
-      // didn't file because someone else did first; the originating
-      // BLOCK_ON event is already in the DB) or session-not-owned (we
-      // don't trust the request enough to write to the DB).
-      if (
-        result.reason !== 'session-already-closed' &&
-        result.reason !== 'session-not-owned-by-user' &&
-        result.reason !== 'session-not-found'
-      ) {
-        await prisma.acarsEvent
-          .create({
-            data: {
-              sessionId: data.sessionId,
-              type: 'BLOCK_ON',
-              payload: {
-                ...((data.payload ?? {}) as Prisma.JsonObject),
-                _trigger_failed: result.reason,
-                _trigger_detail: result.detail ?? null,
-              } as Prisma.InputJsonValue,
-            },
-          })
-          .catch((err) => {
-            // Don't propagate event-recording failures — the client
-            // should still see the trigger-result. AcarsEvent failure
-            // is non-fatal (next event has its own try, audit-trail
-            // is best-effort here).
-            console.warn('[acars/event] failed to record failed-BLOCK_ON event', err);
-          });
-      }
-
       // Map helper-reasons to HTTP status codes. 4xx for client-data
       // problems (unknown airport, missing fields), 409 for
       // already-filed (idempotent retry), 403 for session ownership.
@@ -199,27 +167,6 @@ export async function POST(req: NextRequest) {
         { status: statusByReason[result.reason] },
       );
     }
-
-    // PIREP filed. Fire the side-channels best-effort: discord
-    // notification + rank-promotion check. Both are non-critical
-    // (matches the manual-flow's pattern in /pireps/new) — failures
-    // here shouldn't roll back the PIREP since it's already committed.
-    void emitPirepSubmitted({
-      pirepId: result.pirepId,
-      userId: auth.user.id,
-      flightNumber: result.flightNumber,
-      departureIcao: result.departureIcao,
-      arrivalIcao: result.arrivalIcao,
-      flightTimeMin: result.flightTimeMin,
-      aircraftRegistration: result.aircraftRegistration,
-      remarks: result.remarks,
-    }).catch((err) =>
-      console.warn('[acars/event] emitPirepSubmitted failed:', err),
-    );
-
-    void evaluatePromotion(auth.user.id).catch((err) =>
-      console.warn('[acars/event] evaluatePromotion failed:', err),
-    );
 
     return NextResponse.json({
       ok: true,

@@ -15,6 +15,7 @@ import {
   buildConnectionLostPayload,
   type BlockEventInputs,
 } from '@/lib/acars/block-events';
+import { triggerAutoPirep } from '@/lib/acars/auto-pirep';
 
 /**
  * POST /api/acars/heartbeat — Welle 9 commit 9C.
@@ -558,6 +559,36 @@ export async function POST(req: NextRequest) {
       return session;
     });
     sessionId = created.id;
+  }
+
+  // ─── M6: BLOCK_ON → auto-PIREP bridge ──────────────────────────────
+  //
+  // M3.9 committed AcarsEvent rows for BLOCK_OFF / TOUCHDOWN / BLOCK_ON
+  // when the phase-detector saw a relevant transition, but did NOT
+  // file a PIREP — that was deferred to M6.
+  //
+  // M6 closes the loop: when this heartbeat just produced a BLOCK_ON
+  // event, fire the auto-PIREP helper. Side-channels (Discord broadcast,
+  // rank-promotion check) are bundled inside the helper.
+  //
+  // CRITICAL: fire-and-forget. The heartbeat round-trip is ~50ms p99
+  // and the client expects that latency budget so its 2Hz cadence
+  // doesn't fall behind. PIREP-creation involves several queries plus
+  // optional Discord HTTP — easily 200-400ms. Awaiting it would push
+  // every BLOCK_ON heartbeat over budget. void + .catch() is the
+  // canonical pattern; any failure logs but doesn't propagate.
+  //
+  // We pass null payload because the helper has sane fallbacks: it
+  // derives flightTimeMin from session.connectedAt → session.lastUpdatedAt
+  // (wall-clock, includes pre-flight time but accurate enough for v1).
+  // When the client eventually starts posting BLOCK_ON events to
+  // /api/acars/event with a richer payload (block-to-block delta,
+  // total fuel burned), that path uses the same helper and overrides
+  // the fallbacks. Both paths are idempotent via session.isActive.
+  if (blockEventTypes.includes('BLOCK_ON')) {
+    void triggerAutoPirep(sessionId, userId, null).catch((err) =>
+      console.warn('[acars/heartbeat] auto-PIREP trigger failed:', err),
+    );
   }
 
   // Echo the resolved phase back to the client (Welle 9 / M3.7).
