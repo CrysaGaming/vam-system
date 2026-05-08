@@ -323,6 +323,88 @@ export default async function PirepDetail({
           </div>
         )}
 
+        {/* Track 4 #1 (PIREP-Analysis Hero): At-a-glance KPI-strip mit
+            den 5 wichtigsten flight-metrics. Zweck: pilot+admin sollen
+            beim öffnen der page sofort sehen "wie war der flug" ohne
+            scrollen zu müssen.
+
+            5 fixe spalten: Block-Time, Distanz, Treibstoff, Passagiere,
+            Score. Responsive grid (2 cols mobile, 3 tablet, 5 desktop).
+            Jede zelle rendert auch bei null-data (zeigt "—") damit
+            manual-PIREPs ohne ACARS-zahlen nicht ein leeres element
+            haben.
+
+            "Score" ist ein placeholder bis Track 4 #7 (Smoothness-Score)
+            den combined-metric berechnet. Bewusst grau gerendert mit
+            sublabel "bald verfügbar" damit klar ist dass das slot später
+            gefüllt wird — kein dead-element.
+
+            Block-Time = pirep.flightTimeMin. Seit option #13 (commit
+            03cb1b6) ist das block-to-block (von BLOCK_OFF bis BLOCK_ON
+            event), nicht mehr nur airborne-time. Für legacy-PIREPs
+            pre-#13 ist es weiterhin airborne aber das delta ist meist
+            < 10min und der display bleibt akkurat genug. */}
+        <section className="mb-8 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+          <div className="bg-white dark:bg-gray-900 border border-indigo-300 dark:border-indigo-700/40 rounded-lg p-4">
+            <p className="text-[10px] uppercase tracking-wider text-indigo-600 dark:text-indigo-400 font-semibold">
+              Block-Time
+            </p>
+            <p className="text-2xl font-bold mt-2 leading-tight">
+              {flightTime}
+            </p>
+          </div>
+          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-4">
+            <p className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
+              Distanz
+            </p>
+            <p className="text-2xl font-bold mt-2 leading-tight">
+              {pirep.route?.distanceNm ? `${pirep.route.distanceNm}` : '—'}
+              {pirep.route?.distanceNm && (
+                <span className="text-sm font-normal text-gray-500 ml-1">nm</span>
+              )}
+            </p>
+          </div>
+          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-4">
+            <p className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
+              Treibstoff
+            </p>
+            <p className="text-2xl font-bold mt-2 leading-tight">
+              {pirep.fuelUsedKg !== null ? `${pirep.fuelUsedKg}` : '—'}
+              {pirep.fuelUsedKg !== null && (
+                <span className="text-sm font-normal text-gray-500 ml-1">kg</span>
+              )}
+            </p>
+          </div>
+          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-4">
+            <p className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
+              Passagiere
+            </p>
+            <p className="text-2xl font-bold mt-2 leading-tight">
+              {pirep.passengerCount !== null ? pirep.passengerCount : '—'}
+            </p>
+            {pirep.cargoKg !== null && pirep.cargoKg > 0 && (
+              <p className="text-[11px] text-gray-500 mt-1">
+                +{pirep.cargoKg} kg Cargo
+              </p>
+            )}
+          </div>
+          {/* Score-Slot — placeholder bis Track 4 #7. Bewusst muted-style
+              damit klar ist "hier kommt noch was". Nicht hidden weil
+              das KPI-grid sonst eine spalte verliert und unausgewogen
+              wirkt. */}
+          <div className="bg-gray-50 dark:bg-gray-900/50 border border-dashed border-gray-300 dark:border-gray-700 rounded-lg p-4">
+            <p className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
+              Score
+            </p>
+            <p className="text-2xl font-bold mt-2 leading-tight text-gray-400 dark:text-gray-600">
+              —
+            </p>
+            <p className="text-[10px] text-gray-400 dark:text-gray-600 mt-1">
+              bald verfügbar
+            </p>
+          </div>
+        </section>
+
         {/* Route - groß und prominent */}
         <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6 mb-8">
           <div className="flex items-center justify-between gap-8">
