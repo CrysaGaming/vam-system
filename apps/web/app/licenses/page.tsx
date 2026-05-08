@@ -5,6 +5,8 @@ import {
   getUserLicenses,
   getUserTypeRatings,
   getExpiringLicenses,
+  getExpiringTypeRatings,
+  getExpiredTypeRatings,
   licenseDisplayName,
   type LicenseType,
   type LicenseStatus,
@@ -15,11 +17,22 @@ import Link from "next/link";
  * Welle 13E-5 — pilot license + type-rating overview page.
  *
  * Zeigt:
- *   - Stats-bar: aktive licenses, type-ratings, expiring soon
+ *   - Stats-bar: aktive Lizenzen, Type-Ratings (mit currency-breakdown),
+ *     unified Currency-Check-counter
+ *   - Currency-warning banner: per-bucket lists (license expiring,
+ *     type-rating expiring, type-rating expired, recency lapsed) — option #26
  *   - "Aktive Lizenzen"-section: alle status=ACTIVE licenses
- *   - "Type Ratings"-section: alle type-ratings inkl. expiry
+ *   - "Type Ratings"-section: alle type-ratings mit Current/Expired/
+ *     Recency-lapsed badge
  *   - "Inaktive Lizenzen"-section: REVOKED/EXPIRED/SUSPENDED (klein, audit)
  *   - Empty-state wenn keine licenses
+ *
+ * Currency-tracking (option #26): die page surface't nicht nur expiring-
+ * licenses sondern auch type-rating-expiry (next 60d), already-expired
+ * type-ratings, und recency-lapsed (≥ 90 Tage nicht geflogen). Combined
+ * count ist im "Currency-Check"-stat-card; per-bucket details im
+ * warning-banner. Schema-data exists schon (TypeRating.expiresAt +
+ * lastFlownAt) — kein DB-change, reine app-layer-aggregation.
  *
  * Gating: nur erreichbar wenn user.careerEnabled && airline.careerEnabled.
  * Direkter URL-aufruf bei deaktivierten flags → redirect auf /settings#profile
@@ -58,11 +71,25 @@ export default async function LicensesPage() {
     redirect("/settings#profile");
   }
 
-  // Parallele queries — alle drei sind unabhängig + auf indices optimiert.
-  const [allLicenses, typeRatings, expiringSoon] = await Promise.all([
+  // Parallele queries — fünf unabhängige reads, alle auf indices optimiert.
+  // Type-rating-currency wird hier mit-getrackt (option #26): expiring-soon
+  // (next 60 days, längeres window als licenses weil recurrent-checks
+  // logistisch geplant werden müssen) plus already-expired (audit-list).
+  // Recency-lapsed wird app-layer berechnet — kein dedizierter helper, weil
+  // das nur eine simple lastFlownAt < (now - 90d) prüfung ist und der
+  // typeRatings-array eh schon vollständig in scope ist.
+  const [
+    allLicenses,
+    typeRatings,
+    expiringSoon,
+    expiringTypeRatings,
+    expiredTypeRatings,
+  ] = await Promise.all([
     getUserLicenses(user.id),
     getUserTypeRatings(user.id),
     getExpiringLicenses(user.id, 30),
+    getExpiringTypeRatings(user.id, 60),
+    getExpiredTypeRatings(user.id),
   ]);
 
   // Partition by status. getUserLicenses returnt sortiert by status asc
@@ -71,9 +98,41 @@ export default async function LicensesPage() {
   const active = allLicenses.filter((l) => l.status === "ACTIVE");
   const inactive = allLicenses.filter((l) => l.status !== "ACTIVE");
 
+  // Type-rating recency check (option #26). Same 90-day cutoff the row-
+  // level badge uses (regulatory norm: 3 takeoffs/landings in 90 days for
+  // commercial PAX-ops). We compute it here so the summary card and
+  // warning-banner can count recency-lapsed type-ratings alongside the
+  // expiry-driven ones — pilots see "currency" issues, not just "expiry"
+  // issues. Excluded: expired ratings (those already counted in
+  // expiredTypeRatings — including them under recency too would double-
+  // count) and ratings without a lastFlownAt (never flown = no currency
+  // baseline yet, can't be lapsed).
+  const recencyCutoff = new Date(Date.now() - 90 * 86_400_000);
+  const expiredTypeRatingIds = new Set(expiredTypeRatings.map((tr) => tr.id));
+  const recencyLapsedTypeRatings = typeRatings.filter(
+    (tr) =>
+      !expiredTypeRatingIds.has(tr.id) &&
+      tr.lastFlownAt !== null &&
+      tr.lastFlownAt < recencyCutoff,
+  );
+
   const totalLicenses = allLicenses.length;
   const totalTypeRatings = typeRatings.length;
-  const expiringCount = expiringSoon.length;
+  const expiringLicenseCount = expiringSoon.length;
+
+  // Combined currency-issue count for the "Bald ablaufend" stat-card.
+  // Includes everything a pilot might want to act on this month:
+  //   - licenses expiring in the next 30d
+  //   - type-ratings expiring in the next 60d
+  //   - type-ratings already expired (need renewal before next flight)
+  //   - type-ratings with recency lapsed (90-day rule)
+  // Each bucket is a distinct kind of action item, so summing them gives
+  // a useful "things to look at" number rather than overlap-counting.
+  const totalIssueCount =
+    expiringLicenseCount +
+    expiringTypeRatings.length +
+    expiredTypeRatings.length +
+    recencyLapsedTypeRatings.length;
 
   return (
     <main className="px-6 py-8 sm:px-10 lg:px-12 max-w-6xl mx-auto">
@@ -105,38 +164,110 @@ export default async function LicensesPage() {
           subtext={
             totalTypeRatings === 0
               ? "Noch keine type-ratings"
-              : "Specific aircraft-qualifikationen"
+              : `${totalTypeRatings - expiredTypeRatings.length - recencyLapsedTypeRatings.length} current · ${expiredTypeRatings.length + recencyLapsedTypeRatings.length} mit currency-issue`
           }
           variant="secondary"
         />
         <StatCard
           icon="⏰"
-          label="Bald ablaufend"
-          value={expiringCount.toString()}
+          label="Currency-Check"
+          value={totalIssueCount.toString()}
           subtext={
-            expiringCount === 0
-              ? "Keine licenses laufen in 30 tagen ab"
-              : `In den nächsten 30 tagen — bitte renewal planen`
+            totalIssueCount === 0
+              ? "Alles aktuell — nichts zu erneuern"
+              : buildIssueSummary(
+                  expiringLicenseCount,
+                  expiringTypeRatings.length,
+                  expiredTypeRatings.length,
+                  recencyLapsedTypeRatings.length,
+                )
           }
-          variant={expiringCount > 0 ? "warning" : "neutral"}
+          variant={totalIssueCount > 0 ? "warning" : "neutral"}
         />
       </div>
 
-      {/* Expiring-warning — nur sichtbar wenn welche da sind. Listet die
-          betroffenen licenses prominent oben damit pilot reagiert. */}
-      {expiringCount > 0 && (
-        <div className="mb-6 px-4 py-3 rounded-lg border bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-300 text-sm">
-          <p className="font-semibold mb-1">
-            ⚠️ {expiringCount} {expiringCount === 1 ? "Lizenz läuft" : "Lizenzen laufen"} bald ab
+      {/* Currency-warning banner — sichtbar wenn irgendwas auf
+          currency-issue läuft. Listet pro bucket die betroffenen items
+          (license expiring, type-rating expiring, type-rating expired,
+          type-rating recency-lapsed) damit der pilot direkt sieht
+          welche action ansteht. Vier separate sub-listen statt einer
+          gemischten ist absichtlich: jede aktion ist anders (license
+          renewal = admin/flight-school, type-rating renewal =
+          recurrent-check, recency = einfach mal eine runde fliegen). */}
+      {totalIssueCount > 0 && (
+        <div className="mb-6 px-4 py-3 rounded-lg border bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-300 text-sm space-y-3">
+          <p className="font-semibold">
+            ⚠️ {totalIssueCount}{" "}
+            {totalIssueCount === 1 ? "Currency-Issue" : "Currency-Issues"} —
+            bitte prüfen
           </p>
-          <ul className="space-y-0.5">
-            {expiringSoon.map((lic) => (
-              <li key={lic.id}>
-                {licenseDisplayName(lic.type)} — gültig bis{" "}
-                {lic.expiresAt ? formatDate(lic.expiresAt) : "—"}
-              </li>
-            ))}
-          </ul>
+
+          {expiringLicenseCount > 0 && (
+            <div>
+              <p className="text-xs uppercase tracking-wider opacity-70 mb-1">
+                Lizenzen laufen bald ab (≤ 30 Tage)
+              </p>
+              <ul className="space-y-0.5">
+                {expiringSoon.map((lic) => (
+                  <li key={lic.id}>
+                    {licenseDisplayName(lic.type)} — gültig bis{" "}
+                    {lic.expiresAt ? formatDate(lic.expiresAt) : "—"}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {expiringTypeRatings.length > 0 && (
+            <div>
+              <p className="text-xs uppercase tracking-wider opacity-70 mb-1">
+                Type-Ratings laufen bald ab (≤ 60 Tage)
+              </p>
+              <ul className="space-y-0.5">
+                {expiringTypeRatings.map((tr) => (
+                  <li key={tr.id}>
+                    <span className="font-mono">{tr.aircraftType}</span> —
+                    gültig bis{" "}
+                    {tr.expiresAt ? formatDate(tr.expiresAt) : "—"}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {expiredTypeRatings.length > 0 && (
+            <div>
+              <p className="text-xs uppercase tracking-wider opacity-70 mb-1">
+                Type-Ratings bereits abgelaufen — recurrent-check fällig
+              </p>
+              <ul className="space-y-0.5">
+                {expiredTypeRatings.map((tr) => (
+                  <li key={tr.id}>
+                    <span className="font-mono">{tr.aircraftType}</span> —
+                    abgelaufen am{" "}
+                    {tr.expiresAt ? formatDate(tr.expiresAt) : "—"}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {recencyLapsedTypeRatings.length > 0 && (
+            <div>
+              <p className="text-xs uppercase tracking-wider opacity-70 mb-1">
+                Recency lapsed (≥ 90 Tage nicht geflogen)
+              </p>
+              <ul className="space-y-0.5">
+                {recencyLapsedTypeRatings.map((tr) => (
+                  <li key={tr.id}>
+                    <span className="font-mono">{tr.aircraftType}</span> —
+                    zuletzt geflogen{" "}
+                    {tr.lastFlownAt ? formatDate(tr.lastFlownAt) : "—"}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       )}
 
@@ -361,6 +492,14 @@ function TypeRatingRow({ rating }: { rating: TypeRatingRow }) {
   const cutoff = new Date(Date.now() - 90 * 86_400_000);
   const recencyExpired = rating.lastFlownAt && rating.lastFlownAt < cutoff;
 
+  // "Current" badge (option #26): explicit positive signal when neither
+  // expired nor recency-lapsed. Without this, current ratings show no
+  // badge at all while problematic ones do — confusing because the
+  // absence of a badge can be read as "data missing" rather than "all
+  // good". The green badge makes the all-good state explicitly visible
+  // and consistent with how Lizenzen show "Aktiv".
+  const isCurrent = !isExpired && !recencyExpired;
+
   return (
     <div className="p-4">
       <div className="flex items-start justify-between gap-3">
@@ -375,6 +514,11 @@ function TypeRatingRow({ rating }: { rating: TypeRatingRow }) {
             {!isExpired && recencyExpired && (
               <span className="px-2 py-0.5 text-[10px] uppercase tracking-wider rounded bg-amber-500/15 text-amber-700 dark:text-amber-300 font-semibold">
                 Recency lapsed
+              </span>
+            )}
+            {isCurrent && (
+              <span className="px-2 py-0.5 text-[10px] uppercase tracking-wider rounded bg-green-500/15 text-green-700 dark:text-green-300 font-semibold">
+                Current
               </span>
             )}
           </div>
@@ -439,4 +583,65 @@ function formatDate(d: Date): string {
     month: "2-digit",
     year: "numeric",
   }).format(d);
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// buildIssueSummary — kompakter subtext für die Currency-Check-stat-card
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Compose a one-line breakdown of currency-issues for the stat-card subtext.
+ *
+ * Inputs are independent counts of the four currency-buckets we track:
+ *   - expL: licenses expiring in next 30 days (renewal needed soon)
+ *   - expT: type-ratings expiring in next 60 days (recurrent-check coming up)
+ *   - expdT: type-ratings already expired (recurrent-check overdue)
+ *   - lapsT: type-ratings with recency lapsed (90-day rule, simple to fix —
+ *            just fly a leg)
+ *
+ * Buckets with count=0 are omitted from the summary so the line stays short
+ * even when only one or two issue-types exist. Caller guarantees that at
+ * least one count > 0 (the wrapping conditional in the page already
+ * returns early via "Alles aktuell — nichts zu erneuern" when totalIssue-
+ * Count is 0), so this function never returns an empty string. German
+ * pluralization is handled inline since each bucket has its own noun.
+ *
+ * Output examples:
+ *   buildIssueSummary(2, 0, 0, 0)  → "2 Lizenzen bald ablaufend"
+ *   buildIssueSummary(1, 1, 0, 0)  → "1 Lizenz bald ablaufend · 1 Type-Rating bald ablaufend"
+ *   buildIssueSummary(0, 0, 1, 2)  → "1 Type-Rating abgelaufen · 2 recency lapsed"
+ *   buildIssueSummary(1, 1, 1, 1)  → "1 Lizenz bald ablaufend · 1 Type-Rating bald ablaufend · 1 Type-Rating abgelaufen · 1 recency lapsed"
+ *
+ * Separator is " · " (middle dot) — visually less aggressive than commas
+ * for 4 chained items and matches the pattern used elsewhere in the page
+ * (e.g., the Type-Ratings stat-card subtext).
+ */
+function buildIssueSummary(
+  expL: number,
+  expT: number,
+  expdT: number,
+  lapsT: number,
+): string {
+  const parts: string[] = [];
+
+  if (expL > 0) {
+    parts.push(
+      `${expL} ${expL === 1 ? "Lizenz" : "Lizenzen"} bald ablaufend`,
+    );
+  }
+  if (expT > 0) {
+    parts.push(
+      `${expT} ${expT === 1 ? "Type-Rating" : "Type-Ratings"} bald ablaufend`,
+    );
+  }
+  if (expdT > 0) {
+    parts.push(
+      `${expdT} ${expdT === 1 ? "Type-Rating" : "Type-Ratings"} abgelaufen`,
+    );
+  }
+  if (lapsT > 0) {
+    parts.push(`${lapsT} recency lapsed`);
+  }
+
+  return parts.join(" · ");
 }
