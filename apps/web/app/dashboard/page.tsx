@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@vam/db";
 import Link from "next/link";
 import { WalletCard } from "./wallet-card";
+import { CurrencyCard } from "./currency-card";
 
 export default async function Dashboard() {
   const session = await auth();
@@ -81,6 +82,12 @@ export default async function Dashboard() {
   // economyEnabled. Bei nicht-vorhandener airline ist die airline-flag
   // nicht prüfbar, also implizit false → kein wallet-display.
   const showWallet = !!(user.economyEnabled && user.airline?.economyEnabled);
+
+  // Option #28: Currency-Check widget opt-in. Same dual-flag pattern als
+  // wallet — career-features sind LIVE wenn user.careerEnabled && airline.
+  // careerEnabled. Sonst keine licenses/type-ratings → kein currency-
+  // tracking sinnvoll, kein widget-display.
+  const showCurrency = !!(user.careerEnabled && user.airline?.careerEnabled);
 
   return (
     <main className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-white p-4 sm:p-6 lg:p-8">
@@ -175,6 +182,12 @@ export default async function Dashboard() {
 
           {showWallet && <WalletCard userId={user.id} />}
         </div>
+
+        {/* Currency-Check widget (option #28). Compact full-width banner.
+            Two-state render: green strip when all-current, amber alert
+            when issues. Self-fetches data — caller just gates on the
+            dual careerEnabled flags. */}
+        {showCurrency && <CurrencyCard userId={user.id} />}
 
         {/* Next-Rank Progress */}
         {user.airline && (
