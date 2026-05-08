@@ -79,6 +79,12 @@ export type AirlineSettings = {
   // müssen true sein damit canPilotFlyAircraft im booking-gate prüft.
   // Roleplay-airlines die keinen license-zwang wollen lassen das false.
   careerEnabled: boolean;
+  // Option #29: zusätzlicher hard-block für recency-lapsed type-ratings
+  // (pilot hat das rating, aber lastFlownAt > 90d → blockiert). Greift
+  // nur wenn careerEnabled=true. Default false = existing behaviour
+  // (nur expired type-ratings blocken). Per-airline opt-in für VAs die
+  // regulatory-style currency-rules durchsetzen wollen.
+  enforceTypeRatingCurrency: boolean;
 };
 
 /**
@@ -536,6 +542,12 @@ const AirlineSettingsSchema = z.object({
   // ist der booking-flow für die airline genau wie vor 13E. Disable
   // wirkt nur prospektiv, existing licenses bleiben in DB als audit.
   careerEnabled: z.boolean(),
+  // Option #29: type-rating-currency-enforcement. Default false. Wenn
+  // true UND careerEnabled=true, blockt der booking-gate auch type-
+  // ratings deren lastFlownAt > 90d ist (recency-lapsed). Sub-flag von
+  // careerEnabled — admin sollte den nur aktivieren wenn er die strict
+  // realism-mode auf der airline wirklich will.
+  enforceTypeRatingCurrency: z.boolean(),
 });
 
 /** Read airline settings for the admin's airline. */
@@ -558,6 +570,7 @@ export async function getAirlineSettings(): Promise<AirlineSettings> {
     publicVisible: a.publicVisible,
     economyEnabled: a.economyEnabled,
     careerEnabled: a.careerEnabled,
+    enforceTypeRatingCurrency: a.enforceTypeRatingCurrency,
   };
 }
 
@@ -620,6 +633,14 @@ export async function updateAirlineSettings(
         // checks sind passive (canPilotFlyAircraft prüft nur was schon
         // da ist).
         careerEnabled: parsed.careerEnabled,
+        // Option #29: type-rating-currency-enforcement. Sub-flag von
+        // careerEnabled. Wenn admin den ohne careerEnabled aktiviert,
+        // hat das keine wirkung (canPilotFlyAircraftStrict gated den
+        // currency-check hinter careerEnabled). Wir validieren das
+        // nicht hart sondern lassen es als no-op stehen — admin sieht
+        // das toggling in der form, kann ihn später ohne re-toggle
+        // aktivieren wenn er career später aktiviert.
+        enforceTypeRatingCurrency: parsed.enforceTypeRatingCurrency,
       },
     });
   } catch (e: unknown) {

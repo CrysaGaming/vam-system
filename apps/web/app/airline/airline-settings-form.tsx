@@ -71,6 +71,12 @@ export function AirlineSettingsForm({ initial }: Props) {
     // ist das field default false und sie sehen den toggle nur wenn sie
     // ihn aktiv anklicken.
     const careerEnabled = formData.get('careerEnabled') === 'on';
+    // Option #29: Sub-toggle für strict recency-enforcement. Greift nur
+    // wenn careerEnabled=true. Wir lesen das field unabhängig (admin
+    // kann ihn vor-aktivieren bevor career on geht) — der booking-gate
+    // checkt eh den parent-flag zuerst.
+    const enforceTypeRatingCurrency =
+      formData.get('enforceTypeRatingCurrency') === 'on';
 
     startTransition(async () => {
       try {
@@ -88,6 +94,7 @@ export function AirlineSettingsForm({ initial }: Props) {
           publicVisible,
           economyEnabled,
           careerEnabled,
+          enforceTypeRatingCurrency,
         });
         setSaved(true);
         setIcaoUnlocked(false); // re-lock after save so next edit needs unlock again
@@ -425,6 +432,56 @@ export function AirlineSettingsForm({ initial }: Props) {
                   bleiben in der DB als Audit-Trail erhalten und gelten
                   bei einer späteren Re-Aktivierung weiter.
                 </em>
+              </span>
+            </label>
+          </div>
+
+          {/* Option #29: Sub-toggle für strict recency-enforcement.
+              Visuell eingerückt damit klar wird das ist sub-feature
+              vom career-toggle. Greift nur wenn careerEnabled=true,
+              sonst ist es no-op (haben wir docstring-mässig dokumentiert
+              statt UI-disabling — admin kann es vor-aktivieren).
+              Optisch hint via border-l + indent damit es als sub-
+              option erkennbar ist. */}
+          <div className="mt-4 ml-6 pl-4 border-l-2 border-gray-200 dark:border-gray-800">
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                name="enforceTypeRatingCurrency"
+                defaultChecked={initial.enforceTypeRatingCurrency}
+                className="mt-0.5"
+              />
+              <span className="text-xs text-gray-500">
+                <strong className="block text-sm text-gray-700 dark:text-gray-300 mb-0.5">
+                  Strict Recency-Enforcement (90-Tage-Regel)
+                </strong>
+                Zusätzlich zu expired type-ratings auch{' '}
+                <em className="not-italic">recency-lapsed</em> type-ratings
+                blocken: pilot muss in den letzten 90 tagen auf dem type
+                geflogen sein, sonst kann er keine neuen bookings für
+                diesen aircraft-type erstellen. Booking-error zeigt dann{' '}
+                <code className="text-[10px]">
+                  Type Rating B738 (recency lapsed)
+                </code>{' '}
+                in der missing-list.
+                <br />
+                <br />
+                Spiegelt EASA Part-FCL{' '}
+                <em className="not-italic">passenger-currency-norm</em>{' '}
+                (&quot;3 takeoffs/landings in 90 days for PAX-ops&quot;) als
+                vereinfachten lastFlownAt-check. Geeignet für VAs die
+                regulatory-realism-mode wollen — pilot muss aktiv auf
+                seinen ratings bleiben oder einen{' '}
+                <em className="not-italic">recurrent-check</em> machen.
+                <br />
+                <br />
+                Greift nur wenn{' '}
+                <strong className="text-gray-700 dark:text-gray-300">
+                  Career-System
+                </strong>{' '}
+                oben aktiviert ist. Pilots die noch nie auf einem rating
+                geflogen sind (lastFlownAt=null) gelten als baseline-fresh
+                und werden nicht geblockt.
               </span>
             </label>
           </div>

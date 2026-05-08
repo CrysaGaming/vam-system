@@ -439,6 +439,31 @@ model Airline {
   // section 4 realism-spectrum).
   careerEnabled Boolean @default(false)
 
+  // ─── TypeRating-Currency-Enforcement (option #29) ──────────────────
+  // Per-airline opt-in für hard-blocking von buchungen wenn pilot's
+  // type-rating zwar exists aber recency-lapsed ist (lastFlownAt < 90d
+  // ago, regulatory norm "3 takeoffs/landings in 90 days for PAX-ops").
+  //
+  // Default false → existing behaviour: nur expired type-ratings
+  // (expiresAt < now) blocken bookings, recency-lapsed wird nur in der
+  // /licenses currency-warning sichtbar gemacht aber nicht enforced.
+  //
+  // Bei true → zusätzlicher hard-block in canPilotFlyAircraft: pilot
+  // muss type-rating sowohl gültig (expiresAt > now) als auch current
+  // (lastFlownAt > now-90d ODER never-flown=baseline-fresh) haben.
+  // Pilots sehen das als "Type Rating B738 (recency lapsed)" in der
+  // booking-error message und müssen erst eine runde fliegen oder
+  // einen recurrent-check machen.
+  //
+  // Why per-airline (not global): VAs vary in realism level. A
+  // training-school enforcing strict currency is one thing; a casual
+  // hobby-airline where pilots fly when they have time would block
+  // most of their members at random. Default-off keeps the realism
+  // optional opt-in, mirror der enforceSimRate-pattern.
+  //
+  // Greift nur wenn careerEnabled=true (sonst kein gate überhaupt).
+  enforceTypeRatingCurrency Boolean @default(false)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
