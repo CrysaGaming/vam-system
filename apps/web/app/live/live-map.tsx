@@ -189,6 +189,49 @@ function computeProgress(
   return { distanceKm, etaMinutes };
 }
 
+/**
+ * Track 4 #32: Distanz/ETA für Public-Pilots (VATSIM/IVAO).
+ *
+ * Mirror von computeProgress, aber für PublicPilot — flache fields
+ * statt nested flightPlan/position. Erwartet einen ICAO-airport-array
+ * (kann der live-map airports[]-state sein) damit wir target-coords
+ * lookup'en können. ETA-gate identisch (>30 kt ground-speed) damit
+ * geparkte/taxi'ende pilots keine sinnlose ETA produzieren.
+ */
+function computePublicProgress(
+  pilot: PublicPilot,
+  airports: AirportWithMetar[],
+): { distanceKm: number | null; etaMinutes: number | null } {
+  if (!pilot.arrivalIcao) {
+    return { distanceKm: null, etaMinutes: null };
+  }
+  const arrival = airports.find((a) => a.airport.icao === pilot.arrivalIcao);
+  if (!arrival) {
+    return { distanceKm: null, etaMinutes: null };
+  }
+
+  const R = 6371;
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const lat1 = pilot.latitude;
+  const lng1 = pilot.longitude;
+  const lat2 = arrival.airport.latitude;
+  const lng2 = arrival.airport.longitude;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  const distanceKm = 2 * R * Math.asin(Math.sqrt(a));
+
+  const groundSpeedKmh = pilot.groundSpeed * 1.852;
+  let etaMinutes: number | null = null;
+  if (groundSpeedKmh > 30) {
+    etaMinutes = (distanceKm / groundSpeedKmh) * 60;
+  }
+
+  return { distanceKm, etaMinutes };
+}
+
 export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
   const [sessions, setSessions] = useState<LiveSession[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -3310,36 +3353,12 @@ function PublicPilotSidebar({
   onToggleFollow: () => void;
 }) {
   // Track 4 #32: Distance/ETA für public pilots — analog zu computeProgress
-  // für member sessions. Inline weil PublicPilot ein anderes shape hat
-  // (flat statt nested position/flightPlan). Greift nur wenn arrivalIcao
-  // gesetzt ist UND wir den airport in unserer METAR-liste finden (das
-  // sind ~150 große airports — bei mehrheit der public-pilots ist der
-  // arrival NICHT drin, dann zeigen wir die section gar nicht).
-  let distanceKm: number | null = null;
-  let etaMinutes: number | null = null;
-  if (pilot.arrivalIcao) {
-    const arrival = airports.find((a) => a.airport.icao === pilot.arrivalIcao);
-    if (arrival) {
-      const R = 6371;
-      const toRad = (deg: number) => (deg * Math.PI) / 180;
-      const lat1 = pilot.latitude;
-      const lng1 = pilot.longitude;
-      const lat2 = arrival.airport.latitude;
-      const lng2 = arrival.airport.longitude;
-      const dLat = toRad(lat2 - lat1);
-      const dLng = toRad(lng2 - lng1);
-      const a =
-        Math.sin(dLat / 2) ** 2 +
-        Math.cos(toRad(lat1)) *
-          Math.cos(toRad(lat2)) *
-          Math.sin(dLng / 2) ** 2;
-      distanceKm = 2 * R * Math.asin(Math.sqrt(a));
-      const groundSpeedKmh = pilot.groundSpeed * 1.852;
-      if (groundSpeedKmh > 30) {
-        etaMinutes = (distanceKm / groundSpeedKmh) * 60;
-      }
-    }
-  }
+  // für member sessions, aber via dedizierten computePublicProgress-helper.
+  // Greift nur wenn arrivalIcao gesetzt ist UND wir den airport in unserer
+  // METAR-liste finden (das sind ~150 große airports — bei mehrheit der
+  // public-pilots ist der arrival NICHT drin, dann zeigen wir die
+  // distance/ETA-section gar nicht).
+  const { distanceKm, etaMinutes } = computePublicProgress(pilot, airports);
 
   return (
     <div
@@ -3501,6 +3520,46 @@ function PublicPilotSidebar({
                   }}
                 >
                   {pilot.aircraftType}
+                </div>
+              )}
+
+              {/* Track 4 #32: Distance/ETA — wie im SessionSidebar. Nur
+                  wenn computePublicProgress was zurückgibt (arrivalIcao
+                  gesetzt UND airport in METAR-liste). distanceKm null →
+                  ganze section weg. ETA null → "—" (taxi/ground, oder
+                  groundspeed unter 30kt). */}
+              {distanceKm !== null && (
+                <div
+                  style={{
+                    marginTop: '0.75rem',
+                    paddingTop: '0.75rem',
+                    borderTop: '1px solid rgba(255, 255, 255, 0.06)',
+                    display: 'flex',
+                    gap: '1.5rem',
+                    fontSize: '0.875rem',
+                    fontFamily: 'monospace',
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: '0.65rem', color: 'rgb(107, 114, 128)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      Distance
+                    </div>
+                    <div style={{ color: 'white', fontWeight: 600, marginTop: '0.15rem' }}>
+                      {distanceKm.toFixed(0)} km
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '0.65rem', color: 'rgb(107, 114, 128)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      ETA
+                    </div>
+                    <div style={{ color: '#34d399', fontWeight: 600, marginTop: '0.15rem' }}>
+                      {etaMinutes !== null
+                        ? etaMinutes < 60
+                          ? `${Math.round(etaMinutes)} min`
+                          : `${Math.floor(etaMinutes / 60)}h ${Math.round(etaMinutes % 60)}min`
+                        : '—'}
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
