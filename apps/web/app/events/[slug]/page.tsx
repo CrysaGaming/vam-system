@@ -206,6 +206,19 @@ export default async function EventDetailPage({
                   <p className="font-medium">{formatDateTime(event.endsAt)}</p>
                 </>
               )}
+              {/* Track 4 #21: ICS-Calendar-Export. Nur für nicht-cancelled
+                  events anzeigen — die ICS-route returns 410 für CANCELLED
+                  events und wir wollen den dead-link gar nicht erst rendern. */}
+              {event.runtimeStatus !== 'CANCELLED' && (
+                <a
+                  href={`/api/events/${event.slug}/ics`}
+                  className="inline-flex items-center gap-1.5 mt-4 text-sm text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 hover:underline"
+                  download={`event-${event.slug}.ics`}
+                  title="Lädt eine .ics-Datei herunter, die du in Google/Apple/Outlook Calendar importieren kannst."
+                >
+                  📅 Zum Kalender hinzufügen
+                </a>
+              )}
             </div>
 
             <EventSignupButton
