@@ -34,6 +34,7 @@ export default async function AirlineHubsPage() {
     include: {
       airport: {
         select: {
+          id: true,
           icao: true,
           iata: true,
           name: true,
@@ -67,6 +68,114 @@ export default async function AirlineHubsPage() {
   const pilotCountByIcao = Object.fromEntries(
     pilotCounts.map((p) => [p.baseIcao!, p._count._all]),
   );
+
+  // Track 4 #39 (Section G): Pro hub die operative aktivität aggregieren —
+  // hilft admin zu sehen welche hubs wirklich genutzt werden und welche
+  // ggf. dead weight sind. 3 metriken:
+  //   1. Routes mit departure ODER arrival auf diesem hub
+  //   2. Aircraft mit homeIcao = hub
+  //   3. Last-30-day PIREPs mit dep/arr auf diesem hub
+  // Alle 3 in parallel, sequentiell wäre 3× round-trip.
+  //
+  // Note: PIREP nutzt FK-IDs (departureId/arrivalId auf Airport.id), Route
+  // und Aircraft nutzen ICAO-strings. Wir bauen daher zwei lookup-richtungen:
+  // hubIcaos für Route/Aircraft-queries, hubAirportIds + airportIdToIcao
+  // für PIREP-queries.
+  const hubIcaos = hubs.map((h) => h.airportIcao);
+  const hubAirportIds = hubs.map((h) => h.airport.id);
+  const airportIdToIcao = new Map(hubs.map((h) => [h.airport.id, h.airportIcao]));
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+  const [routesPerHub, aircraftPerHub, recentPirepsDeparture, recentPirepsArrival] =
+    hubIcaos.length === 0
+      ? [[], [], [], []]
+      : await Promise.all([
+          // Routes mit departure ODER arrival auf einem hub-airport. Route
+          // nutzt — wie PIREP — FK-IDs, also filter via departureId/arrivalId
+          // mit hubAirportIds. Selectiere beide IDs + active flag damit wir
+          // pro hub aggregieren können (loop-routes counten in beiden).
+          prisma.route.findMany({
+            where: {
+              airlineId: user.airlineId,
+              OR: [
+                { departureId: { in: hubAirportIds } },
+                { arrivalId: { in: hubAirportIds } },
+              ],
+            },
+            select: { departureId: true, arrivalId: true, active: true },
+          }),
+          // Aircraft.homeIcao ist String (kein FK), match per equality.
+          prisma.aircraft.groupBy({
+            by: ['homeIcao'],
+            where: {
+              airlineId: user.airlineId,
+              homeIcao: { in: hubIcaos },
+            },
+            _count: { _all: true },
+          }),
+          // Recent-30d PIREPs: Approved + dep oder arr auf hub. Wir teilen
+          // das in zwei queries (departure + arrival) damit ein PIREP der
+          // von hub A nach hub B fliegt einmal für A und einmal für B
+          // gezählt wird. Pirep nutzt FK-IDs, daher groupBy auf departureId/
+          // arrivalId mit airport-id-filter.
+          prisma.pirep.groupBy({
+            by: ['departureId'],
+            where: {
+              airlineId: user.airlineId,
+              status: 'Approved',
+              approvedAt: { gte: thirtyDaysAgo },
+              departureId: { in: hubAirportIds },
+            },
+            _count: { _all: true },
+          }),
+          prisma.pirep.groupBy({
+            by: ['arrivalId'],
+            where: {
+              airlineId: user.airlineId,
+              status: 'Approved',
+              approvedAt: { gte: thirtyDaysAgo },
+              arrivalId: { in: hubAirportIds },
+            },
+            _count: { _all: true },
+          }),
+        ]);
+
+  // Aggregate route-counts pro hub: total + active-only. Map airport-ID
+  // wieder zurück auf ICAO damit alle stats-maps konsistent gekeyed sind.
+  const routesByHub = new Map<string, { total: number; active: number }>();
+  for (const icao of hubIcaos) routesByHub.set(icao, { total: 0, active: 0 });
+  for (const r of routesPerHub) {
+    for (const id of [r.departureId, r.arrivalId]) {
+      const icao = airportIdToIcao.get(id);
+      if (!icao) continue;
+      const entry = routesByHub.get(icao)!;
+      entry.total += 1;
+      if (r.active) entry.active += 1;
+    }
+  }
+
+  const aircraftCountByIcao = Object.fromEntries(
+    aircraftPerHub
+      .filter((a) => a.homeIcao !== null)
+      .map((a) => [a.homeIcao!, a._count._all]),
+  );
+
+  // PIREP-counts: dep + arr summieren pro hub. Wir mappen airport-id zurück
+  // auf icao um die map mit dem rest der app zu unifyen.
+  const recentPirepsByHub = new Map<string, number>();
+  for (const icao of hubIcaos) recentPirepsByHub.set(icao, 0);
+  for (const row of recentPirepsDeparture) {
+    const icao = airportIdToIcao.get(row.departureId);
+    if (icao) {
+      recentPirepsByHub.set(icao, (recentPirepsByHub.get(icao) ?? 0) + row._count._all);
+    }
+  }
+  for (const row of recentPirepsArrival) {
+    const icao = airportIdToIcao.get(row.arrivalId);
+    if (icao) {
+      recentPirepsByHub.set(icao, (recentPirepsByHub.get(icao) ?? 0) + row._count._all);
+    }
+  }
 
   return (
     <main className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-white p-4 sm:p-6 lg:p-8">
@@ -126,6 +235,10 @@ export default async function AirlineHubsPage() {
             <div className="space-y-3">
               {hubs.map((hub) => {
                 const pilotCount = pilotCountByIcao[hub.airportIcao] ?? 0;
+                // Track 4 #39: per-hub stats für die activity-grid.
+                const routeStats = routesByHub.get(hub.airportIcao) ?? { total: 0, active: 0 };
+                const aircraftCount = aircraftCountByIcao[hub.airportIcao] ?? 0;
+                const recentPireps = recentPirepsByHub.get(hub.airportIcao) ?? 0;
                 return (
                   <div
                     key={hub.id}
@@ -166,8 +279,6 @@ export default async function AirlineHubsPage() {
                             : hub.airport.country}
                           {' · '}
                           Angelegt {hub.createdAt.toLocaleDateString('de-DE')}
-                          {pilotCount > 0 &&
-                            ` · ${pilotCount} Pilot${pilotCount === 1 ? '' : 'en'} basiert hier`}
                         </p>
                       </div>
 
@@ -176,6 +287,69 @@ export default async function AirlineHubsPage() {
                         airportIcao={hub.airportIcao}
                         isPrimary={hub.isPrimary}
                         isOnlyHub={isOnlyHub}
+                      />
+                    </div>
+
+                    {/* Track 4 #39 (Section G): Stats-grid pro hub. 4 metriken
+                        in einer reihe — Routes, Aircraft, Pilots, Recent-PIREPs.
+                        Bei null-werten zeigen wir trotzdem die "0" damit der
+                        admin sieht "ja, hub existiert aber wird nicht genutzt".
+                        Subtle separator-border oben, kompakte tabular-nums
+                        damit zahlen aligned sind. */}
+                    <div className="mt-4 pt-3 border-t border-gray-100 dark:border-gray-800/50 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                      <HubStat
+                        icon="🛣️"
+                        label="Routes"
+                        value={
+                          routeStats.total === 0
+                            ? '0'
+                            : routeStats.active === routeStats.total
+                              ? String(routeStats.total)
+                              : `${routeStats.active} / ${routeStats.total}`
+                        }
+                        sub={
+                          routeStats.total > 0 && routeStats.active !== routeStats.total
+                            ? 'aktiv / total'
+                            : routeStats.total === 1
+                              ? 'Route'
+                              : 'Routes'
+                        }
+                      />
+                      <HubStat
+                        icon="✈️"
+                        label="Aircraft"
+                        value={String(aircraftCount)}
+                        sub={
+                          aircraftCount === 0
+                            ? 'keine basiert hier'
+                            : aircraftCount === 1
+                              ? 'basiert hier'
+                              : 'basieren hier'
+                        }
+                      />
+                      <HubStat
+                        icon="👥"
+                        label="Piloten"
+                        value={String(pilotCount)}
+                        sub={
+                          pilotCount === 0
+                            ? 'kein Base'
+                            : pilotCount === 1
+                              ? 'Base hier'
+                              : 'Bases hier'
+                        }
+                      />
+                      <HubStat
+                        icon="📈"
+                        label="Aktivität"
+                        value={String(recentPireps)}
+                        sub={
+                          recentPireps === 0
+                            ? 'kein Verkehr (30d)'
+                            : recentPireps === 1
+                              ? 'PIREP (30d)'
+                              : 'PIREPs (30d)'
+                        }
                       />
                     </div>
                   </div>
@@ -201,5 +375,33 @@ export default async function AirlineHubsPage() {
         </aside>
       </div>
     </main>
+  );
+}
+
+/**
+ * Track 4 #39 (Section G): Compact stat-card für die hub-activity-grid.
+ * 4 davon nebeneinander pro hub. Icon + label oben, value prominent
+ * mittig, sub als context-hint unten.
+ */
+function HubStat({
+  icon,
+  label,
+  value,
+  sub,
+}: {
+  icon: string;
+  label: string;
+  value: string;
+  sub: string;
+}) {
+  return (
+    <div>
+      <p className="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-500 flex items-center gap-1">
+        <span aria-hidden="true">{icon}</span>
+        {label}
+      </p>
+      <p className="text-base font-semibold tabular-nums mt-0.5">{value}</p>
+      <p className="text-[11px] text-gray-500 dark:text-gray-500">{sub}</p>
+    </div>
   );
 }
