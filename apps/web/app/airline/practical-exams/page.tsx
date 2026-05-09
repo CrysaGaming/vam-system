@@ -8,6 +8,7 @@ import {
 } from '@vam/db';
 import { requireAirlineManagerWithAirlinePage } from '@/lib/roles';
 import { ReviewRow, type PirepInfo } from './review-row';
+import { ExamSearchInput } from './exam-search-input';
 
 /**
  * Instructor-side practical-exam review queue (Welle 13E-14c).
@@ -37,7 +38,11 @@ import { ReviewRow, type PirepInfo } from './review-row';
  * helper). Falls das mal explodiert: paging hinzufügen via cursor auf
  * updatedAt.
  */
-export default async function PracticalExamsReviewPage() {
+export default async function PracticalExamsReviewPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ license?: string; q?: string }>;
+}) {
   const user = await requireAirlineManagerWithAirlinePage();
   // Layer 3: airline.careerEnabled. Wenn die airline career nicht aktiviert
   // hat, ist diese page sinnlos. Redirect zu /airline wo der admin den
@@ -50,9 +55,63 @@ export default async function PracticalExamsReviewPage() {
   // TS narrowing — nach dem redirect ist user.airline garantiert non-null.
   const airline = user.airline;
 
-  const enrollments = await listEnrollmentsAwaitingPracticalReview({
+  // Track 4 #42 (Section G): URL-state für filter — license-type + name-query.
+  const params = await searchParams;
+  const licenseFilter = params.license?.trim().toUpperCase() || null;
+  const searchQuery = params.q?.trim().toLowerCase() || '';
+
+  const enrollmentsAll = await listEnrollmentsAwaitingPracticalReview({
     airlineId: airline.id,
   });
+
+  // Track 4 #42: Post-filter auf der queue. License-type über exact-match,
+  // name-query über case-insensitive contains. Beide gehen client-seitig
+  // (server-side rendering) damit der existing helper unverändert bleibt —
+  // queue ist eh klein (<20 typischerweise).
+  const enrollments = enrollmentsAll.filter((e) => {
+    if (licenseFilter && e.licenseType !== licenseFilter) return false;
+    if (searchQuery) {
+      const name = (e.user.name ?? '').toLowerCase();
+      const discord = (e.user.discordId ?? '').toLowerCase();
+      if (!name.includes(searchQuery) && !discord.includes(searchQuery)) {
+        return false;
+      }
+    }
+    return true;
+  });
+
+  // Track 4 #42: License-counts auf der UNGEFILTERTEN queue für die filter-
+  // tabs — sonst würden tab-counts beim filter-wechsel mitschrumpfen, was
+  // verwirrend ist (gleiches pattern wie /airline/pilots status-tabs).
+  const licenseCounts = new Map<string, number>();
+  for (const e of enrollmentsAll) {
+    licenseCounts.set(e.licenseType, (licenseCounts.get(e.licenseType) ?? 0) + 1);
+  }
+
+  // Track 4 #42: Outcome-stats — last-90-day enrollment-history der airline.
+  // Zeigt instructor wie viele PASSED/FAILED in dem fenster waren plus
+  // running-WITHDRAWN-count. Hilft kontext zu setzen ("3 in queue, aber
+  // die letzten 90 tage waren 12 PASSED — alles im normalen flow").
+  // Filter über user.airlineId (FlightSchool selbst hat keine airlineId-
+  // relation; gleiche pattern wie listEnrollmentsAwaitingPracticalReview).
+  const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+  const outcomeCountsRaw = await prisma.flightSchoolEnrollment.groupBy({
+    by: ['status'],
+    where: {
+      user: { airlineId: airline.id },
+      updatedAt: { gte: ninetyDaysAgo },
+      status: { in: ['PASSED', 'FAILED', 'WITHDRAWN'] },
+    },
+    _count: { _all: true },
+  });
+  const outcomeCounts: Record<string, number> = {
+    PASSED: 0,
+    FAILED: 0,
+    WITHDRAWN: 0,
+  };
+  for (const row of outcomeCountsRaw) {
+    outcomeCounts[row.status] = row._count?._all ?? 0;
+  }
 
   // PIREP-fetches parallel — Promise.all batched alle finds, sonst hätten
   // wir N+1. Für 10 reviews macht das den unterschied zwischen ~50ms und
@@ -108,16 +167,83 @@ export default async function PracticalExamsReviewPage() {
           Praktische Prüfungen — Review-Queue
         </h1>
         <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-          {airline.name} ({airline.icao}) · {enrollments.length}{' '}
-          {enrollments.length === 1 ? 'Anfrage' : 'Anfragen'} ausstehend
+          {airline.name} ({airline.icao}) ·{' '}
+          {enrollments.length === enrollmentsAll.length
+            ? `${enrollmentsAll.length} ${enrollmentsAll.length === 1 ? 'Anfrage' : 'Anfragen'}`
+            : `${enrollments.length} von ${enrollmentsAll.length} ${enrollmentsAll.length === 1 ? 'Anfrage' : 'Anfragen'}`}{' '}
+          ausstehend
         </p>
       </header>
+
+      {/* Track 4 #42 (Section G): Outcome-stats-strip — last-90-day kontext.
+          Drei kleine cards rechts neben einem live-counter, hilft instructor
+          die queue im verhältnis zur historie zu sehen. */}
+      <section className="mb-6 grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <ExamStatCard
+          label="Pending"
+          value={String(enrollmentsAll.length)}
+          tone="indigo"
+          sub="aktuell in Queue"
+        />
+        <ExamStatCard
+          label="Passed (90d)"
+          value={String(outcomeCounts.PASSED)}
+          tone="green"
+          sub="bestanden"
+        />
+        <ExamStatCard
+          label="Failed (90d)"
+          value={String(outcomeCounts.FAILED)}
+          tone="amber"
+          sub="durchgefallen"
+        />
+        <ExamStatCard
+          label="Withdrawn (90d)"
+          value={String(outcomeCounts.WITHDRAWN)}
+          tone="gray"
+          sub="zurückgezogen"
+        />
+      </section>
+
+      {/* Track 4 #42: Filter-row — license-type pills + name-search. Nur
+          rendern wenn enrollmentsAll.length > 0, sonst gibt's eh nichts
+          zu filtern. */}
+      {enrollmentsAll.length > 0 && (
+        <section className="mb-6 flex flex-wrap items-center gap-3">
+          <div
+            className="inline-flex flex-wrap gap-1"
+            role="tablist"
+            aria-label="License-Filter"
+          >
+            <LicenseFilterPill
+              label="Alle"
+              count={enrollmentsAll.length}
+              active={licenseFilter === null}
+              href={buildExamFilterHref({ ...params, license: undefined })}
+            />
+            {Array.from(licenseCounts.entries())
+              .sort((a, b) => b[1] - a[1])
+              .map(([license, count]) => (
+                <LicenseFilterPill
+                  key={license}
+                  label={license}
+                  count={count}
+                  active={licenseFilter === license}
+                  href={buildExamFilterHref({ ...params, license })}
+                />
+              ))}
+          </div>
+
+          <ExamSearchInput />
+        </section>
+      )}
 
       {enrollments.length === 0 ? (
         <section className="bg-white dark:bg-gray-900 border border-dashed border-gray-300 dark:border-gray-700 rounded-lg p-8 text-center">
           <p className="text-sm text-gray-500 dark:text-gray-400">
-            Keine ausstehenden Prüfungen. Wenn ein Pilot einen Prüfungsflug
-            zuweist, erscheint er hier zur Review.
+            {enrollmentsAll.length === 0
+              ? 'Keine ausstehenden Prüfungen. Wenn ein Pilot einen Prüfungsflug zuweist, erscheint er hier zur Review.'
+              : 'Keine Anfragen matchen die aktiven Filter. Filter zurücksetzen oder andere Kriterien wählen.'}
           </p>
         </section>
       ) : (
@@ -232,4 +358,85 @@ export default async function PracticalExamsReviewPage() {
       )}
     </main>
   );
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Track 4 #42 (Section G): Helper-components + URL-builder.
+// ─────────────────────────────────────────────────────────────────────────
+
+const STAT_TONES = {
+  indigo: 'bg-indigo-50 dark:bg-indigo-500/10 border-indigo-200 dark:border-indigo-500/30 text-indigo-700 dark:text-indigo-300',
+  green: 'bg-green-50 dark:bg-green-500/10 border-green-200 dark:border-green-500/30 text-green-700 dark:text-green-300',
+  amber: 'bg-amber-50 dark:bg-amber-500/10 border-amber-200 dark:border-amber-500/30 text-amber-700 dark:text-amber-300',
+  gray: 'bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300',
+} as const;
+
+function ExamStatCard({
+  label,
+  value,
+  sub,
+  tone,
+}: {
+  label: string;
+  value: string;
+  sub: string;
+  tone: keyof typeof STAT_TONES;
+}) {
+  return (
+    <div className={`border rounded-lg p-3 ${STAT_TONES[tone]}`}>
+      <p className="text-[10px] uppercase tracking-wider opacity-80">{label}</p>
+      <p className="text-2xl font-bold tabular-nums mt-0.5">{value}</p>
+      <p className="text-[11px] opacity-70 mt-0.5">{sub}</p>
+    </div>
+  );
+}
+
+function LicenseFilterPill({
+  label,
+  count,
+  active,
+  href,
+}: {
+  label: string;
+  count: number;
+  active: boolean;
+  href: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className={`px-2.5 py-1 rounded text-xs font-medium transition flex items-center gap-1.5 border ${
+        active
+          ? 'bg-indigo-600 text-white border-indigo-600'
+          : 'bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 border-gray-200 dark:border-gray-700'
+      }`}
+      aria-current={active ? 'page' : undefined}
+    >
+      <span className="font-mono">{label}</span>
+      <span
+        className={`tabular-nums ${
+          active ? 'opacity-80' : 'text-gray-400 dark:text-gray-600'
+        }`}
+      >
+        {count}
+      </span>
+    </Link>
+  );
+}
+
+/**
+ * Build href with merged search-params. Undefined/empty values werden
+ * entfernt (nicht mit '=' am ende serialisiert).
+ */
+function buildExamFilterHref(
+  params: Record<string, string | undefined>,
+): string {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== '') {
+      search.set(key, value);
+    }
+  }
+  const qs = search.toString();
+  return qs ? `/airline/practical-exams?${qs}` : '/airline/practical-exams';
 }
