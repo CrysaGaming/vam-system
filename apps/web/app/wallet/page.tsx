@@ -2,6 +2,7 @@ import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 import {
   prisma,
+  Decimal,
   formatVamCurrency,
   getUserWalletExtended,
   getUserTransactions,
@@ -134,9 +135,11 @@ export default async function WalletPage({ searchParams }: PageProps) {
     typeFilter ??
     (catFilter ? TRANSACTION_TYPES_BY_CATEGORY[catFilter] : undefined);
 
-  // Parallele queries: stats + tx-list. getUserWalletExtended hat schon
-  // die wallet-existenz-prüfung (returnt zeros wenn !hasWallet) und
-  // getUserTransactions auch (returnt rows=[] wenn !hasWallet).
+  // Parallele queries: stats + tx-list + 6-month-sparkline-data.
+  // getUserWalletExtended hat schon die wallet-existenz-prüfung
+  // (returnt zeros wenn !hasWallet) und getUserTransactions auch.
+  // Sparkline-daten werden über computeSparklineMonths() per parallel-
+  // aggregate gefetcht (option #29).
   const txOptions: GetUserTransactionsOptions = {
     skip,
     take: PAGE_SIZE,
@@ -144,9 +147,11 @@ export default async function WalletPage({ searchParams }: PageProps) {
     fromDate,
     toDate,
   };
-  const [stats, txList] = await Promise.all([
+  const sparklineMonthAnchors = computeSparklineMonths(6);
+  const [stats, txList, sparklineData] = await Promise.all([
     getUserWalletExtended(user.id),
     getUserTransactions(user.id, txOptions),
+    fetchMonthlyNetSeries(user.id, sparklineMonthAnchors),
   ]);
 
   const totalPages = Math.max(1, Math.ceil(txList.totalCount / PAGE_SIZE));
@@ -196,7 +201,7 @@ export default async function WalletPage({ searchParams }: PageProps) {
             die digits in einer column visuell aligned sind (sieht ohne
             tabular-nums merkwürdig aus weil proportional-fonts unterschiedlich-
             breite digits haben). */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
           <StatCard
             label="Balance"
             value={formatVamCurrency(stats.balance)}
@@ -224,6 +229,25 @@ export default async function WalletPage({ searchParams }: PageProps) {
             }
           />
         </div>
+
+        {/* 6-Monats Net-Trend-Sparkline (option #29). Zeigt monatliche
+            net-bewegungen als kleines bar-chart, positive=grün/oben,
+            negative=rot/unten. Hilft beim glance ob's gerade besser
+            oder schlechter wird. Versteckt für brand-new wallets weil
+            6 leere balken keinen mehrwert geben. */}
+        {stats.hasWallet && (
+          <div className="bg-white dark:bg-gray-900 rounded-lg p-4 border border-gray-200 dark:border-gray-800 mb-8">
+            <div className="flex items-baseline justify-between mb-3">
+              <p className="text-xs uppercase tracking-wider text-gray-500">
+                Net-Trend (6 Monate)
+              </p>
+              <p className="text-xs text-gray-400">
+                Hover für Details
+              </p>
+            </div>
+            <NetSparkline data={sparklineData} />
+          </div>
+        )}
 
         {/* Filter + pagination-row. form mit method=get und einer hidden
             "action"-route → submit baut neue URL mit ?type=X&page=1.
@@ -827,5 +851,196 @@ function PresetPill({
     >
       {label}
     </Link>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Net-Sparkline (option #29)
+// ─────────────────────────────────────────────────────────────────────────
+
+interface SparklineMonthAnchor {
+  /** UTC start des monats (gte). */
+  start: Date;
+  /** UTC start des nächsten monats (lt). */
+  end: Date;
+  /** Display-label, z.B. "Mai" für intl-unabhängige rendering. */
+  label: string;
+  /** Stable identity-key für react. */
+  key: string;
+}
+
+interface SparklineMonthData extends SparklineMonthAnchor {
+  /** Net-amount (revenue - expenses) für diesen monat. Positive=inflow. */
+  net: Decimal;
+}
+
+const MONTH_LABELS_DE = [
+  "Jan", "Feb", "Mär", "Apr", "Mai", "Jun",
+  "Jul", "Aug", "Sep", "Okt", "Nov", "Dez",
+];
+
+/**
+ * Compute month-anchors für die letzten N monate (option #29).
+ *
+ * Returnt N anchors in chronologischer reihenfolge (oldest first), jeder
+ * mit start/end timestamps in UTC und einem display-label. Heutiger
+ * monat ist last entry. anchors[i].end = anchors[i+1].start für i<N-1.
+ *
+ * Beispiel mit N=6 und today=2026-05-09: ["Dez", "Jan", "Feb", "Mär",
+ * "Apr", "Mai"] mit korrekten 2025/2026 grenzen.
+ */
+function computeSparklineMonths(n: number): SparklineMonthAnchor[] {
+  const now = new Date();
+  const todayY = now.getUTCFullYear();
+  const todayM = now.getUTCMonth();
+
+  const anchors: SparklineMonthAnchor[] = [];
+  // Iteriere von oldest (n-1 monate zurück) zu newest (heute).
+  for (let i = n - 1; i >= 0; i--) {
+    const monthOffset = -i;
+    // Date.UTC mit out-of-range monaten (z.B. -2) wird automatisch
+    // normalisiert auf prev-jahr — JS-quirk der hier praktisch ist.
+    const start = new Date(Date.UTC(todayY, todayM + monthOffset, 1));
+    const end = new Date(Date.UTC(todayY, todayM + monthOffset + 1, 1));
+    const label = MONTH_LABELS_DE[start.getUTCMonth()];
+    const key = `${start.getUTCFullYear()}-${String(start.getUTCMonth() + 1).padStart(2, "0")}`;
+    anchors.push({ start, end, label, key });
+  }
+  return anchors;
+}
+
+/**
+ * Hole net-amounts für 6 monate parallel via prisma.transaction.aggregate
+ * (option #29). Pro monat: sum(amount) über alle tx im monat-range.
+ *
+ * Gating: wenn der user kein wallet hat, returnen wir ein array mit
+ * 0-werten — die UI versteckt den sparkline für !hasWallet via stats-
+ * check, also wird das ergebnis dann eh nicht gerendert. Trotzdem early-
+ * return, damit kein query rausfeuert für leere wallets.
+ *
+ * Performance: 6 parallel-aggregates auf einem indexed (walletId, createdAt)
+ * sind <100ms total. Für 12+ monate würde ich auf raw SQL mit date_trunc
+ * umstellen, aber für 6 ist das fine.
+ */
+async function fetchMonthlyNetSeries(
+  userId: string,
+  anchors: SparklineMonthAnchor[],
+): Promise<SparklineMonthData[]> {
+  const wallet = await prisma.wallet.findFirst({
+    where: { ownerType: "USER", ownerUserId: userId, walletType: "primary" },
+    select: { id: true },
+  });
+  if (!wallet) {
+    return anchors.map((a) => ({ ...a, net: new Decimal(0) }));
+  }
+  const aggregates = await Promise.all(
+    anchors.map((a) =>
+      prisma.transaction.aggregate({
+        where: {
+          walletId: wallet.id,
+          createdAt: { gte: a.start, lt: a.end },
+        },
+        _sum: { amount: true },
+      }),
+    ),
+  );
+  return anchors.map((a, i) => ({
+    ...a,
+    net: aggregates[i]._sum.amount ?? new Decimal(0),
+  }));
+}
+
+/**
+ * SVG-Bar-Chart der net-trend-data (option #29).
+ *
+ * Zeichnet 6 vertikale balken um eine zentrale zero-line. Positive
+ * werte gehen nach oben (grün), negative nach unten (rot). Bar-höhe
+ * skaliert linear mit |net|/max(|net|). Wenn alle werte 0 sind, zeigen
+ * wir nur die zero-line — kein "no-data"-text, da der card-header
+ * "Net-Trend" schon klar macht was hier sein sollte.
+ *
+ * SVG-coordinate-system: viewBox=0 0 600 80. y=40 ist die zero-line.
+ * Bars haben max 30px höhe pro richtung, +5px padding zur kante. Each
+ * bar in einem 100px-slot mit 24px-breite, zentriert.
+ *
+ * Tooltip via <title> tag — native browser-tooltip on hover. Inhalt:
+ * "{Monat}: +{net}" oder "{Monat}: -{net}". Funktioniert ohne JS.
+ */
+function NetSparkline({ data }: { data: SparklineMonthData[] }) {
+  // Compute max absolute net für skalierung. Decimal.abs() returnt Decimal.
+  // Wir rechnen alle in number-space für SVG-koordinaten — Decimal-precision
+  // ist hier nicht nötig, geht nur um pixel-positionen.
+  const maxAbs = data.reduce((acc, d) => {
+    const v = Math.abs(d.net.toNumber());
+    return v > acc ? v : acc;
+  }, 0);
+  // Wenn alle werte 0 sind, kein sinnvoller skalierungs-faktor.
+  // Setze maxAbs=1 damit alle bars 0-höhe haben (kein render).
+  const safeMax = maxAbs > 0 ? maxAbs : 1;
+
+  const slotWidth = 600 / data.length; // 100px pro slot bei 6 monaten
+  const barWidth = 24;
+  const zeroY = 40;
+  const maxBarHeight = 30;
+
+  return (
+    <svg
+      viewBox="0 0 600 80"
+      className="w-full h-20"
+      preserveAspectRatio="none"
+      role="img"
+      aria-label="Net-Trend der letzten 6 Monate"
+    >
+      {/* Zero-line — gray-300 / gray-700 in dark. Dünn, nicht aufdringlich. */}
+      <line
+        x1="0"
+        x2="600"
+        y1={zeroY}
+        y2={zeroY}
+        stroke="currentColor"
+        strokeWidth="0.5"
+        className="text-gray-300 dark:text-gray-700"
+      />
+      {data.map((d, i) => {
+        const netNum = d.net.toNumber();
+        const barHeight = (Math.abs(netNum) / safeMax) * maxBarHeight;
+        const x = i * slotWidth + (slotWidth - barWidth) / 2;
+        // Positive: bar geht von zeroY nach oben (kleinere y-werte).
+        // Negative: bar geht von zeroY nach unten.
+        const y = netNum >= 0 ? zeroY - barHeight : zeroY;
+        const colorClass =
+          netNum > 0
+            ? "fill-green-500 dark:fill-green-400"
+            : netNum < 0
+              ? "fill-red-500 dark:fill-red-400"
+              : "fill-gray-300 dark:fill-gray-700";
+        const sign = netNum > 0 ? "+" : "";
+        const tooltip = `${d.label}: ${sign}${formatVamCurrency(d.net)}`;
+        return (
+          <g key={d.key}>
+            <rect
+              x={x}
+              y={y}
+              width={barWidth}
+              height={barHeight}
+              className={colorClass}
+              rx="2"
+            >
+              <title>{tooltip}</title>
+            </rect>
+            {/* Month-label below the zero-line, klein und mittig im slot. */}
+            <text
+              x={i * slotWidth + slotWidth / 2}
+              y="76"
+              textAnchor="middle"
+              className="fill-gray-500 text-[10px]"
+              style={{ fontSize: "10px" }}
+            >
+              {d.label}
+            </text>
+          </g>
+        );
+      })}
+    </svg>
   );
 }
