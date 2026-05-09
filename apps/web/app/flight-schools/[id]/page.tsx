@@ -295,6 +295,17 @@ export default async function FlightSchoolDetailPage({ params }: Props) {
             </div>
           </div>
 
+          {/* Progress-stepper (option #24) — bird's-eye-view über die 4 stages.
+              Pilot sieht auf einen Blick wo er steht und was als nächstes
+              kommt. Klickbare connectoren würden den layout-flow stören
+              (target ist scope-locked auf "polish") — der detailed flow
+              steht ohnehin direkt darunter in den exam-cards. */}
+          <EnrollmentStepper
+            theoryPassedAt={e.theoryExamPassedAt}
+            practicalPassedAt={e.practicalExamPassedAt}
+            isPassed={false}
+          />
+
           {/* Hours-progress */}
           <div className="grid grid-cols-3 gap-3 mb-4 text-sm">
             <ProgressTile label="Theorie" hours={e.hoursTheory} />
@@ -302,11 +313,49 @@ export default async function FlightSchoolDetailPage({ params }: Props) {
             <ProgressTile label="Sim" hours={e.hoursSim} />
           </div>
 
-          <div className="text-xs text-gray-600 dark:text-gray-400 mb-4">
-            Bisher gezahlt:{' '}
-            <span className="font-mono font-semibold">
-              {Number(e.totalCostPaid).toFixed(2)} VAM$
+          <div className="text-xs text-gray-600 dark:text-gray-400 mb-4 flex flex-wrap items-baseline justify-between gap-3">
+            <span>
+              Bisher gezahlt:{' '}
+              <span className="font-mono font-semibold">
+                {Number(e.totalCostPaid).toFixed(2)} VAM$
+              </span>
             </span>
+            {/* Pace-projection (option #24): avg hours/week + total cost/week
+                seit Anmeldung. Kein hard "Restkosten"-projection — wir wissen
+                nicht wieviele h ein PPL noch braucht (kein min-hour-feld pro
+                license-typ im schema). Stattdessen zeigen wir Tempo, damit
+                pilot selbst einschätzen kann ob er auf seinem Wunsch-zeitplan
+                ist. Für enrollments < 7 Tage alt skippen wir die zahl
+                (nicht stabil genug für "pro Woche"). */}
+            {(() => {
+              const enrolledMs = Date.now() - e.enrolledAt.getTime();
+              const enrolledDays = enrolledMs / 86_400_000;
+              if (enrolledDays < 7) return null;
+              const enrolledWeeks = enrolledDays / 7;
+              const totalHours =
+                e.hoursTheory + e.hoursPractical + e.hoursSim;
+              const hoursPerWeek = totalHours / enrolledWeeks;
+              const costPerWeek =
+                Number(e.totalCostPaid) / enrolledWeeks;
+              const enrolledWeeksRounded = Math.floor(enrolledWeeks);
+              return (
+                <span className="text-gray-500 dark:text-gray-500">
+                  Tempo:{' '}
+                  <span className="font-mono">
+                    {hoursPerWeek.toFixed(1)} h/Woche
+                  </span>
+                  {' · '}
+                  <span className="font-mono">
+                    {costPerWeek.toFixed(0)} VAM$/Woche
+                  </span>
+                  {' · '}
+                  {enrolledWeeksRounded === 1
+                    ? '1 Woche'
+                    : `${enrolledWeeksRounded} Wochen`}{' '}
+                  seit Anmeldung
+                </span>
+              );
+            })()}
           </div>
 
           <h3 className="text-sm font-semibold mb-2">Trainings-Stunden buchen</h3>
@@ -488,6 +537,136 @@ function PastEnrollmentRow({
           </p>
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Enrollment progress stepper (option #24).
+ *
+ * Renders the four enrollment-stages as a horizontal stepper:
+ *   1. Anmeldung — always done if a running enrollment exists (we wouldn't
+ *      render the stepper otherwise)
+ *   2. Theorie    — done when theoryPassedAt is set
+ *   3. Praktisch  — locked until theory passed; done when practicalPassedAt set
+ *   4. Lizenz     — done when isPassed (status === PASSED)
+ *
+ * Each step is one of: "done" (filled green-circle, ✓), "active" (filled
+ * indigo-circle, no number — that's the user's current focus), or "locked"
+ * (outlined gray-circle, dimmed text). Connector-bars between steps reflect
+ * the *previous* step's done-state, so completed segments visually
+ * connect.
+ *
+ * "Active" only applies to the first non-done step — once you fail theory
+ * you're still in theory's active state, not practical's. This avoids the
+ * UI suggesting the user can skip ahead.
+ *
+ * The component is purely visual — no clicks. Users navigate via the
+ * exam-cards directly below it. Adding click-targets here would create
+ * two ways to do the same thing without a clear reason.
+ */
+function EnrollmentStepper({
+  theoryPassedAt,
+  practicalPassedAt,
+  isPassed,
+}: {
+  theoryPassedAt: Date | null;
+  practicalPassedAt: Date | null;
+  isPassed: boolean;
+}) {
+  // Stage-resolution: each stage is "done", "active", or "locked".
+  // "Active" is the FIRST non-done stage — only one stage can be active.
+  const enrolledDone = true;
+  const theoryDone = theoryPassedAt !== null;
+  const practicalDone = practicalPassedAt !== null;
+  const licenseDone = isPassed;
+
+  const stages: Array<{
+    label: string;
+    state: 'done' | 'active' | 'locked';
+  }> = [
+    { label: 'Anmeldung', state: 'done' },
+    {
+      label: 'Theorie',
+      state: theoryDone ? 'done' : 'active',
+    },
+    {
+      label: 'Praktisch',
+      state: practicalDone
+        ? 'done'
+        : theoryDone
+          ? 'active'
+          : 'locked',
+    },
+    {
+      label: 'Lizenz',
+      state: licenseDone
+        ? 'done'
+        : practicalDone
+          ? 'active'
+          : 'locked',
+    },
+  ];
+
+  // Suppress unused-warning for enrolledDone — we keep the explicit
+  // declaration above for symmetry with the other 3 stages so future
+  // edits don't accidentally break the pattern.
+  void enrolledDone;
+
+  return (
+    <div className="mb-4">
+      <ol className="flex items-center gap-0">
+        {stages.map((stage, idx) => {
+          const isLast = idx === stages.length - 1;
+          const nextDone =
+            !isLast && stages[idx + 1].state !== 'locked';
+          const stepClasses =
+            stage.state === 'done'
+              ? 'bg-green-500 border-green-500 text-white dark:bg-green-500/80 dark:border-green-500/80'
+              : stage.state === 'active'
+                ? 'bg-indigo-500 border-indigo-500 text-white dark:bg-indigo-500/80 dark:border-indigo-500/80'
+                : 'bg-white border-gray-300 text-gray-400 dark:bg-gray-900 dark:border-gray-700 dark:text-gray-600';
+          const labelClasses =
+            stage.state === 'locked'
+              ? 'text-gray-400 dark:text-gray-600'
+              : 'text-gray-700 dark:text-gray-300 font-semibold';
+          // Connector between this step and the next. Solid-green when
+          // the *current* step is done (we've passed through it), dotted-
+          // gray otherwise. Last step has no connector.
+          const connectorClasses =
+            stage.state === 'done' && nextDone
+              ? 'bg-green-500/60 dark:bg-green-500/40'
+              : stage.state === 'done'
+                ? 'bg-indigo-300 dark:bg-indigo-700'
+                : 'bg-gray-200 dark:bg-gray-800';
+          return (
+            <li
+              key={stage.label}
+              className="flex items-center flex-1 last:flex-initial"
+            >
+              <div className="flex flex-col items-center min-w-0">
+                <span
+                  className={`flex items-center justify-center w-6 h-6 rounded-full border-2 text-[10px] font-bold ${stepClasses}`}
+                  aria-current={stage.state === 'active' ? 'step' : undefined}
+                >
+                  {stage.state === 'done' ? '✓' : idx + 1}
+                </span>
+                <span
+                  className={`text-[10px] uppercase tracking-wider mt-1 ${labelClasses}`}
+                >
+                  {stage.label}
+                </span>
+              </div>
+              {!isLast && (
+                <span
+                  className={`flex-1 h-0.5 mx-2 mb-4 ${connectorClasses}`}
+                  aria-hidden="true"
+                />
+              )}
+            </li>
+          );
+        })}
+      </ol>
     </div>
   );
 }
