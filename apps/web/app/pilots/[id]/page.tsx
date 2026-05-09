@@ -137,6 +137,51 @@ export default async function PilotProfile({
     (Date.now() - new Date(pilot.createdAt).getTime()) / (1000 * 60 * 60 * 24)
   );
 
+  // Track 4 #43 (Section H): Stream-revenue-aggregation für die Twitch-card.
+  // Nur laden wenn pilot Twitch verbunden hat — sonst überflüssige queries.
+  // Wallet-tx mit type IN ('REVENUE_TICKET_TWITCH', 'REVENUE_STREAM_REWARD')
+  // sind die einzigen "stream-bezogenen" einnahmen. Lifetime + 30d separat
+  // damit instructor-side ein "kürzlich aktiv vs total karriere"-bild
+  // entsteht. Wallet hat ownerType=USER + ownerUserId=pilot.id + walletType=
+  // primary; pilot kann theoretisch noch keine wallet haben (legacy users
+  // vor wallet-rollout) — dann sind beide werte 0.
+  let twitchRevenueLifetime = 0;
+  let twitchRevenueRecent30 = 0;
+  if (pilot.twitchUserId) {
+    const wallet = await prisma.wallet.findFirst({
+      where: {
+        ownerType: 'USER',
+        ownerUserId: pilot.id,
+        walletType: 'primary',
+      },
+      select: { id: true },
+    });
+    if (wallet) {
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      const [allTime, recent] = await Promise.all([
+        prisma.transaction.aggregate({
+          where: {
+            walletId: wallet.id,
+            type: { in: ['REVENUE_TICKET_TWITCH', 'REVENUE_STREAM_REWARD'] },
+          },
+          _sum: { amount: true },
+        }),
+        prisma.transaction.aggregate({
+          where: {
+            walletId: wallet.id,
+            type: { in: ['REVENUE_TICKET_TWITCH', 'REVENUE_STREAM_REWARD'] },
+            createdAt: { gte: thirtyDaysAgo },
+          },
+          _sum: { amount: true },
+        }),
+      ]);
+      // Decimal → number for display. Beträge sind klein (max ~5-stellig)
+      // also kein precision-loss-risiko.
+      twitchRevenueLifetime = allTime._sum.amount?.toNumber() ?? 0;
+      twitchRevenueRecent30 = recent._sum.amount?.toNumber() ?? 0;
+    }
+  }
+
   return (
     <main className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-white p-8">
       <div className="max-w-4xl mx-auto">
@@ -329,7 +374,126 @@ export default async function PilotProfile({
                   </svg>
                   Watch on Twitch
                 </a>
+
+                {/* Track 4 #43 (Section H): Stream-revenue inline in der live-
+                    card — wenn der pilot grade live ist, ist es sehr passend
+                    zu sehen wieviel er bisher durch streaming verdient hat.
+                    Lifetime + 30d-trend in einem zwei-zeiler. Nur rendern
+                    wenn überhaupt revenue da ist (sonst irrelevante 0-zeile). */}
+                {twitchRevenueLifetime > 0 && (
+                  <p className="mt-3 text-xs text-gray-600 dark:text-gray-400">
+                    💰 Stream-Revenue:{' '}
+                    <span className="font-mono font-semibold text-gray-800 dark:text-gray-200">
+                      VAM${twitchRevenueLifetime.toLocaleString('de-DE', { maximumFractionDigits: 0 })}
+                    </span>
+                    {twitchRevenueRecent30 > 0 && (
+                      <span className="text-gray-500 dark:text-gray-500">
+                        {' '}
+                        · 30d:{' '}
+                        <span className="font-mono">
+                          VAM${twitchRevenueRecent30.toLocaleString('de-DE', { maximumFractionDigits: 0 })}
+                        </span>
+                      </span>
+                    )}
+                  </p>
+                )}
               </div>
+            </div>
+          </section>
+        )}
+
+        {/* Track 4 #43 (Section H): Offline Twitch-card. Sichtbar wenn pilot
+            Twitch verbunden hat (twitchUserId gesetzt) aber NICHT grade live.
+            Kompakter als die live-card — kein thumbnail/title/game weil's
+            keine current-stream-info gibt, sondern nur "wer er ist auf
+            Twitch" + "wann zuletzt live" + revenue-stats wenn vorhanden.
+            Position: gleich nach der live-card-condition (mutually exclusive
+            wegen !twitchIsLive). */}
+        {pilot.twitchUserId && pilot.twitchUsername && !pilot.twitchIsLive && (
+          <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-4 mb-8">
+            <div className="flex items-center gap-4 flex-wrap">
+              <div className="flex items-center gap-3 flex-1 min-w-0">
+                <div className="shrink-0 w-10 h-10 rounded-full bg-purple-500 flex items-center justify-center">
+                  <span className="text-lg" aria-hidden="true">📺</span>
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold flex items-center gap-2 flex-wrap">
+                    <span className="text-purple-700 dark:text-purple-400">
+                      Twitch
+                    </span>
+                    <span className="font-mono text-gray-700 dark:text-gray-300">
+                      @{pilot.twitchUsername}
+                    </span>
+                    {pilot.twitchVerifiedAt && (
+                      <span
+                        className="text-[10px] uppercase tracking-wide text-emerald-600 dark:text-emerald-400 font-semibold"
+                        title="Twitch-Account verifiziert"
+                      >
+                        ✓ verifiziert
+                      </span>
+                    )}
+                  </p>
+                  <p className="text-xs text-gray-500 dark:text-gray-500 mt-0.5">
+                    {pilot.twitchLastWentLiveAt ? (
+                      <>
+                        Zuletzt live:{' '}
+                        {(() => {
+                          const days = Math.floor(
+                            (Date.now() -
+                              new Date(pilot.twitchLastWentLiveAt).getTime()) /
+                              (1000 * 60 * 60 * 24),
+                          );
+                          if (days === 0) return 'heute';
+                          if (days === 1) return 'gestern';
+                          if (days < 7) return `vor ${days} Tagen`;
+                          if (days < 30) {
+                            const weeks = Math.floor(days / 7);
+                            return `vor ${weeks} Woche${weeks === 1 ? '' : 'n'}`;
+                          }
+                          if (days < 365) {
+                            const months = Math.floor(days / 30);
+                            return `vor ${months} Monat${months === 1 ? '' : 'en'}`;
+                          }
+                          return new Date(
+                            pilot.twitchLastWentLiveAt,
+                          ).toLocaleDateString('de-DE');
+                        })()}
+                      </>
+                    ) : (
+                      'Noch nicht live gewesen'
+                    )}
+                    {twitchRevenueLifetime > 0 && (
+                      <>
+                        {' · '}💰 VAM$
+                        {twitchRevenueLifetime.toLocaleString('de-DE', {
+                          maximumFractionDigits: 0,
+                        })}
+                        {twitchRevenueRecent30 > 0 && (
+                          <span className="text-gray-400">
+                            {' '}(30d: {twitchRevenueRecent30.toLocaleString('de-DE', { maximumFractionDigits: 0 })})
+                          </span>
+                        )}
+                      </>
+                    )}
+                  </p>
+                </div>
+              </div>
+              <a
+                href={`https://twitch.tv/${pilot.twitchUsername}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="shrink-0 inline-flex items-center gap-2 px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded text-xs font-medium transition"
+              >
+                <svg
+                  className="w-3.5 h-3.5"
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <path d="M11.571 4.714h1.715v5.143H11.57zm4.715 0H18v5.143h-1.714zM6 0L1.714 4.286v15.428h5.143V24l4.286-4.286h3.428L22.286 12V0zm14.571 11.143l-3.428 3.428h-3.429l-3 3v-3H6.857V1.714h13.714Z" />
+                </svg>
+                Profil ansehen
+              </a>
             </div>
           </section>
         )}
