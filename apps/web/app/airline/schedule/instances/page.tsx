@@ -122,6 +122,11 @@ export default async function ScheduleInstancesPage({
     else grouped.set(key, [f]);
   }
 
+  // Track 4 #41 (Section G): Today-marker für visual-highlight in der
+  // day-jump-bar und im day-header. UTC weil flights in UTC stored sind —
+  // der user sieht "today" konsistent mit dem rest der schedule-page.
+  const todayKey = ymdUtc(new Date());
+
   return (
     <main className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-white p-4 sm:p-6 lg:p-8">
       <div className="max-w-[100rem] mx-auto">
@@ -209,22 +214,89 @@ export default async function ScheduleInstancesPage({
           </div>
         </section>
 
+        {/* Track 4 #41 (Section G): Day-jump-navigator — sticky horizontal bar
+            mit anchor-links zu jedem day-section. Bei 14-30 tagen ist scrollen
+            sonst tedious. Today wird visuell hervorgehoben damit man schnell
+            "wo bin ich heute?" sieht. Overflow-x-auto damit es bei 30 tagen
+            nicht layout-bricht. */}
+        {grouped.size > 1 && (
+          <nav
+            aria-label="Tag-Navigation"
+            className="mb-6 -mx-1 px-1 sticky top-0 z-10 bg-gray-50 dark:bg-gray-950 py-2 backdrop-blur supports-[backdrop-filter]:bg-gray-50/80 dark:supports-[backdrop-filter]:bg-gray-950/80"
+          >
+            <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-thin">
+              <span className="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-500 shrink-0 mr-1">
+                Springe zu:
+              </span>
+              {Array.from(grouped.entries()).map(([dateKey, dayFlights]) => {
+                const isToday = dateKey === todayKey;
+                return (
+                  <a
+                    key={dateKey}
+                    href={`#day-${dateKey}`}
+                    className={`shrink-0 px-2 py-1 rounded text-[11px] font-medium tabular-nums transition border ${
+                      isToday
+                        ? 'bg-indigo-100 dark:bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 border-indigo-500/40'
+                        : 'bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 border-gray-200 dark:border-gray-800'
+                    }`}
+                  >
+                    <span className="font-mono">{dateKey.slice(5)}</span>
+                    <span className="ml-1 opacity-60">
+                      {WEEKDAY_DE[
+                        isoWeekdayUtc(new Date(dateKey + 'T00:00:00Z'))
+                      ].slice(0, 2)}
+                    </span>
+                    <span
+                      className={`ml-1.5 ${isToday ? 'opacity-90' : 'opacity-50'}`}
+                    >
+                      {dayFlights.length}
+                    </span>
+                    {isToday && (
+                      <span className="ml-1 text-[9px] uppercase tracking-wide">
+                        heute
+                      </span>
+                    )}
+                  </a>
+                );
+              })}
+            </div>
+          </nav>
+        )}
+
         {/* Empty-state oder grouped list */}
         {flights.length === 0 ? (
           <EmptyState statusFilter={statusFilter} />
         ) : (
           <div className="space-y-6">
-            {Array.from(grouped.entries()).map(([dateKey, dayFlights]) => (
+            {Array.from(grouped.entries()).map(([dateKey, dayFlights]) => {
+              const isToday = dateKey === todayKey;
+              return (
               <section
                 key={dateKey}
-                className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-800 overflow-hidden"
+                id={`day-${dateKey}`}
+                className={`bg-white dark:bg-gray-900 rounded-lg border overflow-hidden scroll-mt-20 ${
+                  isToday
+                    ? 'border-indigo-500/40 dark:border-indigo-500/30 shadow-sm shadow-indigo-500/10'
+                    : 'border-gray-200 dark:border-gray-800'
+                }`}
               >
-                <header className="px-4 py-2.5 bg-gray-100 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-800 flex items-baseline justify-between">
+                <header
+                  className={`px-4 py-2.5 border-b flex items-baseline justify-between ${
+                    isToday
+                      ? 'bg-indigo-50 dark:bg-indigo-500/10 border-indigo-500/20 dark:border-indigo-500/20'
+                      : 'bg-gray-100 dark:bg-gray-800/50 border-gray-200 dark:border-gray-800'
+                  }`}
+                >
                   <h2 className="text-sm font-semibold tabular-nums">
                     {dateKey}{' '}
                     <span className="text-xs font-normal text-gray-500 dark:text-gray-400 ml-1">
                       {WEEKDAY_DE[isoWeekdayUtc(new Date(dateKey + 'T00:00:00Z'))]}
                     </span>
+                    {isToday && (
+                      <span className="ml-2 inline-block px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide rounded bg-indigo-500/20 text-indigo-700 dark:text-indigo-300">
+                        Heute
+                      </span>
+                    )}
                   </h2>
                   <span className="text-xs text-gray-500 dark:text-gray-400 tabular-nums">
                     {dayFlights.length}{' '}
@@ -300,7 +372,8 @@ export default async function ScheduleInstancesPage({
                   </table>
                 </div>
               </section>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
