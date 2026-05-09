@@ -56,6 +56,11 @@ export type PersonnelEntry = {
 export type PersonnelFilters = {
   status?: EmploymentStatus | 'ALL';
   rankId?: string | null; // null = "kein rank zugewiesen", undefined = alle
+  /**
+   * Track 4 #38 (Section G): Free-text search auf name + email (case-
+   * insensitive contains). Leer-string oder undefined = kein filter.
+   */
+  query?: string;
 };
 
 /**
@@ -89,6 +94,10 @@ export async function listPersonnel(
     airlineId: string;
     employmentStatus?: EmploymentStatus;
     rankId?: string | null;
+    OR?: Array<{
+      name?: { contains: string; mode: 'insensitive' };
+      email?: { contains: string; mode: 'insensitive' };
+    }>;
   } = { airlineId };
 
   if (filters.status && filters.status !== 'ALL') {
@@ -101,6 +110,18 @@ export async function listPersonnel(
     userWhere.rankId = null;
   } else if (filters.rankId) {
     userWhere.rankId = filters.rankId;
+  }
+
+  // Track 4 #38: Free-text search via OR auf name + email. Trim damit
+  // führende/trailing spaces nicht zur leer-suche werden. Min-length 1
+  // damit ein einzelner buchstabe noch matched (autocomplete-ish behavior).
+  // Postgres-side ILIKE via Prisma's `mode: 'insensitive'`.
+  const trimmedQuery = filters.query?.trim();
+  if (trimmedQuery) {
+    userWhere.OR = [
+      { name: { contains: trimmedQuery, mode: 'insensitive' } },
+      { email: { contains: trimmedQuery, mode: 'insensitive' } },
+    ];
   }
 
   const users = await prisma.user.findMany({

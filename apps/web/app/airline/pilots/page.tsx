@@ -10,6 +10,7 @@ import { listAvailableRanks } from '../actions';
 import { EmploymentStatusToggle } from './employment-status-toggle';
 import { RankDropdown } from './rank-dropdown';
 import { RankFilterSelect } from './rank-filter-select';
+import { PersonnelSearchInput } from './personnel-search-input';
 
 /**
  * /airline/pilots — Personnel-Management-Page (Welle 6 commit 6B-4).
@@ -43,7 +44,7 @@ import { RankFilterSelect } from './rank-filter-select';
 export default async function AirlinePilotsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; rank?: string }>;
+  searchParams: Promise<{ status?: string; rank?: string; q?: string }>;
 }) {
   const user = await requireAirlineManagerWithAirlinePage();
   const params = await searchParams;
@@ -65,9 +66,13 @@ export default async function AirlinePilotsPage({
     rankFilter = undefined;
   }
 
+  // Track 4 #38: search-query aus URL — server-side gefiltert via Prisma OR.
+  const searchQuery = params.q?.trim() || undefined;
+
   const filters: PersonnelFilters = {
     status: statusFilter === 'ALL' ? undefined : statusFilter,
     rankId: rankFilter,
+    query: searchQuery,
   };
 
   const [personnel, availableRanks] = await Promise.all([
@@ -169,6 +174,12 @@ export default async function AirlinePilotsPage({
             currentStatus={params.status}
             availableRanks={availableRanks}
           />
+
+          {/* Track 4 #38 (Section G): Free-text search auf name/email,
+              client-component da's URL-state via useRouter manipuliert.
+              Debounced auf 300ms damit nicht jeder keystroke einen
+              server-fetch triggert. */}
+          <PersonnelSearchInput />
         </section>
 
         {/* Pilot-list */}
