@@ -165,13 +165,43 @@ export function PracticalExamCard({
         </p>
       )}
 
-      {/* PASSED state (defensive) */}
+      {/* PASSED state — result-card mit details (option #26).
+          Zeigt grünen result-block mit Pass-date, dem PIREP der die
+          Prüfung war (wenn noch verfügbar in selectedPirep), und einem
+          klaren success-message. Ersetzt das vorherige Plain-Text-paragraph. */}
       {!theoryGate && isPassed && (
-        <p className="text-sm text-gray-600 dark:text-gray-400">
-          Du hast die praktische Prüfung am{' '}
-          {practicalExamPassedAt!.toLocaleDateString('de-DE')} bestanden.
-          Deine {licenseType}-Lizenz wurde ausgestellt.
-        </p>
+        <div className="space-y-3">
+          <div className="px-4 py-3 rounded-lg border bg-green-50 dark:bg-green-500/10 border-green-200 dark:border-green-500/30">
+            <div className="flex items-baseline justify-between gap-3 flex-wrap mb-2">
+              <p className="text-sm font-semibold text-green-900 dark:text-green-100">
+                ✓ Praktische Prüfung bestanden
+              </p>
+              <p className="text-xs text-green-700 dark:text-green-300 font-mono">
+                {practicalExamPassedAt!.toLocaleDateString('de-DE')}
+              </p>
+            </div>
+            <p className="text-xs text-green-800 dark:text-green-200">
+              Deine{' '}
+              <span className="font-mono font-semibold">{licenseType}</span>
+              -Lizenz wurde ausgestellt — sichtbar in{' '}
+              <Link
+                href="/licenses"
+                className="underline decoration-dotted underline-offset-2 hover:decoration-solid"
+              >
+                Lizenzen
+              </Link>
+              .
+            </p>
+            {selectedPirep && (
+              <div className="mt-3 pt-3 border-t border-green-200 dark:border-green-500/30">
+                <p className="text-[10px] uppercase tracking-wider text-green-700 dark:text-green-400 mb-1.5">
+                  Prüfungsflug
+                </p>
+                <PirepRow pirep={selectedPirep} variant="success" />
+              </div>
+            )}
+          </div>
+        </div>
       )}
 
       {/* AWAITING_REVIEW state */}
@@ -182,7 +212,33 @@ export function PracticalExamCard({
             wird ihn bewerten — du wirst benachrichtigt, sobald die
             Prüfung verifiziert ist.
           </p>
-          <PirepRow pirep={selectedPirep} />
+          <PirepRow pirep={selectedPirep} variant="awaiting" />
+          {/* Wait-since-indicator (option #26). Wenn der PIREP approved-
+              date hat, zeigen wir wie lange er bereits zur Review wartet
+              — das ist nicht 100% akkurat (assignment-zeitpunkt ≠
+              approved-zeitpunkt), aber approvedAt ist die beste proxy
+              die wir ohne extra-feld haben. submittedAt als fallback
+              wenn approvedAt fehlt. */}
+          {(() => {
+            const ref = selectedPirep.approvedAt ?? selectedPirep.submittedAt;
+            const days = Math.floor(
+              (Date.now() - ref.getTime()) / 86_400_000,
+            );
+            if (days < 1) {
+              return (
+                <p className="text-[11px] text-gray-500 dark:text-gray-500 italic">
+                  Wartet seit heute auf Review · in der Regel innerhalb 24 h
+                </p>
+              );
+            }
+            return (
+              <p className="text-[11px] text-gray-500 dark:text-gray-500 italic">
+                Wartet seit{' '}
+                {days === 1 ? 'einem Tag' : `${days} Tagen`} auf Review
+                {days >= 5 && ' — sprich deinen Instructor an, falls überfällig.'}
+              </p>
+            );
+          })()}
           <button
             type="button"
             onClick={handleUnassign}
@@ -216,25 +272,58 @@ export function PracticalExamCard({
           ) : (
             <>
               <div>
-                <label className="block text-xs uppercase tracking-wider text-gray-500 mb-1">
-                  Prüfungsflug
-                </label>
-                <select
-                  value={selectedId}
-                  onChange={(e) => setSelectedId(e.target.value)}
-                  disabled={pending}
-                  className="w-full px-3 py-2 bg-white dark:bg-gray-950 border border-gray-300 dark:border-gray-700 rounded text-sm focus:outline-none focus:border-indigo-500 disabled:opacity-60 font-mono"
-                >
-                  {candidates.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.departureIcao} → {c.arrivalIcao} ·{' '}
-                      {c.flightTimeMin}min ·{' '}
-                      {c.aircraftType ?? 'unknown'} ·{' '}
-                      {c.submittedAt.toLocaleDateString('de-DE')}
-                    </option>
-                  ))}
-                </select>
-                <p className="text-xs text-gray-500 mt-1">
+                <p className="text-xs uppercase tracking-wider text-gray-500 mb-2">
+                  Prüfungsflug auswählen
+                </p>
+                {/* Card-grid picker (option #26) — ersetzt das vorherige
+                    <select>-dropdown. Pro PIREP eine clickbare card mit
+                    route, hours, aircraft, date sichtbar auf einen blick.
+                    Selected card hat indigo-ring + bg, rest neutral.
+                    Mobile: 1-spalte, sm+: 2-spalten. */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {candidates.map((c) => {
+                    const isSelected = c.id === selectedId;
+                    return (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => setSelectedId(c.id)}
+                        disabled={pending}
+                        className={`text-left p-3 rounded border transition disabled:opacity-60 ${
+                          isSelected
+                            ? 'bg-indigo-50 dark:bg-indigo-500/10 border-indigo-400 dark:border-indigo-500 ring-2 ring-indigo-400/40'
+                            : 'bg-white dark:bg-gray-950 border-gray-200 dark:border-gray-800 hover:border-indigo-300 dark:hover:border-indigo-700'
+                        }`}
+                        aria-pressed={isSelected}
+                      >
+                        <div className="flex items-baseline justify-between gap-2 mb-1">
+                          <span className="font-mono text-sm font-semibold">
+                            {c.departureIcao} → {c.arrivalIcao}
+                          </span>
+                          <span className="text-[10px] text-gray-500 dark:text-gray-500 font-mono">
+                            {c.submittedAt.toLocaleDateString('de-DE')}
+                          </span>
+                        </div>
+                        <div className="flex items-baseline gap-3 text-xs text-gray-600 dark:text-gray-400">
+                          <span className="font-mono">
+                            {c.flightTimeMin} min
+                          </span>
+                          <span className="font-mono">
+                            {c.aircraftType ?? 'unknown'}
+                          </span>
+                          {/* Validation-tick: alle candidates erfüllen den
+                              min-flight-time bereits (server-side filtered),
+                              aber wir machen das visuell sichtbar damit
+                              klar wird "der wäre eligible". */}
+                          <span className="text-green-600 dark:text-green-400 ml-auto">
+                            ✓ ≥ {minFlightTimeMin} min
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-xs text-gray-500 mt-2">
                   Zeigt deine letzten {candidates.length} approved PIREPs ab{' '}
                   {minFlightTimeMin} min.
                 </p>
@@ -266,10 +355,26 @@ export function PracticalExamCard({
 /**
  * Kompakte zeile für einen ausgewählten PIREP — zeigt route, dauer,
  * aircraft, datum + link zum vollen PIREP.
+ *
+ * Variants (option #26):
+ *   - "awaiting" (default): amber border/bg, für PIREPs die auf Review warten
+ *   - "success": green border/bg, für den Pass-result-card
  */
-function PirepRow({ pirep }: { pirep: PirepCandidatePublic }) {
+function PirepRow({
+  pirep,
+  variant = 'awaiting',
+}: {
+  pirep: PirepCandidatePublic;
+  variant?: 'awaiting' | 'success';
+}) {
+  const variantClasses =
+    variant === 'success'
+      ? 'bg-white dark:bg-gray-900/60 border-green-300 dark:border-green-500/40'
+      : 'bg-amber-50/50 dark:bg-amber-500/5 border-amber-200 dark:border-amber-500/30';
   return (
-    <div className="px-3 py-2 rounded border bg-amber-50/50 dark:bg-amber-500/5 border-amber-200 dark:border-amber-500/30 text-sm">
+    <div
+      className={`px-3 py-2 rounded border text-sm ${variantClasses}`}
+    >
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="font-mono">
           <span className="font-semibold">{pirep.departureIcao}</span>
