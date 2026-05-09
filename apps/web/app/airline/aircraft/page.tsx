@@ -54,6 +54,17 @@ const STATUS_ORDER: AircraftStatus[] = [
   'RETIRED',
 ];
 
+// Track 4 #40 (Section G): Category-labels für die catalog-spec-row.
+// Spiegelt fleet/page.tsx — wenn die mapping irgendwann erweitert wird,
+// am besten in @vam/catalogs zentralisieren.
+const CATEGORY_LABELS: Record<string, string> = {
+  narrow_body: 'Narrow-Body',
+  wide_body: 'Wide-Body',
+  regional: 'Regional',
+  cargo: 'Cargo',
+  ga: 'General Aviation',
+};
+
 function isAircraftStatus(v: string | undefined): v is AircraftStatus {
   return v === 'ACTIVE' || v === 'MAINTENANCE' || v === 'STORED' || v === 'RETIRED';
 }
@@ -84,6 +95,14 @@ export default async function AirlineAircraftPage({
             icaoType: true,
             name: true,
             manufacturer: true,
+            // Track 4 #40 (Section G): Catalog-specs für inline-display in
+            // der card. Bei free-text-aircraft (kein catalog-link) bleibt
+            // alles hidden.
+            category: true,
+            rangeNm: true,
+            capacityPax: true,
+            cruiseSpeedKt: true,
+            verified: true,
           },
         },
         // _count für canDelete-check im action-buttons-component:
@@ -325,12 +344,75 @@ export default async function AirlineAircraftPage({
                         <span className="inline-flex items-center px-2 py-0.5 text-xs rounded bg-gray-200 dark:bg-gray-800 text-gray-700 dark:text-gray-300 font-mono">
                           {ac.aircraftType?.icaoType ?? ac.type}
                         </span>
+                        {/* Track 4 #40: catalog-link badges. Verified-tag
+                            ist trust-signal vom catalog-team, free-text
+                            warnt admin dass specs fehlen + zeigt verlink-
+                            opportunity. Category-chip gibt schnellen
+                            visuellen overview welcher fleet-typ. */}
+                        {ac.aircraftType?.verified && (
+                          <span
+                            className="text-[10px] uppercase tracking-wide text-emerald-600 dark:text-emerald-400 font-semibold"
+                            title="Catalog-Eintrag ist verifiziert"
+                          >
+                            ✓ Verified
+                          </span>
+                        )}
+                        {!ac.aircraftType && (
+                          <span
+                            className="text-[10px] uppercase tracking-wide text-amber-700 dark:text-amber-400 font-semibold"
+                            title="Nicht mit Catalog verknüpft — Specs fehlen"
+                          >
+                            Free-Text
+                          </span>
+                        )}
+                        {ac.aircraftType?.category && (
+                          <span className="text-[11px] text-gray-500 dark:text-gray-400 px-2 py-0.5 bg-gray-100 dark:bg-gray-800/50 rounded">
+                            {CATEGORY_LABELS[ac.aircraftType.category] ??
+                              ac.aircraftType.category}
+                          </span>
+                        )}
                       </div>
                       <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
                         {ac.aircraftType
                           ? `${ac.aircraftType.manufacturer} ${ac.aircraftType.name}`
                           : ac.type}
                       </p>
+                      {/* Track 4 #40 (Section G): Catalog-specs-row. Nur
+                          render wenn aircraft mit catalog verlinkt ist.
+                          Range/Sitze/Cruise sind die drei kennzahlen die
+                          beim flight-planning relevant sind — kompakt
+                          inline statt in expandable details. */}
+                      {ac.aircraftType && (
+                        <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-600 dark:text-gray-400">
+                          <span title="Maximum range">
+                            <span aria-hidden="true" className="mr-1">
+                              📏
+                            </span>
+                            <span className="font-mono">
+                              {ac.aircraftType.rangeNm.toLocaleString('de-DE')}
+                            </span>{' '}
+                            nm
+                          </span>
+                          <span title="Sitze in 2-class konfiguration">
+                            <span aria-hidden="true" className="mr-1">
+                              💺
+                            </span>
+                            <span className="font-mono">
+                              {ac.aircraftType.capacityPax}
+                            </span>{' '}
+                            Sitze
+                          </span>
+                          <span title="Cruise speed in knoten">
+                            <span aria-hidden="true" className="mr-1">
+                              💨
+                            </span>
+                            <span className="font-mono">
+                              {ac.aircraftType.cruiseSpeedKt}
+                            </span>{' '}
+                            kt
+                          </span>
+                        </div>
+                      )}
                       <div className="text-xs text-gray-500 dark:text-gray-500 mt-2 space-y-0.5">
                         <p>
                           {ac.homeIcao ? (
