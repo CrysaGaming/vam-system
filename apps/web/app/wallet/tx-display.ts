@@ -99,3 +99,35 @@ export const TRANSACTION_TYPES_GROUPED: TransactionType[] = [
   "ADJUSTMENT_ADMIN",
   "ECONOMY_RESET",
 ];
+
+/**
+ * Reverse-mapping: category → liste der zugehörigen TransactionTypes.
+ * Wird zur Laufzeit aus TRANSACTION_TYPE_DISPLAY abgeleitet damit
+ * neue Types automatisch in der richtigen Kategorie landen — kein
+ * separates Pflege-Pflicht-Manifest. Lookup-table-konstanz garantiert
+ * weil das objekt einmal beim modul-load berechnet wird.
+ *
+ * Verwendet von der /wallet-page-Category-Quick-Chips (option #28):
+ * wenn user "Revenue" anklickt, wird hier der TransactionType[]-array
+ * geholt und an getUserTransactions als `type: types[]` durchgereicht
+ * (Prisma `IN`-clause). Der bestehende dropdown-Type-Filter (single
+ * type) hat precedence wenn beide gesetzt sind.
+ */
+export const TRANSACTION_TYPES_BY_CATEGORY: Record<
+  TransactionCategory,
+  TransactionType[]
+> = (() => {
+  const map: Record<TransactionCategory, TransactionType[]> = {
+    revenue: [],
+    expense: [],
+    transfer: [],
+    system: [],
+  };
+  // Object.entries verliert die TransactionType-narrowness, deshalb cast
+  // beim push. Der Record<TransactionType, ...>-typing oben garantiert
+  // dass alle keys valid sind.
+  for (const [type, info] of Object.entries(TRANSACTION_TYPE_DISPLAY)) {
+    map[info.category].push(type as TransactionType);
+  }
+  return map;
+})();

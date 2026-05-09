@@ -13,6 +13,8 @@ import {
   TRANSACTION_TYPE_DISPLAY,
   CATEGORY_BADGE_CLASSES,
   TRANSACTION_TYPES_GROUPED,
+  TRANSACTION_TYPES_BY_CATEGORY,
+  type TransactionCategory,
 } from "./tx-display";
 
 const PAGE_SIZE = 25;
@@ -35,6 +37,13 @@ interface PageProps {
      * enthält. Lt gegen createdAt (siehe getUserTransactions semantik).
      */
     to?: string;
+    /**
+     * Category-filter (option #28). Einer von "revenue" | "expense" |
+     * "transfer" | "system". Wird via TRANSACTION_TYPES_BY_CATEGORY zu
+     * einer type-array expandiert und als Prisma `IN`-clause gefilterted.
+     * Wenn `type` gleichzeitig gesetzt ist, gewinnt `type` (spezifischer).
+     */
+    cat?: string;
   }>;
 }
 
@@ -95,6 +104,16 @@ export default async function WalletPage({ searchParams }: PageProps) {
       ? (rawType as TransactionType)
       : undefined;
 
+  // Category-filter (option #28). Validiert gegen die TransactionCategory-
+  // union. Gilt nur wenn KEIN type-filter gesetzt ist (type wins by spec —
+  // type ist spezifischer als category, also muss der spezifischere filter
+  // gewinnen wenn beide an die DB gehen).
+  const rawCat = params.cat;
+  const catFilter: TransactionCategory | undefined =
+    rawCat && rawCat in TRANSACTION_TYPES_BY_CATEGORY
+      ? (rawCat as TransactionCategory)
+      : undefined;
+
   // Date-range-filter (option #27). YYYY-MM-DD im URL, geparst als UTC-
   // midnight. `to` wird auf next-day-midnight verschoben damit der user
   // mit `to=2026-05-09` auch die Transaktionen vom 2026-05-09 selbst
@@ -107,13 +126,21 @@ export default async function WalletPage({ searchParams }: PageProps) {
     ? new Date(toParam.getTime() + 86_400_000)
     : undefined;
 
+  // Effective-type-filter für die DB-query: typeFilter (single, exact)
+  // hat precedence — wenn gesetzt, ignorier die category. Sonst: cat zu
+  // type-array expandieren via TRANSACTION_TYPES_BY_CATEGORY und an
+  // getUserTransactions als IN-clause durchreichen (option #28).
+  const effectiveType: TransactionType | TransactionType[] | undefined =
+    typeFilter ??
+    (catFilter ? TRANSACTION_TYPES_BY_CATEGORY[catFilter] : undefined);
+
   // Parallele queries: stats + tx-list. getUserWalletExtended hat schon
   // die wallet-existenz-prüfung (returnt zeros wenn !hasWallet) und
   // getUserTransactions auch (returnt rows=[] wenn !hasWallet).
   const txOptions: GetUserTransactionsOptions = {
     skip,
     take: PAGE_SIZE,
-    type: typeFilter,
+    type: effectiveType,
     fromDate,
     toDate,
   };
@@ -127,15 +154,26 @@ export default async function WalletPage({ searchParams }: PageProps) {
   const hasPrevPage = pageNum > 1;
   const hasAnyFilter =
     typeFilter !== undefined ||
+    catFilter !== undefined ||
     fromParam !== null ||
     toParam !== null;
 
   // Active-filter-state für das filter-bag (URL-builder + reset-button).
   const filters: WalletFilters = {
     type: typeFilter,
+    cat: catFilter,
     from: fromParam ? params.from! : undefined,
     to: toParam ? params.to! : undefined,
   };
+
+  // Active-Category für die Chip-Highlight-state (option #28). Wenn
+  // ein spezifischer typeFilter aktiv ist, leitet sich category aus
+  // TRANSACTION_TYPE_DISPLAY[type].category ab (visualer hint, dass
+  // ein category-chip implizit aktiv ist via type). Sonst direkt aus
+  // catFilter. Sonst "all".
+  const activeCategory: TransactionCategory | "all" = typeFilter
+    ? TRANSACTION_TYPE_DISPLAY[typeFilter].category
+    : (catFilter ?? "all");
 
   // Preset-URLs für die Quick-Range-pills (option #27). Computed once
   // in UTC weil die DB ebenfalls in UTC arbeitet — see the toplevel
@@ -202,6 +240,67 @@ export default async function WalletPage({ searchParams }: PageProps) {
             und date-from/to-inputs. So sehen pilots häufige zeiträume
             mit einem klick und können trotzdem custom-werte eintragen. */}
         <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-800 p-4 mb-4 space-y-4">
+          {/* Category-Chips (option #28). Höchste filter-ebene: revenue/
+              expense/transfer/system + "Alle". Klick auf chip setzt cat=X
+              im URL und löscht den spezifischen type-filter (chip vs
+              dropdown sind mutual-exclusive: type ist spezifischer und
+              würde sonst die category implicit überschreiben). "Alle"
+              löscht beide. activeCategory ist via typeFilter→category
+              herleitbar wenn der user eine spezifische type ausgewählt
+              hat — der chip leuchtet dann auch (visualer hint). */}
+          <div>
+            <p className="text-xs uppercase tracking-wider text-gray-500 mb-2">
+              Kategorie
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <PresetPill
+                label="Alle"
+                href={buildFilterUrl({
+                  ...filters,
+                  type: undefined,
+                  cat: undefined,
+                })}
+                active={activeCategory === "all"}
+              />
+              <PresetPill
+                label="Revenue"
+                href={buildFilterUrl({
+                  ...filters,
+                  type: undefined,
+                  cat: "revenue",
+                })}
+                active={activeCategory === "revenue"}
+              />
+              <PresetPill
+                label="Expenses"
+                href={buildFilterUrl({
+                  ...filters,
+                  type: undefined,
+                  cat: "expense",
+                })}
+                active={activeCategory === "expense"}
+              />
+              <PresetPill
+                label="Transfers"
+                href={buildFilterUrl({
+                  ...filters,
+                  type: undefined,
+                  cat: "transfer",
+                })}
+                active={activeCategory === "transfer"}
+              />
+              <PresetPill
+                label="System"
+                href={buildFilterUrl({
+                  ...filters,
+                  type: undefined,
+                  cat: "system",
+                })}
+                active={activeCategory === "system"}
+              />
+            </div>
+          </div>
+
           {/* Preset-pills (option #27). Aktive preset bekommt indigo-bg,
               inaktive haben gray-bg. "Alles" ist ein reset-link der die
               date-params raus nimmt aber type behält (kein wallet-reset). */}
@@ -553,6 +652,7 @@ function PaginationLink({ href, disabled, label }: PaginationLinkProps) {
  */
 interface WalletFilters {
   type?: TransactionType;
+  cat?: TransactionCategory;
   from?: string;
   to?: string;
 }
@@ -695,6 +795,7 @@ function buildFilterUrl(filters: WalletFilters, page = 1): string {
   const sp = new URLSearchParams();
   if (page > 1) sp.set("page", String(page));
   if (filters.type) sp.set("type", filters.type);
+  if (filters.cat) sp.set("cat", filters.cat);
   if (filters.from) sp.set("from", filters.from);
   if (filters.to) sp.set("to", filters.to);
   const qs = sp.toString();
