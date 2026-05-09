@@ -87,6 +87,9 @@ interface SubfleetGroup {
   totalFlightHours: number;
   totalPireps: number;
   lastFlight: Date | null;
+  /** Track 4 #37: Last-30-day flight hours für utilization-tracking. */
+  recent30Hours: number;
+  recent30Pireps: number;
   /** Liste aller aircraft (registration + status) für drilldown. */
   airframes: Array<{
     id: string;
@@ -121,6 +124,13 @@ export default async function AirlineFleetPage() {
   });
 
   const aircraftIds = aircraft.map((a) => a.id);
+  // Track 4 #37 (Section G): "30 days ago" als window-floor für utilization.
+  // Berechnung in JS statt SQL (`NOW() - INTERVAL`) damit der wert in beiden
+  // queries identisch ist + serializable. 30d ist klassisches fleet-mgmt-
+  // window — kürzer (7d) ist zu noisy bei kleinen airlines, länger (90d)
+  // versteckt aktive saisonalität.
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
   const pirepStats =
     aircraftIds.length > 0
       ? await prisma.pirep.groupBy({
@@ -135,6 +145,24 @@ export default async function AirlineFleetPage() {
         })
       : [];
 
+  // Track 4 #37: Separate aggregation für last-30d window. Zwei queries statt
+  // einer single-query-mit-conditional-sum weil Prisma's groupBy keine
+  // CASE-WHEN-aggregation kennt. Beide queries sind günstig (gleicher
+  // composite-index auf (aircraftId, status, approvedAt)).
+  const recentPirepStats =
+    aircraftIds.length > 0
+      ? await prisma.pirep.groupBy({
+          by: ['aircraftId'],
+          where: {
+            aircraftId: { in: aircraftIds },
+            status: 'Approved',
+            approvedAt: { gte: thirtyDaysAgo },
+          },
+          _count: { _all: true },
+          _sum: { flightTimeMin: true },
+        })
+      : [];
+
   // Lookup-map aircraftId → stats.
   const statsByAircraftId: Record<
     string,
@@ -146,6 +174,21 @@ export default async function AirlineFleetPage() {
         pireps: s._count._all,
         flightMin: s._sum.flightTimeMin ?? 0,
         lastFlight: s._max.approvedAt,
+      };
+    }
+  }
+
+  // Track 4 #37: Lookup-map für recent-30d-stats. Nicht alle aircraft haben
+  // einträge in der recent-aggregation — solche bekommen 0/0 als default.
+  const recentStatsByAircraftId: Record<
+    string,
+    { pireps: number; flightMin: number }
+  > = {};
+  for (const s of recentPirepStats) {
+    if (s.aircraftId) {
+      recentStatsByAircraftId[s.aircraftId] = {
+        pireps: s._count._all,
+        flightMin: s._sum.flightTimeMin ?? 0,
       };
     }
   }
@@ -183,6 +226,8 @@ export default async function AirlineFleetPage() {
         totalFlightHours: 0,
         totalPireps: 0,
         lastFlight: null,
+        recent30Hours: 0,
+        recent30Pireps: 0,
         airframes: [],
       };
       groupsMap.set(key, group);
@@ -208,6 +253,13 @@ export default async function AirlineFleetPage() {
         group.lastFlight = stats.lastFlight;
       }
     }
+
+    // Track 4 #37: recent-30d-stats getrennt aggregieren.
+    const recentStats = recentStatsByAircraftId[a.id];
+    if (recentStats) {
+      group.recent30Hours += recentStats.flightMin / 60;
+      group.recent30Pireps += recentStats.pireps;
+    }
   }
 
   // Sort: total-count desc, then icaoType asc.
@@ -221,6 +273,11 @@ export default async function AirlineFleetPage() {
   const totalActive = groups.reduce((acc, g) => acc + g.counts.ACTIVE, 0);
   const totalHours = groups.reduce((acc, g) => acc + g.totalFlightHours, 0);
   const totalPireps = groups.reduce((acc, g) => acc + g.totalPireps, 0);
+  // Track 4 #37: top-line "letzte 30d" für context — gibt einen quick-glance
+  // auf wie aktiv die fleet aktuell ist (vs. lifetime-zahlen die statisch
+  // wirken sobald die fleet seit jahren existiert).
+  const totalRecent30Hours = groups.reduce((acc, g) => acc + g.recent30Hours, 0);
+  const totalRecent30Pireps = groups.reduce((acc, g) => acc + g.recent30Pireps, 0);
 
   return (
     <main className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-white p-4 sm:p-6 lg:p-8">
@@ -257,7 +314,7 @@ export default async function AirlineFleetPage() {
 
         {/* Top-line stats */}
         {totalAircraft > 0 && (
-          <section className="mb-8 grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <section className="mb-8 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
             <StatCard label="Subfleets" value={String(groups.length)} />
             <StatCard
               label="Aircraft (aktiv)"
@@ -268,6 +325,13 @@ export default async function AirlineFleetPage() {
               value={`${totalHours.toFixed(0)} h`}
             />
             <StatCard label="PIREPs total" value={String(totalPireps)} />
+            {/* Track 4 #37: Recent-30d activity-card. Sub-tag ('30 Tage')
+                deckt die zeitspanne kommunikativ ab — sonst ist nicht klar
+                ob "Letzte 30d" Stunden oder Tage meint. */}
+            <StatCard
+              label="Aktivität (30d)"
+              value={`${totalRecent30Hours.toFixed(0)} h · ${totalRecent30Pireps} PIREPs`}
+            />
           </section>
         )}
 
@@ -323,7 +387,40 @@ export default async function AirlineFleetPage() {
 // ─────────────────────────────────────────────────────────────────────────
 
 function SubfleetCard({ group }: { group: SubfleetGroup }) {
-  const { catalog, counts, icaoType, total, totalFlightHours, totalPireps, lastFlight, airframes } = group;
+  const { catalog, counts, icaoType, total, totalFlightHours, totalPireps, lastFlight, recent30Hours, recent30Pireps, airframes } = group;
+
+  // Track 4 #37: Utilization-klassifikation pro subfleet. Schwellen pro
+  // active-airframe damit subfleets unterschiedlicher größe vergleichbar
+  // sind. RETIRED airframes zählen nicht zur basis (sind schon raus). Bei
+  // null active-airframes (z.B. nur stored/maintenance) defaulten wir auf
+  // Idle — ein gestopptes flugzeug fliegt halt nicht.
+  const activeBase = counts.ACTIVE > 0 ? counts.ACTIVE : 1;
+  const hoursPerActiveAirframe = recent30Hours / activeBase;
+  let utilization: 'hot' | 'active' | 'quiet' | 'idle';
+  if (recent30Hours === 0) {
+    utilization = 'idle';
+  } else if (hoursPerActiveAirframe >= 50) {
+    utilization = 'hot';
+  } else if (hoursPerActiveAirframe >= 10) {
+    utilization = 'active';
+  } else {
+    utilization = 'quiet';
+  }
+  const utilizationStyle = {
+    hot: 'bg-red-500/15 text-red-700 dark:text-red-300 border-red-500/30',
+    active: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30',
+    quiet: 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30',
+    idle: 'bg-gray-500/15 text-gray-600 dark:text-gray-400 border-gray-500/30',
+  }[utilization];
+  const utilizationLabel = {
+    hot: '🔥 Hot',
+    active: '🟢 Active',
+    quiet: '😴 Quiet',
+    idle: '⏸️ Idle',
+  }[utilization];
+  const utilizationTooltip =
+    `${recent30Hours.toFixed(1)} h in 30 Tagen über ${counts.ACTIVE} aktive Airframe${counts.ACTIVE === 1 ? '' : 's'}` +
+    ` (${hoursPerActiveAirframe.toFixed(1)} h/airframe)`;
 
   return (
     <article className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg overflow-hidden">
@@ -393,6 +490,15 @@ function SubfleetCard({ group }: { group: SubfleetGroup }) {
               </span>
             ),
           )}
+          {/* Track 4 #37: Utilization-badge — visueller pulse-check ob die
+              subfleet aktiv genutzt wird. Steht direkt neben den status-pills
+              weil's konzeptionell zusammen gehört (was steht da, was fliegt). */}
+          <span
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded border ${utilizationStyle}`}
+            title={utilizationTooltip}
+          >
+            {utilizationLabel}
+          </span>
         </div>
       </div>
 
@@ -417,7 +523,7 @@ function SubfleetCard({ group }: { group: SubfleetGroup }) {
       )}
 
       {/* Stats row */}
-      <div className="px-4 sm:px-5 py-3 grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
+      <div className="px-4 sm:px-5 py-3 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
         <Spec
           label="Flugstunden"
           value={`${totalFlightHours.toFixed(1)} h`}
@@ -427,6 +533,17 @@ function SubfleetCard({ group }: { group: SubfleetGroup }) {
           label="Letzter Flug"
           value={
             lastFlight ? lastFlight.toLocaleDateString('de-DE') : '—'
+          }
+        />
+        {/* Track 4 #37: 30d-stunden direkt im stats-row, neben den lifetime-
+            zahlen. Helper-text wenn 0 statt leerem dash, damit user nicht
+            denkt es ist ein bug. */}
+        <Spec
+          label="Letzte 30 Tage"
+          value={
+            recent30Hours > 0
+              ? `${recent30Hours.toFixed(1)} h · ${recent30Pireps} PIREPs`
+              : 'kein Flug'
           }
         />
       </div>
