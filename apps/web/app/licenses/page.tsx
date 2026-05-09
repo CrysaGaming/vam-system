@@ -95,7 +95,19 @@ export default async function LicensesPage() {
   // Partition by status. getUserLicenses returnt sortiert by status asc
   // (ACTIVE zuerst), dann issuedAt desc — wir partitionieren trotzdem
   // explicit weil wir verschiedene UI-treatments für active vs. inactive.
-  const active = allLicenses.filter((l) => l.status === "ACTIVE");
+  // Active wird zusätzlich nach expiry-soonest-first re-sortiert (option #22):
+  // currency-relevant infos zuerst, lifetime-licenses (expiresAt=null) ans Ende.
+  // Issued-at-desc innerhalb derselben expiry-bucket — fallback wenn beide null.
+  const active = allLicenses
+    .filter((l) => l.status === "ACTIVE")
+    .sort((a, b) => {
+      if (a.expiresAt === null && b.expiresAt === null) {
+        return b.issuedAt.getTime() - a.issuedAt.getTime();
+      }
+      if (a.expiresAt === null) return 1;
+      if (b.expiresAt === null) return -1;
+      return a.expiresAt.getTime() - b.expiresAt.getTime();
+    });
   const inactive = allLicenses.filter((l) => l.status !== "ACTIVE");
 
   // Type-rating recency check (option #26). Same 90-day cutoff the row-
@@ -204,14 +216,28 @@ export default async function LicensesPage() {
 
           {expiringLicenseCount > 0 && (
             <div>
-              <p className="text-xs uppercase tracking-wider opacity-70 mb-1">
-                Lizenzen laufen bald ab (≤ 30 Tage)
-              </p>
+              <div className="flex items-baseline justify-between gap-3 mb-1">
+                <p className="text-xs uppercase tracking-wider opacity-70">
+                  Lizenzen laufen bald ab (≤ 30 Tage)
+                </p>
+                <Link
+                  href="/flight-schools"
+                  className="text-xs font-medium underline decoration-dotted underline-offset-2 hover:decoration-solid shrink-0"
+                >
+                  Flugschule finden →
+                </Link>
+              </div>
               <ul className="space-y-0.5">
                 {expiringSoon.map((lic) => (
                   <li key={lic.id}>
                     {licenseDisplayName(lic.type)} — gültig bis{" "}
                     {lic.expiresAt ? formatDate(lic.expiresAt) : "—"}
+                    {lic.expiresAt && (
+                      <span className="opacity-60">
+                        {" "}
+                        ({formatRelativeDays(lic.expiresAt)})
+                      </span>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -220,15 +246,29 @@ export default async function LicensesPage() {
 
           {expiringTypeRatings.length > 0 && (
             <div>
-              <p className="text-xs uppercase tracking-wider opacity-70 mb-1">
-                Type-Ratings laufen bald ab (≤ 60 Tage)
-              </p>
+              <div className="flex items-baseline justify-between gap-3 mb-1">
+                <p className="text-xs uppercase tracking-wider opacity-70">
+                  Type-Ratings laufen bald ab (≤ 60 Tage)
+                </p>
+                <Link
+                  href="/flight-schools"
+                  className="text-xs font-medium underline decoration-dotted underline-offset-2 hover:decoration-solid shrink-0"
+                >
+                  Recurrent planen →
+                </Link>
+              </div>
               <ul className="space-y-0.5">
                 {expiringTypeRatings.map((tr) => (
                   <li key={tr.id}>
                     <span className="font-mono">{tr.aircraftType}</span> —
                     gültig bis{" "}
                     {tr.expiresAt ? formatDate(tr.expiresAt) : "—"}
+                    {tr.expiresAt && (
+                      <span className="opacity-60">
+                        {" "}
+                        ({formatRelativeDays(tr.expiresAt)})
+                      </span>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -237,15 +277,29 @@ export default async function LicensesPage() {
 
           {expiredTypeRatings.length > 0 && (
             <div>
-              <p className="text-xs uppercase tracking-wider opacity-70 mb-1">
-                Type-Ratings bereits abgelaufen — recurrent-check fällig
-              </p>
+              <div className="flex items-baseline justify-between gap-3 mb-1">
+                <p className="text-xs uppercase tracking-wider opacity-70">
+                  Type-Ratings bereits abgelaufen — recurrent-check fällig
+                </p>
+                <Link
+                  href="/flight-schools"
+                  className="text-xs font-medium underline decoration-dotted underline-offset-2 hover:decoration-solid shrink-0"
+                >
+                  Recurrent buchen →
+                </Link>
+              </div>
               <ul className="space-y-0.5">
                 {expiredTypeRatings.map((tr) => (
                   <li key={tr.id}>
                     <span className="font-mono">{tr.aircraftType}</span> —
                     abgelaufen am{" "}
                     {tr.expiresAt ? formatDate(tr.expiresAt) : "—"}
+                    {tr.expiresAt && (
+                      <span className="opacity-60">
+                        {" "}
+                        ({formatRelativeDays(tr.expiresAt)})
+                      </span>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -254,15 +308,29 @@ export default async function LicensesPage() {
 
           {recencyLapsedTypeRatings.length > 0 && (
             <div>
-              <p className="text-xs uppercase tracking-wider opacity-70 mb-1">
-                Recency lapsed (≥ 90 Tage nicht geflogen)
-              </p>
+              <div className="flex items-baseline justify-between gap-3 mb-1">
+                <p className="text-xs uppercase tracking-wider opacity-70">
+                  Recency lapsed (≥ 90 Tage nicht geflogen)
+                </p>
+                <Link
+                  href="/jumpseat"
+                  className="text-xs font-medium underline decoration-dotted underline-offset-2 hover:decoration-solid shrink-0"
+                >
+                  Flug planen →
+                </Link>
+              </div>
               <ul className="space-y-0.5">
                 {recencyLapsedTypeRatings.map((tr) => (
                   <li key={tr.id}>
                     <span className="font-mono">{tr.aircraftType}</span> —
                     zuletzt geflogen{" "}
                     {tr.lastFlownAt ? formatDate(tr.lastFlownAt) : "—"}
+                    {tr.lastFlownAt && (
+                      <span className="opacity-60">
+                        {" "}
+                        ({formatRelativeDays(tr.lastFlownAt)})
+                      </span>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -459,7 +527,15 @@ function LicenseRow({ license, dimmed = false }: { license: LicenseRow; dimmed?:
         <div className="text-xs text-gray-500 dark:text-gray-400 text-right shrink-0">
           <p>Ausgestellt: {formatDate(license.issuedAt)}</p>
           {license.expiresAt ? (
-            <p className="mt-0.5">Gültig bis: {formatDate(license.expiresAt)}</p>
+            <p className="mt-0.5">
+              Gültig bis: {formatDate(license.expiresAt)}
+              {!dimmed && (
+                <span className="opacity-70">
+                  {" "}
+                  ({formatRelativeDays(license.expiresAt)})
+                </span>
+              )}
+            </p>
           ) : (
             <p className="mt-0.5 italic">Ohne Ablaufdatum</p>
           )}
@@ -583,6 +659,57 @@ function formatDate(d: Date): string {
     month: "2-digit",
     year: "numeric",
   }).format(d);
+}
+
+/**
+ * Day-difference helper für inline-currency-hints (option #22).
+ *
+ * Returns the rounded absolute number of days between `d` and now. Used
+ * by `formatRelativeDays` to build "in X Tagen" / "seit X Tagen"-style
+ * hints next to formatDate-output. We round-half-up because at the day-
+ * boundary (e.g. expiry happens at 23:59 today) the user mentally still
+ * thinks "läuft morgen ab", not "läuft in 0 Tagen".
+ *
+ * The helper deliberately uses Math.abs so callers don't need to think
+ * about sign — direction (past vs future) is determined separately in
+ * formatRelativeDays via the original timestamp comparison. This keeps
+ * the API readable: `formatRelativeDays(d)` always returns a string,
+ * never a sign-bearing number that needs interpreting.
+ */
+function diffInDays(d: Date): number {
+  const ms = d.getTime() - Date.now();
+  return Math.round(Math.abs(ms) / 86_400_000);
+}
+
+/**
+ * Relative-day formatter for inline currency hints (option #22).
+ *
+ * Renders dates as "in 12 Tagen" (future), "seit 5 Tagen" (past), or
+ * "heute" (within ±1 day). Used inline in the warning-banner buckets and
+ * row expiry-displays to give pilots a quick "how urgent is this?"-read
+ * without forcing them to subtract dates in their head.
+ *
+ * Conventions:
+ *   - Future + ≥2 days: "in N Tagen"
+ *   - Future + 1 day:   "morgen"
+ *   - Past + 1 day:     "gestern"
+ *   - Past + ≥2 days:   "seit N Tagen"
+ *   - |diff| < 1 day:   "heute" (covers both ~12h before and ~12h after)
+ *
+ * Returns the bare phrase (no parentheses, no separators) — caller wraps
+ * it in `(...)` or punctuation as needed for the surrounding context.
+ */
+function formatRelativeDays(d: Date): string {
+  const now = Date.now();
+  const ms = d.getTime() - now;
+  const days = diffInDays(d);
+  if (days === 0) return "heute";
+  if (ms > 0) {
+    if (days === 1) return "morgen";
+    return `in ${days} Tagen`;
+  }
+  if (days === 1) return "gestern";
+  return `seit ${days} Tagen`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
