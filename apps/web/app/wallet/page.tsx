@@ -7,16 +7,20 @@ import {
   getUserWalletExtended,
   getUserTransactions,
   type GetUserTransactionsOptions,
-  type TransactionType,
 } from "@vam/db";
 import Link from "next/link";
 import {
   TRANSACTION_TYPE_DISPLAY,
   CATEGORY_BADGE_CLASSES,
   TRANSACTION_TYPES_GROUPED,
-  TRANSACTION_TYPES_BY_CATEGORY,
   type TransactionCategory,
 } from "./tx-display";
+import {
+  parseWalletFilters,
+  computeDatePresets,
+  detectActivePreset,
+  buildFilterUrl,
+} from "./filters";
 
 const PAGE_SIZE = 25;
 
@@ -91,49 +95,22 @@ export default async function WalletPage({ searchParams }: PageProps) {
     redirect("/settings#profile");
   }
 
-  // Search-params parsen. Next 16: muss awaited werden.
+  // Search-params parsen. Next 16: muss awaited werden. Filter-parsing
+  // (type, cat, from, to + abgeleiteter effectiveType) lebt in ./filters
+  // als shared modul mit der CSV-Export-Route (option #30) damit beide
+  // garantiert dieselbe semantik haben.
   const params = await searchParams;
   const pageNum = Math.max(1, parseInt(params.page ?? "1", 10) || 1);
   const skip = (pageNum - 1) * PAGE_SIZE;
-
-  // Type-filter: validate dass der string ein gültiger TransactionType ist,
-  // sonst ignorieren (URL-tampering safety + besseres UX wenn ein bookmark
-  // mit altem enum-wert kommt).
-  const rawType = params.type;
-  const typeFilter: TransactionType | undefined =
-    rawType && rawType in TRANSACTION_TYPE_DISPLAY
-      ? (rawType as TransactionType)
-      : undefined;
-
-  // Category-filter (option #28). Validiert gegen die TransactionCategory-
-  // union. Gilt nur wenn KEIN type-filter gesetzt ist (type wins by spec —
-  // type ist spezifischer als category, also muss der spezifischere filter
-  // gewinnen wenn beide an die DB gehen).
-  const rawCat = params.cat;
-  const catFilter: TransactionCategory | undefined =
-    rawCat && rawCat in TRANSACTION_TYPES_BY_CATEGORY
-      ? (rawCat as TransactionCategory)
-      : undefined;
-
-  // Date-range-filter (option #27). YYYY-MM-DD im URL, geparst als UTC-
-  // midnight. `to` wird auf next-day-midnight verschoben damit der user
-  // mit `to=2026-05-09` auch die Transaktionen vom 2026-05-09 selbst
-  // mitbekommt (getUserTransactions interpretiert toDate als exklusiv).
-  const fromParam = parseIsoDateUtc(params.from);
-  const toParam = parseIsoDateUtc(params.to);
-  const fromDate = fromParam ?? undefined;
-  // Falls toParam gesetzt: +1 Tag damit der ganze Tag inkludiert wird.
-  const toDate = toParam
-    ? new Date(toParam.getTime() + 86_400_000)
-    : undefined;
-
-  // Effective-type-filter für die DB-query: typeFilter (single, exact)
-  // hat precedence — wenn gesetzt, ignorier die category. Sonst: cat zu
-  // type-array expandieren via TRANSACTION_TYPES_BY_CATEGORY und an
-  // getUserTransactions als IN-clause durchreichen (option #28).
-  const effectiveType: TransactionType | TransactionType[] | undefined =
-    typeFilter ??
-    (catFilter ? TRANSACTION_TYPES_BY_CATEGORY[catFilter] : undefined);
+  const {
+    typeFilter,
+    catFilter,
+    effectiveType,
+    fromDate,
+    toDate,
+    hasAnyFilter,
+    filters,
+  } = parseWalletFilters(params);
 
   // Parallele queries: stats + tx-list + 6-month-sparkline-data.
   // getUserWalletExtended hat schon die wallet-existenz-prüfung
@@ -157,19 +134,6 @@ export default async function WalletPage({ searchParams }: PageProps) {
   const totalPages = Math.max(1, Math.ceil(txList.totalCount / PAGE_SIZE));
   const hasNextPage = pageNum < totalPages;
   const hasPrevPage = pageNum > 1;
-  const hasAnyFilter =
-    typeFilter !== undefined ||
-    catFilter !== undefined ||
-    fromParam !== null ||
-    toParam !== null;
-
-  // Active-filter-state für das filter-bag (URL-builder + reset-button).
-  const filters: WalletFilters = {
-    type: typeFilter,
-    cat: catFilter,
-    from: fromParam ? params.from! : undefined,
-    to: toParam ? params.to! : undefined,
-  };
 
   // Active-Category für die Chip-Highlight-state (option #28). Wenn
   // ein spezifischer typeFilter aktiv ist, leitet sich category aus
@@ -421,6 +385,28 @@ export default async function WalletPage({ searchParams }: PageProps) {
                 Reset
               </Link>
             )}
+            {/* CSV-Export-link (option #30). Nutzt buildFilterUrl mit
+                /api/wallet/export als basePath, sodass die aktuelle
+                filter-view (type/cat/from/to) 1:1 in den download
+                übergeht. Plain anchor mit `download`-attribute statt
+                <Link>: Next-Link würde client-side-navigation versuchen,
+                aber für File-downloads brauchen wir browser-default-
+                handling damit der Save-As-dialog kommt.
+
+                Nur sichtbar wenn matches > 0 — leere CSVs sind dem user
+                nicht sinnvoll, und der button signalisiert "es gibt was
+                zum exportieren". */}
+            {txList.totalCount > 0 && (
+              <a
+                href={buildFilterUrl(filters, 1, "/api/wallet/export")}
+                download
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-sm font-semibold transition inline-flex items-center gap-1.5"
+                title="Aktuelle Ansicht als CSV herunterladen"
+              >
+                <span aria-hidden="true">📥</span>
+                CSV exportieren
+              </a>
+            )}
             <p className="text-sm text-gray-600 dark:text-gray-400 ml-auto">
               {txList.totalCount === 1
                 ? "1 Eintrag"
@@ -667,170 +653,14 @@ function PaginationLink({ href, disabled, label }: PaginationLinkProps) {
 }
 
 /**
- * Filter-bag für die Wallet-page (option #27).
- *
- * Type, from, to als string-fields (raw URL-form, vor Parsing zu Date).
- * URL-builder akzeptieren diese shape direkt — convenient weil die
- * params 1:1 als querystring-segmente serialisiert werden können ohne
- * jedes mal Date.toISOString().slice(0,10) aufzurufen.
- */
-interface WalletFilters {
-  type?: TransactionType;
-  cat?: TransactionCategory;
-  from?: string;
-  to?: string;
-}
-
-/**
- * Date-preset für die Quick-Range-pills (option #27).
- *
- * `key` ist die identity (für `detectActivePreset`), `label` der display-
- * string. `from` und `to` sind YYYY-MM-DD-strings die ohne Re-Parse direkt
- * in die URL gehen.
- */
-interface DatePreset {
-  key: string;
-  label: string;
-  from: string;
-  to: string;
-}
-
-/**
- * Strict YYYY-MM-DD-parser (option #27). Returnt null bei jedem invaliden
- * input — invalid dates, zu wenig digits, leere strings, undefined.
- *
- * Strict-validation matters weil ein invalid date implicit 1970 oder
- * NaN werden würde, was queries silent verzerrt. Lieber explicit null
- * und der caller ignoriert den filter, als heimlich falsche ranges
- * zu queryen.
- *
- * Alle dates werden als UTC-midnight interpretiert — siehe top-of-file
- * docstring im queries-modul. Browsing/UI darf das in lokaler-zeit
- * formatieren, aber DB-vergleich ist UTC.
- */
-function parseIsoDateUtc(s: string | undefined): Date | null {
-  if (!s) return null;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
-  const [y, m, d] = s.split("-").map((p) => parseInt(p, 10));
-  // Date.UTC validates roughly via getUTC*: invalid dates wie 2026-02-30
-  // werden zu 2026-03-02 normalisiert. Wir checken dass nach roundtrip
-  // die werte gleich bleiben — sonst ist's ein invalid-date.
-  const ts = Date.UTC(y, m - 1, d);
-  if (Number.isNaN(ts)) return null;
-  const dt = new Date(ts);
-  if (
-    dt.getUTCFullYear() !== y ||
-    dt.getUTCMonth() !== m - 1 ||
-    dt.getUTCDate() !== d
-  ) {
-    return null;
-  }
-  return dt;
-}
-
-/**
- * Compute YYYY-MM-DD strings für die 3 standard-presets (option #27):
- * "Diesen Monat" / "Letzter Monat" / "Letzte 30 Tage".
- *
- * Alle UTC-anchored. "Diesen Monat" geht vom 1. des aktuellen monats
- * bis heute (inklusive). "Letzter Monat" 1. des vorigen monats bis
- * letzter tag des vorigen monats. "Letzte 30 Tage" today-29 bis today.
- *
- * Berechnung jedes-render statt cache: günstig (3 Date-konstrukte) und
- * verlässlich beim tagewechsel (server-component re-rendert pro request).
- */
-function computeDatePresets(): DatePreset[] {
-  const now = new Date();
-  const todayY = now.getUTCFullYear();
-  const todayM = now.getUTCMonth();
-  const todayD = now.getUTCDate();
-
-  const fmt = (d: Date) =>
-    `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
-
-  // Diesen Monat: 1. → heute
-  const thisMonthFrom = new Date(Date.UTC(todayY, todayM, 1));
-  const thisMonthTo = new Date(Date.UTC(todayY, todayM, todayD));
-
-  // Letzter Monat: 1. des prev-monats → letzter tag des prev-monats
-  const lastMonthFrom = new Date(Date.UTC(todayY, todayM - 1, 1));
-  // Letzter tag = day=0 des nächsten monats (getUTCDate auf -1 gibt
-  // letzten tag des prev-monats zurück, JS-quirk).
-  const lastMonthTo = new Date(Date.UTC(todayY, todayM, 0));
-
-  // Letzte 30 Tage: today-29 → today (= 30 days inclusive)
-  const last30From = new Date(Date.UTC(todayY, todayM, todayD - 29));
-  const last30To = new Date(Date.UTC(todayY, todayM, todayD));
-
-  return [
-    {
-      key: "this-month",
-      label: "Diesen Monat",
-      from: fmt(thisMonthFrom),
-      to: fmt(thisMonthTo),
-    },
-    {
-      key: "last-month",
-      label: "Letzter Monat",
-      from: fmt(lastMonthFrom),
-      to: fmt(lastMonthTo),
-    },
-    {
-      key: "last-30-days",
-      label: "Letzte 30 Tage",
-      from: fmt(last30From),
-      to: fmt(last30To),
-    },
-  ];
-}
-
-/**
- * Match die aktiven URL-from/to gegen die known presets (option #27).
- *
- * Returnt "all" wenn beide undefined sind, sonst den preset.key wenn
- * exact-match, sonst null (= custom-range, kein preset highlight).
- *
- * Match ist string-equality auf YYYY-MM-DD — kein date-compare nötig
- * weil presets und URL-werte beide in derselben format sind.
- */
-function detectActivePreset(
-  from: string | undefined,
-  to: string | undefined,
-  presets: DatePreset[],
-): string | null {
-  if (!from && !to) return "all";
-  for (const p of presets) {
-    if (p.from === from && p.to === to) return p.key;
-  }
-  return null;
-}
-
-/**
- * URL-builder für pagination + filter-links (option #27).
- *
- * Nimmt die filter-bag und einen optional page-number. Skipped page=1
- * (defaults zu 1) und alle undefined fields, damit die URL kompakt
- * bleibt. Type wird als string serialisiert weil URLSearchParams
- * sowieso strings expects.
- *
- * Empty querystring → "/wallet" ohne trailing "?", für saubere URLs.
- */
-function buildFilterUrl(filters: WalletFilters, page = 1): string {
-  const sp = new URLSearchParams();
-  if (page > 1) sp.set("page", String(page));
-  if (filters.type) sp.set("type", filters.type);
-  if (filters.cat) sp.set("cat", filters.cat);
-  if (filters.from) sp.set("from", filters.from);
-  if (filters.to) sp.set("to", filters.to);
-  const qs = sp.toString();
-  return qs ? `/wallet?${qs}` : "/wallet";
-}
-
-/**
  * Preset-pill für die Quick-Range-row (option #27).
  *
  * Active = indigo-bg + white text (deutlich hervorgehoben), inactive
  * = neutral gray-bg. Plain-link ohne JS, browser-back-friendly.
+ *
+ * Nur lokal weil kein anderer file (außerhalb der Wallet-page) das
+ * gleiche styling braucht. Falls je ein zweiter Konsument auftaucht,
+ * nach apps/web/components/ verschieben.
  */
 function PresetPill({
   label,
