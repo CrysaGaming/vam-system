@@ -238,6 +238,76 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
 
+  // Track 4 #31 (Section F): Follow-Mode. Wenn gesetzt, fliegt die map
+  // automatisch mit dem getrackten pilot mit, wenn neue position-updates
+  // kommen (alle 30s für member sessions, alle 30s für public pilots).
+  // Discriminated union: kind unterscheidet die quelle (member-session
+  // via id, public-pilot via network+cid). Beim toggle-click in der
+  // jeweiligen sidebar wird der state gesetzt; beim wechsel auf einen
+  // anderen pilot oder beim close der sidebar wird er auf null geclearred
+  // (kein "ghost-follow" wenn man eigentlich nicht mehr auf den pilot
+  // schaut). Polling-tick triggered den fly-effekt unten via useEffect
+  // mit [followedTarget, sessions, publicPilots] als deps.
+  const [followedTarget, setFollowedTarget] = useState<
+    | { kind: 'session'; id: string }
+    | { kind: 'public'; network: 'VATSIM' | 'IVAO'; cid: number }
+    | null
+  >(null);
+
+  // Track 4 #34 (Section F): Search-history. localStorage-backed liste
+  // der zuletzt erfolgreich angeklickten search-queries (max 8, unique).
+  // Lazy-init aus localStorage damit der erste render keinen layout-shift
+  // zeigt. Wird beim search-result-click via pushSearchHistory ergänzt.
+  // Anzeige: wenn search-bar offen UND query leer UND history nicht leer,
+  // rendern wir history-chips statt der "kein result"-leeren-section.
+  const [searchHistory, setSearchHistory] = useState<string[]>(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const raw = window.localStorage.getItem('vam:live-map-search-history');
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return [];
+      // Defensive: filter auf strings (falls user manuell die storage
+      // editiert hat) und cap auf 8.
+      return parsed.filter((x) => typeof x === 'string').slice(0, 8);
+    } catch {
+      return [];
+    }
+  });
+
+  // Track 4 #34: Helper zum recorden eines erfolgreich genutzten search-
+  // queries. Trim+upper für consistency mit dem search-matching, dedupe
+  // (entferne existing entry vor unshift), cap auf 8. Synchron localStorage-
+  // write damit beim refresh der state da ist. Stille-failure bei storage-
+  // errors (private-mode etc.) — die UI degraded gracefully, history-row
+  // ist dann einfach leer.
+  const pushSearchHistory = useCallback((rawQuery: string) => {
+    const q = rawQuery.trim().toUpperCase();
+    if (q.length < 2) return; // nicht recorden wenn unsinnig kurz
+    setSearchHistory((prev) => {
+      const without = prev.filter((entry) => entry !== q);
+      const next = [q, ...without].slice(0, 8);
+      try {
+        window.localStorage.setItem(
+          'vam:live-map-search-history',
+          JSON.stringify(next),
+        );
+      } catch {
+        // storage write failed — kein retry, history bleibt in-memory.
+      }
+      return next;
+    });
+  }, []);
+
+  const clearSearchHistory = useCallback(() => {
+    setSearchHistory([]);
+    try {
+      window.localStorage.removeItem('vam:live-map-search-history');
+    } catch {
+      // ditto
+    }
+  }, []);
+
   // Track 1 #4 (PIREP-Heatmap, 9.2.6): GeoJSON-feature-collection von
   // approved-PIREP-departure+arrival-counts. Lazy-loaded — nur beim
   // ersten enable des heatmap-toggles, dann gecached für die gesamte
@@ -299,6 +369,10 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
     setSelectedId(id);
     setSelectedPublicPilot(null);
     setSelectedAirportIcao(null);
+    // Track 4 #31: target-wechsel → follow-mode aus. Anders wäre verwirrend
+    // (man klickt auf einen anderen pilot, die map fliegt zum vorherigen
+    // weiter). Re-enable explizit per follow-toggle in der neuen sidebar.
+    setFollowedTarget(null);
   }, []);
 
   const selectPublicPilot = useCallback(
@@ -306,9 +380,77 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
       setSelectedPublicPilot({ network, cid });
       setSelectedId(null);
       setSelectedAirportIcao(null);
+      setFollowedTarget(null);
     },
     [],
   );
+
+  // Track 4 #31: Toggle-helper für Follow-Mode in den sidebars. Nimmt das
+  // target und togglet — wenn schon dasselbe target gefolgt wird, off;
+  // sonst on. Kommt als prop runter zu Session/PublicPilotSidebar.
+  const toggleFollow = useCallback(
+    (
+      target:
+        | { kind: 'session'; id: string }
+        | { kind: 'public'; network: 'VATSIM' | 'IVAO'; cid: number },
+    ) => {
+      setFollowedTarget((prev) => {
+        if (!prev) return target;
+        // Same-target check → off
+        if (target.kind === 'session' && prev.kind === 'session' && prev.id === target.id) {
+          return null;
+        }
+        if (
+          target.kind === 'public' &&
+          prev.kind === 'public' &&
+          prev.network === target.network &&
+          prev.cid === target.cid
+        ) {
+          return null;
+        }
+        // Different target → switch
+        return target;
+      });
+    },
+    [],
+  );
+
+  // Track 4 #31: Auto-fly bei position-updates wenn follow-mode aktiv.
+  // Liest die aktuelle position aus sessions/publicPilots (deps re-fire
+  // beim 30s-poll-tick) und easeTo-t map dorthin. easeTo statt flyTo:
+  // kürzere/sanftere animation passt besser zum periodischen update —
+  // flyTo's 1.5s zoom-out/zoom-in würde bei jedem 30s-tick zu motion-
+  // sickness führen.
+  //
+  // Zoom wird NICHT geändert (dritter param weggelassen) damit der user
+  // selbst zoomen kann — wir zentrieren nur. Wenn das target verschwindet
+  // (pilot disconnected zwischen polls), passiert nichts; beim nächsten
+  // poll wo's wieder da ist, fliegt die map weiter mit.
+  useEffect(() => {
+    if (!followedTarget) return;
+    const map = mapRef.current?.getMap();
+    if (!map) return;
+
+    let coords: [number, number] | null = null;
+    if (followedTarget.kind === 'session') {
+      const s = sessions.find((x) => x.id === followedTarget.id);
+      if (s) coords = [s.position.longitude, s.position.latitude];
+    } else {
+      const list =
+        followedTarget.network === 'VATSIM'
+          ? publicPilots.vatsim
+          : publicPilots.ivao;
+      const p = list.find((x) => x.cid === followedTarget.cid);
+      if (p) coords = [p.longitude, p.latitude];
+    }
+
+    if (!coords) return;
+    map.easeTo({
+      center: coords,
+      duration: 1200,
+      essential: true,
+    });
+  }, [followedTarget, sessions, publicPilots]);
 
   // Track 1 #2 (extended in track4 #18): Search-results across alle drei
   // pilot-quellen (member sessions, public VATSIM, public IVAO). Match-
@@ -1110,6 +1252,13 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
             trail={trails[selected.id] ?? []}
             onClose={() => setSelectedId(null)}
             airports={airports}
+            isFollowed={
+              followedTarget?.kind === 'session' &&
+              followedTarget.id === selected.id
+            }
+            onToggleFollow={() =>
+              toggleFollow({ kind: 'session', id: selected.id })
+            }
           />
         )}
         {/* Track 1 #2: PublicPilotSidebar zeigt reduzierten content (kein
@@ -1122,6 +1271,19 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
             pilot={selectedPublic}
             network={selectedPublicPilot.network}
             onClose={() => setSelectedPublicPilot(null)}
+            airports={airports}
+            isFollowed={
+              followedTarget?.kind === 'public' &&
+              followedTarget.network === selectedPublicPilot.network &&
+              followedTarget.cid === selectedPublicPilot.cid
+            }
+            onToggleFollow={() =>
+              toggleFollow({
+                kind: 'public',
+                network: selectedPublicPilot.network,
+                cid: selectedPublicPilot.cid,
+              })
+            }
           />
         )}
         {selectedAirportIcao && !selected && !selectedPublic && (
@@ -2207,11 +2369,15 @@ function SessionSidebar({
   trail,
   onClose,
   airports,
+  isFollowed,
+  onToggleFollow,
 }: {
   session: LiveSession;
   trail: TrailPoint[];
   onClose: () => void;
   airports: AirportWithMetar[];
+  isFollowed: boolean;
+  onToggleFollow: () => void;
 }) {
   const minutesOnline = Math.floor(
     (Date.now() - new Date(session.connectedAt).getTime()) / 60000,
@@ -2324,6 +2490,44 @@ function SessionSidebar({
             )}
           </div>
         </div>
+        {/* Track 4 #31: Follow-Mode-toggle — links neben dem close-button.
+            Wenn aktiv: indigo-tint zeigt visuell dass die map dem pilot
+            grade folgt. Klick togglet (siehe toggleFollow oben). 📍-icon
+            wenn aktiv (visuelles \"target locked\"-cue), 🎯 wenn off (zeigt
+            \"hier könntest du target locken\"). Wir tooltip'en's für den
+            user der keine ahnung hat was 🎯 hier soll. */}
+        <button
+          onClick={onToggleFollow}
+          style={{
+            width: '2rem',
+            height: '2rem',
+            borderRadius: '0.375rem',
+            backgroundColor: isFollowed
+              ? 'rgba(99, 102, 241, 0.3)'
+              : 'rgb(31, 41, 55)',
+            border: isFollowed
+              ? '1px solid rgba(99, 102, 241, 0.6)'
+              : '1px solid transparent',
+            color: 'white',
+            cursor: 'pointer',
+            fontSize: '0.95rem',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0,
+            padding: 0,
+            lineHeight: 1,
+          }}
+          aria-label={isFollowed ? 'Folgen beenden' : 'Diesem Pilot folgen'}
+          aria-pressed={isFollowed}
+          title={
+            isFollowed
+              ? 'Map folgt diesem Pilot — klick zum stoppen'
+              : 'Map automatisch mit Pilot mitfliegen'
+          }
+        >
+          {isFollowed ? '📍' : '🎯'}
+        </button>
         <button
           onClick={onClose}
           style={{
@@ -3094,11 +3298,49 @@ function PublicPilotSidebar({
   pilot,
   network,
   onClose,
+  airports,
+  isFollowed,
+  onToggleFollow,
 }: {
   pilot: PublicPilot;
   network: 'VATSIM' | 'IVAO';
   onClose: () => void;
+  airports: AirportWithMetar[];
+  isFollowed: boolean;
+  onToggleFollow: () => void;
 }) {
+  // Track 4 #32: Distance/ETA für public pilots — analog zu computeProgress
+  // für member sessions. Inline weil PublicPilot ein anderes shape hat
+  // (flat statt nested position/flightPlan). Greift nur wenn arrivalIcao
+  // gesetzt ist UND wir den airport in unserer METAR-liste finden (das
+  // sind ~150 große airports — bei mehrheit der public-pilots ist der
+  // arrival NICHT drin, dann zeigen wir die section gar nicht).
+  let distanceKm: number | null = null;
+  let etaMinutes: number | null = null;
+  if (pilot.arrivalIcao) {
+    const arrival = airports.find((a) => a.airport.icao === pilot.arrivalIcao);
+    if (arrival) {
+      const R = 6371;
+      const toRad = (deg: number) => (deg * Math.PI) / 180;
+      const lat1 = pilot.latitude;
+      const lng1 = pilot.longitude;
+      const lat2 = arrival.airport.latitude;
+      const lng2 = arrival.airport.longitude;
+      const dLat = toRad(lat2 - lat1);
+      const dLng = toRad(lng2 - lng1);
+      const a =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos(toRad(lat1)) *
+          Math.cos(toRad(lat2)) *
+          Math.sin(dLng / 2) ** 2;
+      distanceKm = 2 * R * Math.asin(Math.sqrt(a));
+      const groundSpeedKmh = pilot.groundSpeed * 1.852;
+      if (groundSpeedKmh > 30) {
+        etaMinutes = (distanceKm / groundSpeedKmh) * 60;
+      }
+    }
+  }
+
   return (
     <div
       style={{
@@ -3152,6 +3394,40 @@ function PublicPilotSidebar({
             Non-Member · Live auf {network}
           </p>
         </div>
+        {/* Track 4 #31: Follow-button (analog SessionSidebar) — siehe dort
+            für rationale. Auch public-pilots können gefolgt werden. */}
+        <button
+          onClick={onToggleFollow}
+          style={{
+            width: '2rem',
+            height: '2rem',
+            borderRadius: '0.375rem',
+            backgroundColor: isFollowed
+              ? 'rgba(99, 102, 241, 0.3)'
+              : 'rgb(31, 41, 55)',
+            border: isFollowed
+              ? '1px solid rgba(99, 102, 241, 0.6)'
+              : '1px solid transparent',
+            color: 'white',
+            cursor: 'pointer',
+            fontSize: '0.95rem',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0,
+            padding: 0,
+            lineHeight: 1,
+          }}
+          aria-label={isFollowed ? 'Folgen beenden' : 'Diesem Pilot folgen'}
+          aria-pressed={isFollowed}
+          title={
+            isFollowed
+              ? 'Map folgt diesem Pilot — klick zum stoppen'
+              : 'Map automatisch mit Pilot mitfliegen'
+          }
+        >
+          {isFollowed ? '📍' : '🎯'}
+        </button>
         <button
           onClick={onClose}
           style={{
