@@ -5,9 +5,11 @@ import {
   listSceneries,
   listDistinctProviders,
   getSceneryCounts,
+  getUserOwnedSceneryIds,
   prisma,
   type SceneryFilter,
 } from '@vam/db';
+import { OwnedToggleButton } from './owned-toggle-button';
 
 /**
  * Track 1 #3 (Sceneries-Catalog UI, 9.2.4) — Public scenery catalog.
@@ -70,10 +72,21 @@ export default async function SceneriesCatalogPage({
   }
   // default ("all" oder undefined) → kein airline-filter
 
+  // Track 4 #17: Owned-filter ("Habe ich"-toggle).
+  // Werte: undefined/"all" = alle, "mine" = nur meine, "none" = nur die
+  // ich nicht habe. forUserId wird vom server-side aus session.user.id
+  // gefüllt — der user kann nicht andere user filtern.
+  const ownedParam = typeof params.owned === 'string' ? params.owned : '';
+  if (ownedParam === 'mine' || ownedParam === 'none') {
+    filter.owned = ownedParam;
+    filter.forUserId = session.user.id;
+  }
+
   // Parallel fetch: list, providers (für filter-dropdown), counts (für
   // summary-banner), airlines (für filter-dropdown), user-role (für
-  // admin-link). Cheap-enough — Scenery + Airline tables sind klein.
-  const [sceneries, providers, counts, airlines, currentUser] = await Promise.all([
+  // admin-link), und Track 4 #17: owned-set (für badge-rendering).
+  // Cheap-enough — Scenery + Airline tables sind klein.
+  const [sceneries, providers, counts, airlines, currentUser, ownedIds] = await Promise.all([
     listSceneries(filter),
     listDistinctProviders(),
     getSceneryCounts(),
@@ -85,6 +98,7 @@ export default async function SceneriesCatalogPage({
       where: { id: session.user.id },
       select: { role: { select: { name: true } } },
     }),
+    getUserOwnedSceneryIds(session.user.id),
   ]);
   const isAdmin = currentUser?.role?.name === 'admin';
 
@@ -205,6 +219,28 @@ export default async function SceneriesCatalogPage({
             </select>
           </div>
 
+          {/* Track 4 #17: Owned-filter — pilots können filtern auf
+              "nur die ich habe" oder "die ich noch nicht habe" um
+              schnell zu sehen welche scenery-ergänzungen sinnvoll wären. */}
+          <div className="flex-1 min-w-[140px]">
+            <label
+              htmlFor="owned"
+              className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"
+            >
+              Habe ich
+            </label>
+            <select
+              id="owned"
+              name="owned"
+              defaultValue={ownedParam || 'all'}
+              className="w-full px-3 py-1.5 bg-gray-50 dark:bg-gray-950 border border-gray-300 dark:border-gray-700 rounded text-sm"
+            >
+              <option value="all">Alle</option>
+              <option value="mine">Nur meine</option>
+              <option value="none">Habe ich nicht</option>
+            </select>
+          </div>
+
           <div className="flex gap-2">
             <button
               type="submit"
@@ -212,7 +248,7 @@ export default async function SceneriesCatalogPage({
             >
               Filtern
             </button>
-            {(providerParam || airportParam || priceParam || airlineParam) && (
+            {(providerParam || airportParam || priceParam || airlineParam || ownedParam) && (
               <Link
                 href="/sceneries"
                 className="px-4 py-1.5 bg-gray-200 dark:bg-gray-800 hover:bg-gray-300 dark:hover:bg-gray-700 text-gray-900 dark:text-white rounded text-sm font-medium transition"
@@ -245,45 +281,61 @@ export default async function SceneriesCatalogPage({
           </section>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {sceneries.map((s) => (
-              <Link
-                key={s.id}
-                href={`/sceneries/${s.id}`}
-                className="block bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 hover:border-indigo-400 dark:hover:border-indigo-600 rounded-lg p-4 transition"
-              >
-                <div className="flex items-start justify-between gap-2 mb-2">
-                  <h3 className="font-semibold text-base leading-tight flex-1">
-                    {s.name}
-                  </h3>
-                  <span
-                    className={
-                      s.free
-                        ? 'shrink-0 text-xs px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200'
-                        : 'shrink-0 text-xs px-2 py-0.5 rounded bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200'
-                    }
-                  >
-                    {s.free ? 'Kostenlos' : 'Paid'}
-                  </span>
-                </div>
-                <div className="flex flex-wrap gap-2 text-xs text-gray-600 dark:text-gray-400">
-                  {s.airportIcao && (
-                    <span className="font-mono uppercase px-2 py-0.5 bg-gray-100 dark:bg-gray-800 rounded">
-                      {s.airportIcao}
+            {sceneries.map((s) => {
+              // Track 4 #17: lookup gegen das einmalig gefetchte ownedIds-set.
+              // O(1) per card, kein zusätzlicher round-trip.
+              const isOwned = ownedIds.has(s.id);
+              return (
+                <Link
+                  key={s.id}
+                  href={`/sceneries/${s.id}`}
+                  className={[
+                    'block bg-white dark:bg-gray-900 border rounded-lg p-4 transition',
+                    isOwned
+                      ? 'border-amber-300 dark:border-amber-700 hover:border-amber-500 dark:hover:border-amber-500'
+                      : 'border-gray-200 dark:border-gray-800 hover:border-indigo-400 dark:hover:border-indigo-600',
+                  ].join(' ')}
+                >
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <h3 className="font-semibold text-base leading-tight flex-1">
+                      {s.name}
+                    </h3>
+                    <span
+                      className={
+                        s.free
+                          ? 'shrink-0 text-xs px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200'
+                          : 'shrink-0 text-xs px-2 py-0.5 rounded bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200'
+                      }
+                    >
+                      {s.free ? 'Kostenlos' : 'Paid'}
                     </span>
-                  )}
-                  {s.provider && (
-                    <span className="px-2 py-0.5 bg-gray-100 dark:bg-gray-800 rounded">
-                      {s.provider}
+                  </div>
+                  <div className="flex flex-wrap gap-2 text-xs text-gray-600 dark:text-gray-400">
+                    {s.airportIcao && (
+                      <span className="font-mono uppercase px-2 py-0.5 bg-gray-100 dark:bg-gray-800 rounded">
+                        {s.airportIcao}
+                      </span>
+                    )}
+                    {s.provider && (
+                      <span className="px-2 py-0.5 bg-gray-100 dark:bg-gray-800 rounded">
+                        {s.provider}
+                      </span>
+                    )}
+                    {s.airline && (
+                      <span className="px-2 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-200 rounded">
+                        {s.airline.iata ?? s.airline.icao ?? s.airline.name}
+                      </span>
+                    )}
+                    {/* Track 4 #17: owned-toggle button stoppt event-
+                        propagation damit der card-Link nicht zur detail-
+                        page navigiert wenn der user nur den toggle clickt. */}
+                    <span className="ml-auto">
+                      <OwnedToggleButton sceneryId={s.id} initialOwned={isOwned} />
                     </span>
-                  )}
-                  {s.airline && (
-                    <span className="px-2 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-200 rounded">
-                      {s.airline.iata ?? s.airline.icao ?? s.airline.name}
-                    </span>
-                  )}
-                </div>
-              </Link>
-            ))}
+                  </div>
+                </Link>
+              );
+            })}
           </div>
         )}
       </div>

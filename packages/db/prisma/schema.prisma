@@ -647,6 +647,7 @@ model User {
   pireps         Pirep[]
   approvedPireps Pirep[]       @relation("PirepApprover")
   awards         UserAward[]
+  userSceneries  UserScenery[]
   featureFlags   FeatureFlag[]
   accounts       Account[]
   sessions       Session[]
@@ -1390,6 +1391,43 @@ model Scenery {
   url         String?
   free        Boolean  @default(true)
   createdAt   DateTime @default(now())
+
+  // Track 4 #17 (Track 1 Polish): "Habe ich"-toggle. Eine scenery kann
+  // von beliebig vielen usern als "owned" markiert werden — UserScenery
+  // ist die join-tabelle. Cascade-on-delete via UserScenery.scenery
+  // relation: scenery-löschung räumt die ownership-records mit auf.
+  userSceneries UserScenery[]
+}
+
+/// Track 4 #17 (Track 1 #3 polish): "Habe ich diese Scenery installiert"-
+/// flag pro user. Pilot kann im /sceneries-catalog auf jeden eintrag
+/// klicken um zu markieren dass er die scenery besitzt — dann werden die
+/// cards mit einem ✓-badge versehen und es gibt einen filter "Nur welche
+/// die ich habe / nicht habe / alle".
+///
+/// MVP-scope: nur das toggle-flag. Keine "wishlist", keine notes, keine
+/// purchase-tracking. Wenn das später relevant wird (z.B. für eine
+/// "deine fleet von add-ons"-stats-page), erweitern wir das model
+/// additiv.
+///
+/// ownedSince: zeitstempel wann der user gemarked hat. Erlaubt eine
+/// "Zuletzt hinzugefügt"-sortierung in einer späteren personal-overview-
+/// page. Kein zusätzlicher index nötig — pro user ist das set klein
+/// (~dutzende sceneries).
+///
+/// notes: optional, für später ("v3.2 installiert" etc.). MVP nutzt das
+/// noch nicht — schema-präsenz spart eine zukünftige migration.
+model UserScenery {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sceneryId  String
+  scenery    Scenery  @relation(fields: [sceneryId], references: [id], onDelete: Cascade)
+  ownedSince DateTime @default(now())
+  notes      String?
+
+  @@unique([userId, sceneryId])
+  @@index([userId])
 }
 
 model FeatureFlag {

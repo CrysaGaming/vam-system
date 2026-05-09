@@ -7,6 +7,8 @@ export {
   getSceneryById,
   listDistinctProviders,
   getSceneryCounts,
+  getUserOwnedSceneryIds,
+  toggleUserScenery,
   type SceneryWithAirline,
   type SceneryFilter,
 } from "./queries.js";

@@ -57,12 +57,25 @@ export type SceneryWithAirline = Scenery & {
  *   einen specific airport
  * - `provider`: substring-match (case-insensitive) auf provider
  * - `priceTier`: undefined (alle) | "free" (free=true) | "paid" (free=false)
+ *
+ * # Track 4 #17 — owned-filter
+ *
+ * - `owned`: "mine" (nur sceneries die der user besitzt) | "none" (nur die
+ *   er NICHT besitzt) | undefined (alle, default).
+ * - `forUserId`: required wenn owned-filter gesetzt ist. Sonst kann der
+ *   helper nicht wissen wessen ownership relevant ist.
+ *
+ * Wenn `owned` ohne `forUserId` gesetzt wird, ignoriert der helper den
+ * filter (defensive — verhindert ungewollte cross-user-leaks bei tipp-
+ * fehlern im caller).
  */
 export type SceneryFilter = {
   airlineId?: "all" | "global" | string;
   airportIcao?: string;
   provider?: string;
   priceTier?: "free" | "paid";
+  owned?: "mine" | "none";
+  forUserId?: string;
 };
 
 /**
@@ -90,7 +103,7 @@ export async function listSceneries(
   // Substring-filter für airportIcao + provider mit case-insensitive
   // mode. Empty-string-guard im caller — leere strings würden als
   // "matches everything" interpretiert was die UI verwirrt.
-  const where = {
+  const where: Record<string, unknown> = {
     ...airlineWhere,
     ...(filter.airportIcao
       ? { airportIcao: { contains: filter.airportIcao, mode: "insensitive" as const } }
@@ -104,6 +117,18 @@ export async function listSceneries(
         ? { free: false }
         : {}),
   };
+
+  // Track 4 #17: owned-filter via existence/non-existence check auf
+  // UserScenery. Defensive: nur greifen wenn forUserId gesetzt ist
+  // (sonst würde "owned=mine" ohne user-id z.B. einen empty-result
+  // liefern was sich wie ein bug anfühlt).
+  if (filter.owned && filter.forUserId) {
+    if (filter.owned === "mine") {
+      where.userSceneries = { some: { userId: filter.forUserId } };
+    } else if (filter.owned === "none") {
+      where.userSceneries = { none: { userId: filter.forUserId } };
+    }
+  }
 
   return prisma.scenery.findMany({
     where,
@@ -170,4 +195,65 @@ export async function getSceneryCounts(): Promise<{
     prisma.scenery.count({ where: { free: true } }),
   ]);
   return { total, free, paid: total - free };
+}
+
+/**
+ * Track 4 #17 — Liefert die ownership-set des users als Set<string> für
+ * O(1) hat-er-die-scenery-checks beim card-rendering.
+ *
+ * Statt N+1 queries ("für jede card: hat user X scenery Y?") fetched
+ * der caller einmal das ownership-set und macht dann lookups in JS.
+ *
+ * Returns ein leeres Set wenn der user noch keine sceneries gemarked
+ * hat (oder nicht existiert) — kein null/undefined, damit caller-side
+ * keine null-checks pro lookup.
+ */
+export async function getUserOwnedSceneryIds(
+  userId: string,
+): Promise<Set<string>> {
+  const rows = await prisma.userScenery.findMany({
+    where: { userId },
+    select: { sceneryId: true },
+  });
+  return new Set(rows.map((r) => r.sceneryId));
+}
+
+/**
+ * Track 4 #17 — Toggle ownership für (user, scenery). Wenn der record
+ * existiert: löschen (= "habe ich nicht mehr"). Wenn nicht: erstellen
+ * (= "habe ich jetzt"). Idempotent gegen race-conditions via
+ * upsert-style logik im transaction-block.
+ *
+ * Returns `{ owned: boolean }` — der NEUE state nach der toggle-action.
+ * UI nutzt das für die optimistic-update-correction wenn die optimistic
+ * prediction abweicht (sollte nie passieren bei single-toggle-clicks,
+ * aber defensive bei concurrent-tabs).
+ *
+ * Atomicity: prisma's $transaction garantiert dass das delete-or-create
+ * als single unit ausgeführt wird. Bei concurrent toggles auf das
+ * gleiche pair gewinnt der letzte committer — die andere transaction
+ * sieht einen unique-violation oder einen leeren delete-result.
+ */
+export async function toggleUserScenery(
+  userId: string,
+  sceneryId: string,
+): Promise<{ owned: boolean }> {
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.userScenery.findUnique({
+      where: { userId_sceneryId: { userId, sceneryId } },
+      select: { id: true },
+    });
+
+    if (existing) {
+      await tx.userScenery.delete({
+        where: { userId_sceneryId: { userId, sceneryId } },
+      });
+      return { owned: false };
+    }
+
+    await tx.userScenery.create({
+      data: { userId, sceneryId },
+    });
+    return { owned: true };
+  });
 }
