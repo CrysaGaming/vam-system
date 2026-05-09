@@ -1873,6 +1873,8 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
                     selectPublicPilot(first.network, first.pilot.cid);
                     flyToCoords(first.pilot.longitude, first.pilot.latitude);
                   }
+                  // Track 4 #34: query in history aufnehmen BEVOR wir clearen.
+                  pushSearchHistory(searchQuery);
                   setSearchQuery('');
                   setSearchOpen(false);
                   (e.target as HTMLInputElement).blur();
@@ -1980,6 +1982,8 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
                           selectPublicPilot(r.network, r.pilot.cid);
                           flyToCoords(r.pilot.longitude, r.pilot.latitude);
                         }
+                        // Track 4 #34: query in history aufnehmen BEVOR wir clearen.
+                        pushSearchHistory(searchQuery);
                         setSearchQuery('');
                         setSearchOpen(false);
                       }}
@@ -2118,6 +2122,122 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
                 })}
               </div>
             )}
+            {/* Track 4 #34: Search-history-chips. Sichtbar wenn:
+                - die search-bar offen ist (focus oder dropdown getriggert)
+                - die query (zu kurz) für einen aktiven search ist (<2 Zeichen)
+                - history nicht leer (sonst nichts zu zeigen)
+                Klick auf chip füllt query → dropdown rendert sofort die
+                results für den vorherigen suchbegriff. "Verlauf löschen"
+                rechts zum komplett-clearen. mousedown statt click damit
+                der input-blur-timeout den dropdown nicht vorher schließt. */}
+            {searchOpen &&
+              searchQuery.trim().length < 2 &&
+              searchHistory.length > 0 && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: 'calc(100% + 4px)',
+                    left: 0,
+                    right: 0,
+                    padding: '0.6rem 0.75rem',
+                    backgroundColor: 'rgba(17, 24, 39, 0.96)',
+                    border: '1px solid rgba(255, 255, 255, 0.15)',
+                    borderRadius: '0.375rem',
+                    backdropFilter: 'blur(8px)',
+                    boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.5)',
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      marginBottom: '0.4rem',
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontSize: '0.6rem',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.05em',
+                        color: 'rgb(107, 114, 128)',
+                      }}
+                    >
+                      🕒 Letzte Suchen
+                    </span>
+                    <button
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        clearSearchHistory();
+                      }}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: 'rgb(156, 163, 175)',
+                        cursor: 'pointer',
+                        fontSize: '0.65rem',
+                        padding: '0.1rem 0.3rem',
+                        borderRadius: '0.2rem',
+                        transition: 'color 120ms',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.color = '#fca5a5';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.color = 'rgb(156, 163, 175)';
+                      }}
+                      aria-label="Suchverlauf löschen"
+                    >
+                      Verlauf löschen
+                    </button>
+                  </div>
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      gap: '0.3rem',
+                    }}
+                  >
+                    {searchHistory.map((entry) => (
+                      <button
+                        key={entry}
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          setSearchQuery(entry);
+                          setSearchOpen(true);
+                        }}
+                        style={{
+                          padding: '0.2rem 0.5rem',
+                          fontSize: '0.7rem',
+                          fontFamily: 'monospace',
+                          fontWeight: 600,
+                          backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                          color: 'rgb(229, 231, 235)',
+                          border: '1px solid rgba(255, 255, 255, 0.1)',
+                          borderRadius: '0.25rem',
+                          cursor: 'pointer',
+                          transition: 'background-color 120ms, border-color 120ms',
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.backgroundColor =
+                            'rgba(99, 102, 241, 0.15)';
+                          e.currentTarget.style.borderColor =
+                            'rgba(99, 102, 241, 0.4)';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.backgroundColor =
+                            'rgba(255, 255, 255, 0.05)';
+                          e.currentTarget.style.borderColor =
+                            'rgba(255, 255, 255, 0.1)';
+                        }}
+                        aria-label={`Suche nach ${entry} wiederholen`}
+                      >
+                        {entry}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             {/* "no results" feedback wenn query lang genug aber 0 hits */}
             {searchOpen &&
               searchQuery.trim().length >= 2 &&
