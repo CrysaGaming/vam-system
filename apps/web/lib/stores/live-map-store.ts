@@ -67,7 +67,14 @@ interface LiveMapState extends LiveMapFilters {
   resetFilters: () => void;
 }
 
-const DEFAULT_FILTERS: LiveMapFilters = {
+/**
+ * Default-filter-werte. Exportiert weil live-map.tsx das für den active-
+ * filter-counter (Track 4 #33) braucht — wir vergleichen den aktuellen
+ * filter-state gegen diese defaults und zeigen "Filter (N aktiv)" wenn
+ * Felder abweichen. Single source of truth: hier ändern → store reset
+ * UND counter-default beide aktualisiert.
+ */
+export const DEFAULT_FILTERS: LiveMapFilters = {
   memberOnly: false,
   showVatsim: true,
   showIvao: true,

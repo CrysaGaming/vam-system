@@ -20,7 +20,7 @@ import type {
   SymbolLayerSpecification,
 } from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
-import { useLiveMapStore } from '@/lib/stores/live-map-store';
+import { useLiveMapStore, DEFAULT_FILTERS } from '@/lib/stores/live-map-store';
 
 type LiveSession = {
   id: string;
@@ -253,9 +253,25 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
   const {
     setFilter,
     setFilters: applyFilters,
-    resetFilters: _resetFilters,
+    resetFilters,
     ...filters
   } = useLiveMapStore();
+
+  // Track 4 #33 (Section F): Counter wie viele Filter abweichen vom default.
+  // Iteriert über DEFAULT_FILTERS und vergleicht mit dem aktuellen state.
+  // Display: "Filter (N aktiv)" wenn N>0, sonst nur "Filter". Reset-button
+  // unten in der toolbar nutzt resetFilters() aus dem store.
+  //
+  // Subtilität: filters ist nach destructure ein REST-objekt — keine
+  // referential stability garantiert. useMemo[filters] re-running on jeder
+  // store-update ist fine, der computation ist O(10) lookups.
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    for (const key of Object.keys(DEFAULT_FILTERS) as Array<keyof typeof DEFAULT_FILTERS>) {
+      if (filters[key] !== DEFAULT_FILTERS[key]) count++;
+    }
+    return count;
+  }, [filters]);
 
   const [mapCenter, setMapCenter] = useState<{ lat: number; lng: number } | null>(null);
 
@@ -2149,11 +2165,12 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
               fontSize: '0.65rem',
               textTransform: 'uppercase',
               letterSpacing: '0.05em',
-              color: 'rgb(107, 114, 128)',
+              color: activeFilterCount > 0 ? '#fbbf24' : 'rgb(107, 114, 128)',
               padding: '0 0.25rem',
+              transition: 'color 200ms',
             }}
           >
-            Filter
+            {activeFilterCount > 0 ? `Filter (${activeFilterCount} aktiv)` : 'Filter'}
           </div>
 
           <FilterToggle
@@ -2275,6 +2292,49 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
                   </button>
                 );
               })}
+            </div>
+          )}
+          {/* Track 4 #33 (Section F): Reset-Button. Conditional render —
+              nur sichtbar wenn mindestens ein filter abweicht vom default.
+              Klick ruft resetFilters() im store auf, der DEFAULT_FILTERS
+              applied und persist-middleware den localStorage-state cleart.
+              Roter tint markiert destructive action; eigener border-top
+              trennt visuell vom filter-block über dem button. */}
+          {activeFilterCount > 0 && (
+            <div
+              style={{
+                borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+                marginTop: '0.25rem',
+                paddingTop: '0.5rem',
+              }}
+            >
+              <button
+                onClick={() => resetFilters()}
+                style={{
+                  width: '100%',
+                  padding: '0.4rem 0.5rem',
+                  backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                  color: '#fca5a5',
+                  border: '1px solid rgba(239, 68, 68, 0.3)',
+                  borderRadius: '0.25rem',
+                  fontSize: '0.7rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                  transition: 'background-color 120ms',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.2)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.1)';
+                }}
+                aria-label={`Filter zurücksetzen (${activeFilterCount} aktiv)`}
+                title="Alle Filter auf Standardwerte zurücksetzen"
+              >
+                ↺ Filter zurücksetzen
+              </button>
             </div>
           )}
           <div
