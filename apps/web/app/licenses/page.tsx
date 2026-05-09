@@ -8,8 +8,10 @@ import {
   getExpiringTypeRatings,
   getExpiredTypeRatings,
   licenseDisplayName,
+  inferAircraftCategory,
   type LicenseType,
   type LicenseStatus,
+  type AircraftCategory,
 } from "@vam/db";
 import Link from "next/link";
 
@@ -576,12 +578,24 @@ function TypeRatingRow({ rating }: { rating: TypeRatingRow }) {
   // and consistent with how Lizenzen show "Aktiv".
   const isCurrent = !isExpired && !recencyExpired;
 
+  // Aircraft-category badge (option #23). Inferred from the ICAO code via
+  // the same lookup booking-gates use, so the displayed category is
+  // consistent with what the system actually enforces. UNKNOWN-typen
+  // bekommen kein badge (würde nur Platz weg-nehmen ohne info).
+  const category = inferAircraftCategory(rating.aircraftType);
+  const categoryLabel = CATEGORY_LABEL[category];
+
   return (
     <div className="p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-2 mb-1 flex-wrap">
             <h3 className="text-base font-semibold font-mono">{rating.aircraftType}</h3>
+            {categoryLabel && (
+              <span className="px-2 py-0.5 text-[10px] uppercase tracking-wider rounded bg-gray-500/10 text-gray-600 dark:text-gray-400 font-semibold">
+                {categoryLabel}
+              </span>
+            )}
             {isExpired && (
               <span className="px-2 py-0.5 text-[10px] uppercase tracking-wider rounded bg-red-500/15 text-red-700 dark:text-red-300 font-semibold">
                 Expired
@@ -601,6 +615,15 @@ function TypeRatingRow({ rating }: { rating: TypeRatingRow }) {
           <p className="text-xs text-gray-500 dark:text-gray-400">
             <span className="font-semibold">{rating.hoursOnType.toFixed(1)} h</span> auf type
           </p>
+          {/* Recency-progress-bar (option #23). Zeigt visuell, wieviel
+              vom 90-day-window noch übrig ist. Nur sichtbar wenn lastFlownAt
+              gesetzt ist und das type-rating nicht expired (bei expired ist
+              recency irrelevant — recurrent-check ist die action). */}
+          {rating.lastFlownAt && !isExpired && (
+            <div className="mt-2 max-w-xs">
+              <RecencyBar lastFlownAt={rating.lastFlownAt} />
+            </div>
+          )}
         </div>
         <div className="text-xs text-gray-500 dark:text-gray-400 text-right shrink-0">
           <p>Erworben: {formatDate(rating.obtainedAt)}</p>
@@ -612,9 +635,98 @@ function TypeRatingRow({ rating }: { rating: TypeRatingRow }) {
           {rating.lastFlownAt && (
             <p className="mt-0.5">
               Zuletzt geflogen: {formatDate(rating.lastFlownAt)}
+              <span className="opacity-70">
+                {" "}
+                ({formatRelativeDays(rating.lastFlownAt)})
+              </span>
             </p>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Aircraft-category labels für TypeRatingRow (option #23).
+ *
+ * Maps the AircraftCategory enum from @vam/db to short, pilot-friendly
+ * German labels. Kept short (≤ 12 chars) so the badge stays inline next
+ * to the ICAO code without wrapping. UNKNOWN gets null — no badge is
+ * shown for unknown types, since "Unbekannt" would be visual noise
+ * without information value.
+ *
+ * The labels intentionally don't translate everything ("Wide-Body" not
+ * "Großraum"): aviation jargon is mostly English even in German cockpits,
+ * and the category is most useful as a quick recognition cue rather than
+ * a description. Pilots recognize "Wide-Body" instantly; "Großraumjet"
+ * is technically correct but reads as marketing copy.
+ */
+const CATEGORY_LABEL: Record<AircraftCategory, string | null> = {
+  SE_PISTON: "SE Piston",
+  ME_PISTON: "ME Piston",
+  SE_TURBINE: "SE Turbine",
+  ME_TURBINE_LIGHT: "Light Twin",
+  ME_TURBINE_REGIONAL: "Regional",
+  ME_TURBINE_NARROWBODY: "Narrow-Body",
+  ME_TURBINE_WIDEBODY: "Wide-Body",
+  HELI: "Helicopter",
+  UNKNOWN: null,
+};
+
+/**
+ * Recency-progress bar for type-ratings (option #23).
+ *
+ * Visualizes how much of the 90-day recency-window remains. Width
+ * encodes "days left" (full bar = just flew today, empty = 90+ days
+ * since last flight). Color encodes urgency tier:
+ *   - green:  > 30 days remaining (≤ 60 days since last flight)
+ *   - amber:  ≤ 30 days remaining (60-89 days since last flight)
+ *   - red:    0 days remaining (≥ 90 days — recency lapsed)
+ *
+ * The bar is rendered even when recency is already lapsed (width=0,
+ * red track) so the visual treatment is consistent with the
+ * "Recency lapsed"-badge above. We keep the component small (h-1.5)
+ * so it doesn't dominate the row — it's a glanceable indicator,
+ * not the primary content.
+ *
+ * The 30-day amber threshold matches the "60-day expiry-warning"
+ * window used elsewhere in this page for type-ratings, so pilots
+ * mentally see the same "soon-expiring" signal coming from two
+ * directions (calendar-expiry vs. recency-currency).
+ */
+function RecencyBar({ lastFlownAt }: { lastFlownAt: Date }) {
+  const daysSince = Math.floor(
+    (Date.now() - lastFlownAt.getTime()) / 86_400_000,
+  );
+  const daysRemaining = Math.max(0, 90 - daysSince);
+  const widthPct = (daysRemaining / 90) * 100;
+
+  // Tier-based coloring. Boundaries chosen so the amber-stretch starts
+  // when calendar-expiry warning would also fire elsewhere (~30d).
+  let trackColor = "bg-green-500/70 dark:bg-green-500/60";
+  if (daysRemaining === 0) {
+    trackColor = "bg-red-500/70 dark:bg-red-500/60";
+  } else if (daysRemaining <= 30) {
+    trackColor = "bg-amber-500/70 dark:bg-amber-500/60";
+  }
+
+  return (
+    <div>
+      <div className="flex items-baseline justify-between text-[10px] text-gray-500 dark:text-gray-500 mb-1">
+        <span>Recency-Window</span>
+        <span className="font-mono">
+          {daysRemaining === 0
+            ? "abgelaufen"
+            : `${daysRemaining}/90 d`}
+        </span>
+      </div>
+      <div className="h-1.5 rounded-full bg-gray-200 dark:bg-gray-800 overflow-hidden">
+        <div
+          className={`h-full rounded-full transition-all ${trackColor}`}
+          style={{ width: `${widthPct}%` }}
+          aria-label={`${daysRemaining} Tage Recency übrig von 90`}
+        />
       </div>
     </div>
   );
