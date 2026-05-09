@@ -23,6 +23,18 @@ interface PageProps {
   searchParams: Promise<{
     page?: string;
     type?: string;
+    /**
+     * Date-from filter (option #27). Erwarteter format: YYYY-MM-DD.
+     * Wird als UTC-midnight geparst, gte gegen createdAt.
+     */
+    from?: string;
+    /**
+     * Date-to filter (option #27). Erwarteter format: YYYY-MM-DD.
+     * Wird als UTC-midnight + 24h geparst (also "before midnight of
+     * next day"), so dass `to=2026-05-09` den 2026-05-09 inklusive
+     * enthält. Lt gegen createdAt (siehe getUserTransactions semantik).
+     */
+    to?: string;
   }>;
 }
 
@@ -83,6 +95,18 @@ export default async function WalletPage({ searchParams }: PageProps) {
       ? (rawType as TransactionType)
       : undefined;
 
+  // Date-range-filter (option #27). YYYY-MM-DD im URL, geparst als UTC-
+  // midnight. `to` wird auf next-day-midnight verschoben damit der user
+  // mit `to=2026-05-09` auch die Transaktionen vom 2026-05-09 selbst
+  // mitbekommt (getUserTransactions interpretiert toDate als exklusiv).
+  const fromParam = parseIsoDateUtc(params.from);
+  const toParam = parseIsoDateUtc(params.to);
+  const fromDate = fromParam ?? undefined;
+  // Falls toParam gesetzt: +1 Tag damit der ganze Tag inkludiert wird.
+  const toDate = toParam
+    ? new Date(toParam.getTime() + 86_400_000)
+    : undefined;
+
   // Parallele queries: stats + tx-list. getUserWalletExtended hat schon
   // die wallet-existenz-prüfung (returnt zeros wenn !hasWallet) und
   // getUserTransactions auch (returnt rows=[] wenn !hasWallet).
@@ -90,6 +114,8 @@ export default async function WalletPage({ searchParams }: PageProps) {
     skip,
     take: PAGE_SIZE,
     type: typeFilter,
+    fromDate,
+    toDate,
   };
   const [stats, txList] = await Promise.all([
     getUserWalletExtended(user.id),
@@ -99,6 +125,24 @@ export default async function WalletPage({ searchParams }: PageProps) {
   const totalPages = Math.max(1, Math.ceil(txList.totalCount / PAGE_SIZE));
   const hasNextPage = pageNum < totalPages;
   const hasPrevPage = pageNum > 1;
+  const hasAnyFilter =
+    typeFilter !== undefined ||
+    fromParam !== null ||
+    toParam !== null;
+
+  // Active-filter-state für das filter-bag (URL-builder + reset-button).
+  const filters: WalletFilters = {
+    type: typeFilter,
+    from: fromParam ? params.from! : undefined,
+    to: toParam ? params.to! : undefined,
+  };
+
+  // Preset-URLs für die Quick-Range-pills (option #27). Computed once
+  // in UTC weil die DB ebenfalls in UTC arbeitet — see the toplevel
+  // doctring on timezone-konvention im queries-modul. activePreset
+  // wird via deep-compare gegen filters.from/to bestimmt.
+  const presets = computeDatePresets();
+  const activePreset = detectActivePreset(filters.from, filters.to, presets);
 
   return (
     <main className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-white p-4 sm:p-6 lg:p-8">
@@ -151,8 +195,43 @@ export default async function WalletPage({ searchParams }: PageProps) {
 
             Weshalb form statt onChange-handler: form mit method=get
             funktioniert ohne JS und ist progressive-enhancement-ready.
-            Server-side zu rendern ist dadurch trivial. */}
-        <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-800 p-4 mb-4">
+            Server-side zu rendern ist dadurch trivial.
+
+            Filter-layout (option #27): Quick-Range-pills oben (preset-
+            ranges als Links), darunter die custom-form mit type-dropdown
+            und date-from/to-inputs. So sehen pilots häufige zeiträume
+            mit einem klick und können trotzdem custom-werte eintragen. */}
+        <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-800 p-4 mb-4 space-y-4">
+          {/* Preset-pills (option #27). Aktive preset bekommt indigo-bg,
+              inaktive haben gray-bg. "Alles" ist ein reset-link der die
+              date-params raus nimmt aber type behält (kein wallet-reset). */}
+          <div>
+            <p className="text-xs uppercase tracking-wider text-gray-500 mb-2">
+              Zeitraum
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <PresetPill
+                label="Alles"
+                href={buildFilterUrl({ ...filters, from: undefined, to: undefined })}
+                active={activePreset === "all"}
+              />
+              {presets.map((p) => (
+                <PresetPill
+                  key={p.key}
+                  label={p.label}
+                  href={buildFilterUrl({
+                    ...filters,
+                    from: p.from,
+                    to: p.to,
+                  })}
+                  active={activePreset === p.key}
+                />
+              ))}
+            </div>
+          </div>
+
+          {/* Custom-form: type-dropdown + date-from/to + filter-button.
+              Method=get → form-submit baut URL mit allen feldern. */}
           <form method="get" className="flex flex-wrap items-end gap-4">
             <div className="flex-1 min-w-[200px]">
               <label
@@ -175,13 +254,43 @@ export default async function WalletPage({ searchParams }: PageProps) {
                 ))}
               </select>
             </div>
+            <div className="min-w-[140px]">
+              <label
+                htmlFor="from-filter"
+                className="block text-xs uppercase tracking-wider text-gray-500 mb-1"
+              >
+                Von
+              </label>
+              <input
+                type="date"
+                id="from-filter"
+                name="from"
+                defaultValue={filters.from ?? ""}
+                className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-950 border border-gray-300 dark:border-gray-700 rounded text-sm focus:border-indigo-500 outline-none"
+              />
+            </div>
+            <div className="min-w-[140px]">
+              <label
+                htmlFor="to-filter"
+                className="block text-xs uppercase tracking-wider text-gray-500 mb-1"
+              >
+                Bis
+              </label>
+              <input
+                type="date"
+                id="to-filter"
+                name="to"
+                defaultValue={filters.to ?? ""}
+                className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-950 border border-gray-300 dark:border-gray-700 rounded text-sm focus:border-indigo-500 outline-none"
+              />
+            </div>
             <button
               type="submit"
               className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-sm font-semibold transition"
             >
               Filtern
             </button>
-            {typeFilter && (
+            {hasAnyFilter && (
               <Link
                 href="/wallet"
                 className="px-4 py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded text-sm transition"
@@ -205,7 +314,7 @@ export default async function WalletPage({ searchParams }: PageProps) {
           {txList.rows.length === 0 ? (
             <EmptyState
               hasWallet={stats.hasWallet}
-              filtered={typeFilter !== undefined}
+              filtered={hasAnyFilter}
             />
           ) : (
             <>
@@ -299,11 +408,12 @@ export default async function WalletPage({ searchParams }: PageProps) {
               {/* Pagination. Nur zeigen wenn mehr als eine seite. Page-
                   numerierung 1-based für UI (← prev / Seite X von Y / next →),
                   intern via skip = (page-1)*PAGE_SIZE.
-                  Filter-state via type wird in den prev/next-URLs erhalten. */}
+                  Filter-state (type + from + to) wird in den prev/next-URLs
+                  über buildFilterUrl(filters, page) erhalten. */}
               {totalPages > 1 && (
                 <div className="px-4 py-3 border-t border-gray-200 dark:border-gray-800 flex items-center justify-between">
                   <PaginationLink
-                    href={buildPageUrl(pageNum - 1, typeFilter)}
+                    href={buildFilterUrl(filters, pageNum - 1)}
                     disabled={!hasPrevPage}
                     label="← Zurück"
                   />
@@ -311,7 +421,7 @@ export default async function WalletPage({ searchParams }: PageProps) {
                     Seite {pageNum} von {totalPages}
                   </p>
                   <PaginationLink
-                    href={buildPageUrl(pageNum + 1, typeFilter)}
+                    href={buildFilterUrl(filters, pageNum + 1)}
                     disabled={!hasNextPage}
                     label="Weiter →"
                   />
@@ -434,16 +544,187 @@ function PaginationLink({ href, disabled, label }: PaginationLinkProps) {
 }
 
 /**
- * URL-builder für pagination-links. Behält den type-filter wenn gesetzt,
- * setzt page nur wenn !=1 (sauberere URLs für die häufigsten cases).
+ * Filter-bag für die Wallet-page (option #27).
+ *
+ * Type, from, to als string-fields (raw URL-form, vor Parsing zu Date).
+ * URL-builder akzeptieren diese shape direkt — convenient weil die
+ * params 1:1 als querystring-segmente serialisiert werden können ohne
+ * jedes mal Date.toISOString().slice(0,10) aufzurufen.
  */
-function buildPageUrl(
-  page: number,
-  type: TransactionType | undefined,
-): string {
-  const params = new URLSearchParams();
-  if (page > 1) params.set("page", String(page));
-  if (type) params.set("type", type);
-  const qs = params.toString();
+interface WalletFilters {
+  type?: TransactionType;
+  from?: string;
+  to?: string;
+}
+
+/**
+ * Date-preset für die Quick-Range-pills (option #27).
+ *
+ * `key` ist die identity (für `detectActivePreset`), `label` der display-
+ * string. `from` und `to` sind YYYY-MM-DD-strings die ohne Re-Parse direkt
+ * in die URL gehen.
+ */
+interface DatePreset {
+  key: string;
+  label: string;
+  from: string;
+  to: string;
+}
+
+/**
+ * Strict YYYY-MM-DD-parser (option #27). Returnt null bei jedem invaliden
+ * input — invalid dates, zu wenig digits, leere strings, undefined.
+ *
+ * Strict-validation matters weil ein invalid date implicit 1970 oder
+ * NaN werden würde, was queries silent verzerrt. Lieber explicit null
+ * und der caller ignoriert den filter, als heimlich falsche ranges
+ * zu queryen.
+ *
+ * Alle dates werden als UTC-midnight interpretiert — siehe top-of-file
+ * docstring im queries-modul. Browsing/UI darf das in lokaler-zeit
+ * formatieren, aber DB-vergleich ist UTC.
+ */
+function parseIsoDateUtc(s: string | undefined): Date | null {
+  if (!s) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  const [y, m, d] = s.split("-").map((p) => parseInt(p, 10));
+  // Date.UTC validates roughly via getUTC*: invalid dates wie 2026-02-30
+  // werden zu 2026-03-02 normalisiert. Wir checken dass nach roundtrip
+  // die werte gleich bleiben — sonst ist's ein invalid-date.
+  const ts = Date.UTC(y, m - 1, d);
+  if (Number.isNaN(ts)) return null;
+  const dt = new Date(ts);
+  if (
+    dt.getUTCFullYear() !== y ||
+    dt.getUTCMonth() !== m - 1 ||
+    dt.getUTCDate() !== d
+  ) {
+    return null;
+  }
+  return dt;
+}
+
+/**
+ * Compute YYYY-MM-DD strings für die 3 standard-presets (option #27):
+ * "Diesen Monat" / "Letzter Monat" / "Letzte 30 Tage".
+ *
+ * Alle UTC-anchored. "Diesen Monat" geht vom 1. des aktuellen monats
+ * bis heute (inklusive). "Letzter Monat" 1. des vorigen monats bis
+ * letzter tag des vorigen monats. "Letzte 30 Tage" today-29 bis today.
+ *
+ * Berechnung jedes-render statt cache: günstig (3 Date-konstrukte) und
+ * verlässlich beim tagewechsel (server-component re-rendert pro request).
+ */
+function computeDatePresets(): DatePreset[] {
+  const now = new Date();
+  const todayY = now.getUTCFullYear();
+  const todayM = now.getUTCMonth();
+  const todayD = now.getUTCDate();
+
+  const fmt = (d: Date) =>
+    `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+
+  // Diesen Monat: 1. → heute
+  const thisMonthFrom = new Date(Date.UTC(todayY, todayM, 1));
+  const thisMonthTo = new Date(Date.UTC(todayY, todayM, todayD));
+
+  // Letzter Monat: 1. des prev-monats → letzter tag des prev-monats
+  const lastMonthFrom = new Date(Date.UTC(todayY, todayM - 1, 1));
+  // Letzter tag = day=0 des nächsten monats (getUTCDate auf -1 gibt
+  // letzten tag des prev-monats zurück, JS-quirk).
+  const lastMonthTo = new Date(Date.UTC(todayY, todayM, 0));
+
+  // Letzte 30 Tage: today-29 → today (= 30 days inclusive)
+  const last30From = new Date(Date.UTC(todayY, todayM, todayD - 29));
+  const last30To = new Date(Date.UTC(todayY, todayM, todayD));
+
+  return [
+    {
+      key: "this-month",
+      label: "Diesen Monat",
+      from: fmt(thisMonthFrom),
+      to: fmt(thisMonthTo),
+    },
+    {
+      key: "last-month",
+      label: "Letzter Monat",
+      from: fmt(lastMonthFrom),
+      to: fmt(lastMonthTo),
+    },
+    {
+      key: "last-30-days",
+      label: "Letzte 30 Tage",
+      from: fmt(last30From),
+      to: fmt(last30To),
+    },
+  ];
+}
+
+/**
+ * Match die aktiven URL-from/to gegen die known presets (option #27).
+ *
+ * Returnt "all" wenn beide undefined sind, sonst den preset.key wenn
+ * exact-match, sonst null (= custom-range, kein preset highlight).
+ *
+ * Match ist string-equality auf YYYY-MM-DD — kein date-compare nötig
+ * weil presets und URL-werte beide in derselben format sind.
+ */
+function detectActivePreset(
+  from: string | undefined,
+  to: string | undefined,
+  presets: DatePreset[],
+): string | null {
+  if (!from && !to) return "all";
+  for (const p of presets) {
+    if (p.from === from && p.to === to) return p.key;
+  }
+  return null;
+}
+
+/**
+ * URL-builder für pagination + filter-links (option #27).
+ *
+ * Nimmt die filter-bag und einen optional page-number. Skipped page=1
+ * (defaults zu 1) und alle undefined fields, damit die URL kompakt
+ * bleibt. Type wird als string serialisiert weil URLSearchParams
+ * sowieso strings expects.
+ *
+ * Empty querystring → "/wallet" ohne trailing "?", für saubere URLs.
+ */
+function buildFilterUrl(filters: WalletFilters, page = 1): string {
+  const sp = new URLSearchParams();
+  if (page > 1) sp.set("page", String(page));
+  if (filters.type) sp.set("type", filters.type);
+  if (filters.from) sp.set("from", filters.from);
+  if (filters.to) sp.set("to", filters.to);
+  const qs = sp.toString();
   return qs ? `/wallet?${qs}` : "/wallet";
+}
+
+/**
+ * Preset-pill für die Quick-Range-row (option #27).
+ *
+ * Active = indigo-bg + white text (deutlich hervorgehoben), inactive
+ * = neutral gray-bg. Plain-link ohne JS, browser-back-friendly.
+ */
+function PresetPill({
+  label,
+  href,
+  active,
+}: {
+  label: string;
+  href: string;
+  active: boolean;
+}) {
+  const classes = active
+    ? "bg-indigo-600 text-white border-indigo-600"
+    : "bg-gray-50 dark:bg-gray-950 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-700 hover:border-indigo-400 dark:hover:border-indigo-500";
+  return (
+    <Link
+      href={href}
+      className={`px-3 py-1.5 rounded-full border text-xs font-medium transition ${classes}`}
+    >
+      {label}
+    </Link>
+  );
 }
