@@ -6,6 +6,7 @@ import { useState, useEffect, useRef, type MouseEvent as ReactMouseEvent } from 
 import { ThemeToggle } from './Theme';
 import { useUIStore } from '@/lib/stores/ui-store';
 import { navigateWithTransition } from '@/lib/view-transitions';
+import { KeyboardShortcutsManager } from './keyboard-shortcuts-manager';
 
 export type ShellUser = {
   name: string | null;
@@ -131,6 +132,13 @@ export function AppShell({ user, children }: Props) {
 
   return (
     <div className="flex flex-col h-screen">
+      {/* Track 4 #53: Global keyboard-shortcut manager. Mounted hier
+          (innerhalb shell, nach auth-gate) damit shortcuts NUR für
+          authentifizierte user mit shell aktiv sind — auf der landing/
+          login-page brauchen wir kein `g d` nav. Renders null bis der
+          help-dialog (`?`) geöffnet wird. */}
+      <KeyboardShortcutsManager />
+
       {/* Skip-to-content link für keyboard-user (Track 3 #11.2.4 Phase 5
           a11y-polish). Default visuell versteckt (transform: translateY(-100%)
           via .skip-to-content class in globals.css), wird sichtbar wenn ein
