@@ -11,6 +11,7 @@ import { AwardsCraftingDashboard } from './_widgets/awards-crafting-dashboard';
 import { NotificationCenter } from './_widgets/notification-center';
 import { TourCalendar } from './_widgets/tour-calendar';
 import { AirportTrafficStats } from './_widgets/airport-traffic-stats';
+import { AdminQuickActions } from './_widgets/admin-quick-actions';
 
 /**
  * Track 3 #11.2.5 v1-Full Innovation-Items aus
@@ -75,6 +76,13 @@ export default async function AdminDashboardPage({
             Plattform-weite Verwaltung — System-Settings, Cross-Airline-Tools, Catalog-Curation
           </p>
         </header>
+
+        {/* Track 4 #49: Quick-Actions panel — surface offene catalog-requests
+            + heute-entschieden direkt auf der landing, statt admin erst auf
+            "Catalog-Requests" klicken zu lassen um zu sehen ob was offen ist. */}
+        <section className="mb-10">
+          <AdminQuickActions />
+        </section>
 
         <section className="mb-10">
           <h2 className="text-lg font-semibold mb-4">Verwaltung</h2>
