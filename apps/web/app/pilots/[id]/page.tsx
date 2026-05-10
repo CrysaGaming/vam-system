@@ -161,6 +161,27 @@ export default async function PilotProfile({
   const bestLandingFpm = landingStats._max.landingRateFpm;
   const landingSampleCount = landingStats._count.landingRateFpm;
 
+  // === Track 4 #58 (Section K): Landing-Rate Sparkline ===
+  //
+  // Trend der letzten 20 landing-rates für visual-trend. PIREPs sortiert
+  // nach submittedAt asc (älteste zuerst → links nach rechts wie zeitlich
+  // erwartet). Nur PIREPs mit landingRateFpm gesetzt.
+  //
+  // Werte als rohzahlen für die SVG-rendering im JSX. Werte normalisieren
+  // im JSX-block (nicht hier) damit min/max nur einmal berechnet werden.
+  const landingTrend = await prisma.pirep.findMany({
+    where: {
+      userId: pilot.id,
+      status: 'Approved',
+      landingRateFpm: { not: null },
+    },
+    select: { landingRateFpm: true, submittedAt: true },
+    orderBy: { submittedAt: 'desc' },
+    take: 20,
+  });
+  // Reverse für left-to-right chronologie im sparkline
+  const landingTrendChronological = landingTrend.slice().reverse();
+
   // Beitrittsdauer
   const joinedDays = Math.floor(
     (Date.now() - new Date(pilot.createdAt).getTime()) / (1000 * 60 * 60 * 24)
@@ -746,6 +767,161 @@ export default async function PilotProfile({
             </div>
           </div>
         </section>
+
+        {/* === Track 4 #58 (Section K): Landing-Rate Sparkline ===
+
+            Inline-SVG-trend der letzten bis zu 20 landing-rates. Bewusst
+            klein/sparkline statt vollem chart — die infodichte muss niedrig
+            bleiben damit der profile nicht zur dashboard-page mutiert.
+
+            Render-strategie:
+              - Nur sichtbar wenn mindestens 2 datenpunkte vorhanden sind
+                (single-point sparkline ist sinnlos).
+              - viewBox 100x30, SVG nimmt full container-width via w-full +
+                h-auto (responsive). Höhe also via aspect-ratio.
+              - Punkte werden auf y-axis normalisiert: min/max der window-
+                werte als domain. Bessere landings (höhere fpm-werte, näher
+                an 0) → oben im chart. Damit liest sich's intuitiv
+                ('aufwärts' = besser).
+              - Polyline-stroke + zusätzliche dots an jedem datapoint für
+                granularität.
+              - "Trend-arrow" rechts neben dem SVG: vergleicht erste-hälfte
+                vs zweite-hälfte durchschnitt → emerald-up wenn verbessert,
+                amber-down wenn verschlechtert, gray-equal sonst.
+
+            Edge: nur ein einziger datapoint → wir rendern nicht, weil
+            ein punkt-trend bedeutungslos ist (das ist ja schon im hero). */}
+        {landingTrendChronological.length >= 2 && (
+          <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6 mb-8">
+            <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+              <h2 className="text-sm uppercase tracking-wider text-gray-500">
+                📉 Landing-Trend
+              </h2>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Letzte {landingTrendChronological.length} Landings
+              </p>
+            </div>
+
+            {(() => {
+              // Werte extrahieren (TS: alle landingRateFpm sind non-null nach
+              // der where-clause, aber TS prüft das nicht — also assertion).
+              const values = landingTrendChronological.map(
+                (p) => p.landingRateFpm!,
+              );
+              const min = Math.min(...values);
+              const max = Math.max(...values);
+              const range = max - min || 1; // /0 guard für all-identical
+
+              // SVG-coords: x evenly distributed 0..100, y inverted weil SVG-
+              // y-axis nach unten zeigt aber wir wollen "höher = besser =
+              // weiter oben". value=max → y=2 (oben), value=min → y=28 (unten).
+              // 2/28 margins für stroke-thickness.
+              const points = values.map((v, i) => {
+                const x = (i / (values.length - 1)) * 100;
+                const normY = (v - min) / range; // 0..1, max=1
+                const y = 28 - normY * 26; // 28→2
+                return { x, y, v };
+              });
+
+              const polylinePoints = points
+                .map((p) => `${p.x},${p.y}`)
+                .join(' ');
+
+              // Trend-arrow: erste hälfte avg vs zweite hälfte avg
+              const half = Math.floor(values.length / 2);
+              const firstHalfAvg =
+                values.slice(0, half).reduce((s, v) => s + v, 0) / half;
+              const secondHalfAvg =
+                values.slice(half).reduce((s, v) => s + v, 0) /
+                (values.length - half);
+              const trendDelta = secondHalfAvg - firstHalfAvg;
+              // Threshold: nur wenn delta >50 fpm bedeutet das nennenswerten
+              // trend. Drunter ist's noise.
+              const trendDirection =
+                trendDelta > 50
+                  ? 'better'
+                  : trendDelta < -50
+                    ? 'worse'
+                    : 'flat';
+
+              return (
+                <div className="flex items-center gap-4">
+                  <svg
+                    viewBox="0 0 100 30"
+                    preserveAspectRatio="none"
+                    className="flex-1 h-12 w-full"
+                    aria-label="Landing-rate trend"
+                  >
+                    {/* Center-line for visual reference */}
+                    <line
+                      x1="0"
+                      y1="15"
+                      x2="100"
+                      y2="15"
+                      stroke="currentColor"
+                      strokeOpacity="0.1"
+                      strokeWidth="0.5"
+                    />
+                    {/* Polyline */}
+                    <polyline
+                      points={polylinePoints}
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="text-indigo-500 dark:text-indigo-400"
+                    />
+                    {/* Dots at each point */}
+                    {points.map((p, i) => (
+                      <circle
+                        key={i}
+                        cx={p.x}
+                        cy={p.y}
+                        r="1"
+                        className="fill-indigo-600 dark:fill-indigo-400"
+                      >
+                        <title>
+                          {Math.round(p.v)} fpm
+                        </title>
+                      </circle>
+                    ))}
+                  </svg>
+
+                  {/* Trend-arrow */}
+                  <div className="shrink-0 text-center">
+                    <p
+                      className={`text-2xl leading-none ${
+                        trendDirection === 'better'
+                          ? 'text-emerald-500'
+                          : trendDirection === 'worse'
+                            ? 'text-amber-500'
+                            : 'text-gray-400'
+                      }`}
+                      aria-label={
+                        trendDirection === 'better'
+                          ? 'Verbessert sich'
+                          : trendDirection === 'worse'
+                            ? 'Verschlechtert sich'
+                            : 'Stabil'
+                      }
+                    >
+                      {trendDirection === 'better'
+                        ? '↗'
+                        : trendDirection === 'worse'
+                          ? '↘'
+                          : '→'}
+                    </p>
+                    <p className="text-[10px] text-gray-500 dark:text-gray-500 mt-1 font-mono">
+                      {trendDelta >= 0 ? '+' : ''}
+                      {Math.round(trendDelta)}
+                    </p>
+                  </div>
+                </div>
+              );
+            })()}
+          </section>
+        )}
 
         {/* Top-Routen */}
         {topRoutesValid.length > 0 && (
