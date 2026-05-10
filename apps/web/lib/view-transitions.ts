@@ -118,11 +118,35 @@ export function navigateWithTransition(router: RouterLike, href: string): void {
   // TypeScript: startViewTransition existiert in lib.dom seit TS 5.4 als
   // Document.prototype.startViewTransition. Wir casten defensiv falls die
   // user-tsconfig ein älteres lib-target nutzt.
+  //
+  // # Tab-visibility-fallback
+  //
+  // Wenn das tab im hintergrund ist (visibilityState === 'hidden'), wirft
+  // chromium IMMER einen InvalidStateError mit der irreführenden message
+  // "Transition was aborted because of invalid state" (siehe react bug
+  // #34098). In dem fall macht eine view-transition eh keinen sinn — es
+  // gibt keinen sichtbaren paint — also skippen wir komplett.
+  if (document.visibilityState === 'hidden') {
+    router.push(href);
+    return;
+  }
+
+  // Typ-cast: ViewTransition ist seit TS 5.4 in lib.dom verfügbar, aber
+  // hier minimal getypt damit wir nicht auf das genaue lib-target
+  // angewiesen sind.
+  type ViewTransitionLike = {
+    readonly ready: Promise<void>;
+    readonly finished: Promise<void>;
+    readonly updateCallbackDone: Promise<void>;
+    skipTransition(): void;
+  };
   const doc = document as Document & {
-    startViewTransition: (cb: () => Promise<void> | void) => unknown;
+    startViewTransition: (
+      cb: () => Promise<void> | void,
+    ) => ViewTransitionLike;
   };
 
-  doc.startViewTransition(async () => {
+  const transition = doc.startViewTransition(async () => {
     router.push(href);
     // Ein RAF-frame wartet auf den nächsten paint-cycle = react hat
     // commit-chance gehabt. Zwei frames würden noch sicherer sein
@@ -131,5 +155,44 @@ export function navigateWithTransition(router: RouterLike, href: string): void {
     await new Promise<void>((resolve) =>
       requestAnimationFrame(() => resolve()),
     );
+  });
+
+  // # Promise-rejection-handling (CRITICAL)
+  //
+  // Die spec sagt explizit: "The ready promise and update callback done
+  // promise are immediately created, so rejections will cause unhandled-
+  // rejections unless they're handled, even if the getters such as
+  // updateCallbackDone are not accessed."
+  // (https://drafts.csswg.org/css-view-transitions-1/)
+  //
+  // Diese rejections sind in unserem fall HARMLOS — sie passieren wenn:
+  //
+  //   - InvalidStateError: user klickt mehrmals schnell hintereinander,
+  //     oder tab wird grade in den hintergrund verschoben während die
+  //     transition läuft (chromium nutzt die selbe message für beide
+  //     fälle, siehe react bug #34098). Die navigation läuft trotzdem
+  //     normal durch.
+  //   - TimeoutError: DOM-update braucht zu lange (z.B. langsame RSC-
+  //     fetch). Die transition wird abgebrochen, aber die navigation
+  //     committed normal (siehe react bug #35015).
+  //   - AbortError: eine neue startViewTransition() wurde aufgerufen
+  //     während die alte noch lief — die alte wird gecancelt.
+  //
+  // Vorher: diese rejections wurden NIRGENDS gecatched → tauchen als
+  // unhandled exceptions im console auf (auf jeder navigation potentiell
+  // ein bis vier errors). Jetzt: `.catch(() => {})` markiert die promises
+  // als handled, ohne weitere aktion — der browser hat schon das richtige
+  // gemacht (transition skippen, navigation läuft normal).
+  //
+  // Wichtig: wir catchen BEIDE promises (`.ready` UND `.finished`) weil
+  // beide unabhängig rejecten können. `.finished` für TimeoutError + post-
+  // animation cleanup, `.ready` für InvalidStateError im snapshot-capture.
+  // updateCallbackDone catchen wir nicht weil das den router.push-error
+  // verstecken würde wenn next.js mal hart failed.
+  transition.ready.catch(() => {
+    // Intentionally empty — view-transition harmlos abgebrochen.
+  });
+  transition.finished.catch(() => {
+    // Intentionally empty — view-transition harmlos abgebrochen.
   });
 }
