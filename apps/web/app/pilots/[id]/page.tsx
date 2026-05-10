@@ -223,6 +223,14 @@ export default async function PilotProfile({
           </Link>
           {isMe && (
             <Link
+              href="/me/year-in-review"
+              className="px-4 py-2 bg-gradient-to-br from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white rounded text-sm transition shadow-sm"
+            >
+              🎁 Year-in-Review →
+            </Link>
+          )}
+          {isMe && (
+            <Link
               href="/dashboard"
               className="px-4 py-2 bg-gray-200 hover:bg-gray-300 dark:bg-gray-800 dark:hover:bg-gray-700 rounded text-sm transition"
             >
