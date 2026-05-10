@@ -29,6 +29,14 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 interface LiveMapFilters {
   /** Nur eigene-airline-pilots zeigen (cross-VA-snooping deaktivieren). */
   memberOnly: boolean;
+  /**
+   * Track 4 #44 (Section H): Nur live-streaming pilots zeigen. Filtert
+   * member-marker auf `pilot.twitchIsLive === true`. Public-pilots
+   * (VATSIM/IVAO ohne member-link) werden komplett ausgeblendet weil
+   * sie kein twitchIsLive-feld haben — analog zum memberOnly-pattern.
+   * Default false damit niemand beim ersten besuch eine leere map sieht.
+   */
+  liveStreamOnly: boolean;
   /** VATSIM-pilots auf der map. */
   showVatsim: boolean;
   /** IVAO-pilots auf der map. */
@@ -76,6 +84,7 @@ interface LiveMapState extends LiveMapFilters {
  */
 export const DEFAULT_FILTERS: LiveMapFilters = {
   memberOnly: false,
+  liveStreamOnly: false,
   showVatsim: true,
   showIvao: true,
   showAirports: true,

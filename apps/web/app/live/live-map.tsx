@@ -1135,6 +1135,14 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
       return { type: 'FeatureCollection' as const, features };
     }
 
+    // Track 4 #44 (Section H): liveStreamOnly impliziert auch member-only.
+    // Public pilots auf VATSIM/IVAO haben keinen Twitch-link (kein VAM-
+    // account) — wenn der user gezielt nach streamern sucht, sind das
+    // alles noise. Early-return mit empty features = layer rendert nichts.
+    if (filters.liveStreamOnly) {
+      return { type: 'FeatureCollection' as const, features };
+    }
+
     if (filters.showVatsim) {
       for (const p of publicPilots.vatsim) {
         const isMember = sessions.some(
@@ -1794,6 +1802,13 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
           .filter((s) => {
             if (s.network === 'VATSIM' && !filters.showVatsim) return false;
             if (s.network === 'IVAO' && !filters.showIvao) return false;
+            // Track 4 #44 (Section H): liveStreamOnly filtert auf
+            // pilot.twitchIsLive === true. Member ohne Twitch-link oder
+            // member-die-grade-nicht-streamen werden ausgeblendet — wenn
+            // der user gezielt nach streamern sucht, sollen wirklich nur
+            // die übrig bleiben. Pattern parallel zu memberOnly (siehe
+            // publicGeoJson early-return).
+            if (filters.liveStreamOnly && !s.pilot.twitchIsLive) return false;
             return true;
           })
           .map((session) => (
@@ -2298,6 +2313,20 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
             checked={filters.memberOnly}
             onChange={(v) => setFilter('memberOnly', v)}
             color="#f97316"
+          />
+          {/* Track 4 #44 (Section H): Live-Streamer-only toggle. Roter
+              ton passt zum Twitch-LIVE-badge der inline auf den session-
+              cards rendert (#dc2626). Filtert sowohl member-marker als
+              auch public-pilots (siehe filter im sessions.filter() und
+              publicGeoJson early-return). Quasi ein "Twitch-discovery"-
+              modus — zeigt nur pilots die grade live sind, ideal für
+              den moment in dem man kurz checken will "wer streamt grade
+              einen flug, da kann ich rein-schauen". */}
+          <FilterToggle
+            label="🔴 Live-Streamer"
+            checked={filters.liveStreamOnly}
+            onChange={(v) => setFilter('liveStreamOnly', v)}
+            color="#dc2626"
           />
           <FilterToggle
             label="VATSIM"
