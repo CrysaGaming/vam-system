@@ -2,6 +2,7 @@ import { auth } from '@/auth';
 import { redirect } from 'next/navigation';
 import { Prisma, prisma, BookingState } from '@vam/db';
 import Link from 'next/link';
+import { EmptyState } from '@/components/empty-state';
 
 // Mirror of the helper in [id]/page.tsx — kept duplicated here intentionally
 // to avoid premature extraction. If a third caller appears, hoist into a
@@ -218,33 +219,29 @@ export default async function BookingsList({
         />
 
         {bookings.length === 0 ? (
-          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-12 text-center">
-            {filterActive ? (
-              <>
-                <p className="text-gray-500 dark:text-gray-400 mb-4">
-                  Keine Bookings entsprechen dem Filter.
-                </p>
-                <Link
-                  href="/bookings"
-                  className="inline-block px-6 py-3 bg-indigo-600 hover:bg-indigo-700 rounded font-medium transition text-white"
-                >
-                  Filter zurücksetzen
-                </Link>
-              </>
-            ) : (
-              <>
-                <p className="text-gray-500 dark:text-gray-400 mb-4">
-                  Du hast noch keine Bookings angelegt.
-                </p>
-                <Link
-                  href="/bookings/new"
-                  className="inline-block px-6 py-3 bg-indigo-600 hover:bg-indigo-700 rounded font-medium transition text-white"
-                >
-                  Erstes Booking anlegen →
-                </Link>
-              </>
-            )}
-          </div>
+          // Track 4 #52: migrated zur reusable <EmptyState /> component.
+          // Branch zwischen "filter aktiv aber keine matches" und "noch nie
+          // ein booking erstellt" bleibt erhalten — andere intent, andere
+          // CTA.
+          filterActive ? (
+            <EmptyState
+              variant="info"
+              icon="🔍"
+              title="Keine Bookings entsprechen dem Filter"
+              description="Setze den Filter zurück oder ändere die Suchbegriffe."
+              primaryAction={{ label: 'Filter zurücksetzen', href: '/bookings' }}
+            />
+          ) : (
+            <EmptyState
+              icon="📋"
+              title="Du hast noch keine Bookings angelegt"
+              description="Erstelle deine erste Buchung um einen Flug zu reservieren."
+              primaryAction={{
+                label: 'Erstes Booking anlegen →',
+                href: '/bookings/new',
+              }}
+            />
+          )
         ) : (
           <div className="space-y-8">
             {activeBookings.length > 0 && (
