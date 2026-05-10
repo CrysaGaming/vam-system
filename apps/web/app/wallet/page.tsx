@@ -125,10 +125,15 @@ export default async function WalletPage({ searchParams }: PageProps) {
     toDate,
   };
   const sparklineMonthAnchors = computeSparklineMonths(6);
-  const [stats, txList, sparklineData] = await Promise.all([
+  const [stats, txList, sparklineData, twitchRevenue] = await Promise.all([
     getUserWalletExtended(user.id),
     getUserTransactions(user.id, txOptions),
     fetchMonthlyNetSeries(user.id, sparklineMonthAnchors),
+    // Track 4 #45 (Section H): Twitch-revenue-breakdown. Nur fetchen wenn
+    // user Twitch verbunden hat — sonst leere stats. Splittet REVENUE_TICKET_TWITCH
+    // (passenger-tickets von twitch-viewern) und REVENUE_STREAM_REWARD
+    // (subs/cheers/gifts) damit der user beide income-streams einzeln sieht.
+    user.twitchUserId ? fetchTwitchRevenueBreakdown(user.id) : Promise.resolve(null),
   ]);
 
   const totalPages = Math.max(1, Math.ceil(txList.totalCount / PAGE_SIZE));
@@ -210,6 +215,71 @@ export default async function WalletPage({ searchParams }: PageProps) {
               </p>
             </div>
             <NetSparkline data={sparklineData} />
+          </div>
+        )}
+
+        {/* Track 4 #45 (Section H): Twitch-Revenue-Breakdown. Sichtbar wenn
+            der user Twitch verbunden hat UND mindestens eine twitch-tx
+            existiert (lifetime > 0). Zeigt die zwei revenue-streams
+            getrennt: Twitch-Ticket-revenue (passenger-bookings von viewern
+            via twitch-event/promo) vs. Stream-Belohnung (subs/cheers/
+            gifts/hype_trains direkt von twitch). Plus 30d-aktivität und
+            tx-counts pro typ. Purple-toned styling matched twitch-brand. */}
+        {twitchRevenue && twitchRevenue.lifetimeTotal.gt(0) && (
+          <div className="bg-gradient-to-br from-purple-50 to-purple-100/50 dark:from-purple-950/30 dark:to-purple-900/10 rounded-lg p-4 border border-purple-200 dark:border-purple-500/30 mb-8">
+            <div className="flex items-baseline justify-between mb-3 flex-wrap gap-2">
+              <div className="flex items-center gap-2">
+                <span className="text-lg" aria-hidden="true">📺</span>
+                <p className="text-xs uppercase tracking-wider text-purple-700 dark:text-purple-300 font-semibold">
+                  Twitch-Revenue
+                </p>
+              </div>
+              <p className="text-xs text-purple-600/70 dark:text-purple-400/70">
+                Lifetime · letzte 30 Tage
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {/* Twitch-Ticket-revenue (passenger-bookings via twitch). */}
+              <TwitchRevenueCard
+                label="🎫 Twitch-Tickets"
+                lifetime={twitchRevenue.ticketLifetime}
+                recent30d={twitchRevenue.ticketRecent30}
+                count={twitchRevenue.ticketCount}
+                description="Passenger-Bookings via Stream"
+              />
+              {/* Stream-rewards (subs/cheers/gifts). */}
+              <TwitchRevenueCard
+                label="💎 Stream-Belohnungen"
+                lifetime={twitchRevenue.rewardLifetime}
+                recent30d={twitchRevenue.rewardRecent30}
+                count={twitchRevenue.rewardCount}
+                description="Subs · Cheers · Gifts · Hype-Trains"
+              />
+            </div>
+
+            <div className="mt-3 pt-3 border-t border-purple-200/50 dark:border-purple-500/20 flex items-baseline justify-between flex-wrap gap-2">
+              <p className="text-xs text-purple-700 dark:text-purple-300">
+                <strong>Gesamt-Twitch-Revenue:</strong>{' '}
+                <span className="font-mono font-bold tabular-nums">
+                  {formatVamCurrency(twitchRevenue.lifetimeTotal)}
+                </span>
+                {twitchRevenue.recent30Total.gt(0) && (
+                  <span className="text-purple-600/70 dark:text-purple-400/70 ml-2">
+                    · 30d:{' '}
+                    <span className="font-mono">
+                      {formatVamCurrency(twitchRevenue.recent30Total)}
+                    </span>
+                  </span>
+                )}
+              </p>
+              <Link
+                href={buildFilterUrl({ ...filters, type: undefined, cat: 'revenue', from: undefined, to: undefined })}
+                className="text-xs text-purple-700 dark:text-purple-300 hover:underline"
+              >
+                Alle Revenue-Einträge →
+              </Link>
+            </div>
           </div>
         )}
 
@@ -778,6 +848,165 @@ async function fetchMonthlyNetSeries(
     ...a,
     net: aggregates[i]._sum.amount ?? new Decimal(0),
   }));
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Twitch-Revenue-Breakdown (Track 4 #45, Section H)
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Aggregierte Twitch-revenue-stats pro pilot. Splittet die zwei
+ * income-streams (passenger-tickets vs. stream-rewards) und liefert
+ * sowohl lifetime-summen als auch 30d-window für ein "trend"-gefühl.
+ *
+ * Counts sind tx-anzahlen (nicht passenger-anzahlen) — ein einzelner
+ * stream-event mit vielen subs ist eine tx. Reicht für die UI um zu
+ * zeigen "wie viele events bisher".
+ */
+interface TwitchRevenueBreakdown {
+  ticketLifetime: Decimal;
+  ticketRecent30: Decimal;
+  ticketCount: number;
+  rewardLifetime: Decimal;
+  rewardRecent30: Decimal;
+  rewardCount: number;
+  /** Summe beider streams lifetime — vereinfacht das UI-rendering. */
+  lifetimeTotal: Decimal;
+  /** Summe beider streams letzten 30 Tage. */
+  recent30Total: Decimal;
+}
+
+/**
+ * Lädt die Twitch-revenue-aggregates für einen user. Sechs parallele
+ * aggregates: pro stream (ticket/reward) jeweils lifetime-sum, 30d-sum
+ * und count. Wallet-lookup analog zu fetchMonthlyNetSeries — wenn der
+ * user noch keine wallet hat, returnen wir zero-werte (UI versteckt
+ * die section dann via lifetimeTotal > 0 check).
+ *
+ * Performance: 6 aggregates parallel auf indexed (walletId, type,
+ * createdAt) sind <100ms total. Wir laden bewusst aggregates statt
+ * findMany damit auch streamer mit hunderten tx schnell rendern.
+ */
+async function fetchTwitchRevenueBreakdown(
+  userId: string,
+): Promise<TwitchRevenueBreakdown> {
+  const ZERO: TwitchRevenueBreakdown = {
+    ticketLifetime: new Decimal(0),
+    ticketRecent30: new Decimal(0),
+    ticketCount: 0,
+    rewardLifetime: new Decimal(0),
+    rewardRecent30: new Decimal(0),
+    rewardCount: 0,
+    lifetimeTotal: new Decimal(0),
+    recent30Total: new Decimal(0),
+  };
+
+  const wallet = await prisma.wallet.findFirst({
+    where: { ownerType: "USER", ownerUserId: userId, walletType: "primary" },
+    select: { id: true },
+  });
+  if (!wallet) return ZERO;
+
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+  const [
+    ticketLifetimeAgg,
+    ticketRecent30Agg,
+    rewardLifetimeAgg,
+    rewardRecent30Agg,
+  ] = await Promise.all([
+    prisma.transaction.aggregate({
+      where: { walletId: wallet.id, type: "REVENUE_TICKET_TWITCH" },
+      _sum: { amount: true },
+      _count: { _all: true },
+    }),
+    prisma.transaction.aggregate({
+      where: {
+        walletId: wallet.id,
+        type: "REVENUE_TICKET_TWITCH",
+        createdAt: { gte: thirtyDaysAgo },
+      },
+      _sum: { amount: true },
+    }),
+    prisma.transaction.aggregate({
+      where: { walletId: wallet.id, type: "REVENUE_STREAM_REWARD" },
+      _sum: { amount: true },
+      _count: { _all: true },
+    }),
+    prisma.transaction.aggregate({
+      where: {
+        walletId: wallet.id,
+        type: "REVENUE_STREAM_REWARD",
+        createdAt: { gte: thirtyDaysAgo },
+      },
+      _sum: { amount: true },
+    }),
+  ]);
+
+  const ticketLifetime = ticketLifetimeAgg._sum.amount ?? new Decimal(0);
+  const ticketRecent30 = ticketRecent30Agg._sum.amount ?? new Decimal(0);
+  const rewardLifetime = rewardLifetimeAgg._sum.amount ?? new Decimal(0);
+  const rewardRecent30 = rewardRecent30Agg._sum.amount ?? new Decimal(0);
+
+  return {
+    ticketLifetime,
+    ticketRecent30,
+    ticketCount: ticketLifetimeAgg._count._all,
+    rewardLifetime,
+    rewardRecent30,
+    rewardCount: rewardLifetimeAgg._count._all,
+    lifetimeTotal: ticketLifetime.plus(rewardLifetime),
+    recent30Total: ticketRecent30.plus(rewardRecent30),
+  };
+}
+
+/**
+ * Sub-card pro Twitch-revenue-stream (option #45).
+ *
+ * Zeigt: label + (optional) description, lifetime-amount groß, 30d-amount
+ * klein in purple-tint, tx-count rechts. Wenn lifetime=0 ist, zeigt es
+ * trotzdem die zero — die parent-card filtert via lifetimeTotal>0, also
+ * sehen wir hier nur cards in einer revenue-section wo MINDESTENS einer
+ * der beiden streams > 0 ist. Der andere kann legitimerweise 0 sein
+ * (z.B. streamer der noch keine ticket-bookings hatte).
+ */
+function TwitchRevenueCard({
+  label,
+  lifetime,
+  recent30d,
+  count,
+  description,
+}: {
+  label: string;
+  lifetime: Decimal;
+  recent30d: Decimal;
+  count: number;
+  description: string;
+}) {
+  return (
+    <div className="bg-white/60 dark:bg-gray-900/60 rounded-md p-3 border border-purple-200/40 dark:border-purple-500/20">
+      <div className="flex items-baseline justify-between mb-1 gap-2">
+        <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">
+          {label}
+        </p>
+        <p className="text-xs text-purple-600/70 dark:text-purple-400/70 tabular-nums whitespace-nowrap">
+          {count === 1 ? "1 Tx" : `${count} Tx`}
+        </p>
+      </div>
+      <p className="text-lg font-bold font-mono tabular-nums text-purple-700 dark:text-purple-300">
+        {formatVamCurrency(lifetime)}
+      </p>
+      {recent30d.gt(0) && (
+        <p className="text-xs text-purple-600/70 dark:text-purple-400/70 mt-0.5">
+          30d:{" "}
+          <span className="font-mono">{formatVamCurrency(recent30d)}</span>
+        </p>
+      )}
+      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+        {description}
+      </p>
+    </div>
+  );
 }
 
 /**
