@@ -76,6 +76,51 @@ export default async function Dashboard() {
     ? Math.max(0, nextRank.minFlightHours - user.totalFlightHours)
     : 0;
 
+  // === Track 4 #56 (Section K): "This Month" delta-card ===
+  //
+  // Vergleich aktueller monat vs vormonat (gleiche tage-anzahl bis heute).
+  // Wir zählen Approved PIREPs + summieren flightTimeMin in beiden fenstern.
+  //
+  // Fenster-definition: "this month" = ab erstem-des-monats 00:00 lokal bis
+  // jetzt. "last month" = ganzer vormonat. Bewusst NICHT same-day-of-month-
+  // ratio nehmen (das wäre fairer aber komplizierter zu erklären) — die
+  // user-erwartung an "diesen monat vs letzten" ist "wie viel hab ich
+  // bisher diesen monat geschafft, wie viel letzten ganzen monat insgesamt".
+  // Das produziert in monatsmitte zwar einen scheinbar negativen delta, ist
+  // aber semantisch klar.
+  const now = new Date();
+  const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+
+  const [thisMonthStats, lastMonthStats] = await Promise.all([
+    prisma.pirep.aggregate({
+      where: {
+        userId: user.id,
+        status: 'Approved',
+        submittedAt: { gte: thisMonthStart },
+      },
+      _count: { _all: true },
+      _sum: { flightTimeMin: true },
+    }),
+    prisma.pirep.aggregate({
+      where: {
+        userId: user.id,
+        status: 'Approved',
+        submittedAt: { gte: lastMonthStart, lt: thisMonthStart },
+      },
+      _count: { _all: true },
+      _sum: { flightTimeMin: true },
+    }),
+  ]);
+
+  const thisMonthFlights = thisMonthStats._count._all;
+  const lastMonthFlights = lastMonthStats._count._all;
+  const thisMonthHours = (thisMonthStats._sum.flightTimeMin ?? 0) / 60;
+  const lastMonthHours = (lastMonthStats._sum.flightTimeMin ?? 0) / 60;
+
+  const flightsDelta = thisMonthFlights - lastMonthFlights;
+  const hoursDelta = thisMonthHours - lastMonthHours;
+
   // Welle 13D-2: Wallet-card opt-in. Nur sichtbar wenn beide flags ON.
   // Logik gespiegelt zur EconomyCard's success-state in /settings —
   // wallet-features sind LIVE wenn user.economyEnabled && airline.
@@ -223,6 +268,110 @@ export default async function Dashboard() {
                 🏆 <span className="font-semibold text-yellow-600 dark:text-yellow-400">Höchster Rang erreicht!</span>
               </p>
             )}
+          </section>
+        )}
+
+        {/* === Track 4 #56 (Section K): "This Month"-card ===
+
+            Zeigt flights + flight-hours für aktuellen monat vs vormonat
+            als delta-cards. Position bewusst NACH next-rank (das ist der
+            primary-progress) und VOR letzte-pireps (recent-activity).
+
+            Layout: 2-spaltiges grid (flights | hours). Jede zelle zeigt:
+              - großes haupt-value (this-month)
+              - delta-pill (+ oder - vs last-month, color-coded)
+              - micro-label "vs letzter monat (lastMonthValue)"
+
+            Delta-farben:
+              positive (mehr geflogen)  → emerald
+              zero / negative           → gray (keine "rote" warnung,
+                                          weil weniger ≠ schlecht)
+
+            Edge: brandneuer pilot ohne PIREPs → cards mit 0/0/—-display,
+            keine prozent-rechnung (would be NaN/Infinity).
+
+            Monatsname in der überschrift: deutsche locale. */}
+        {user.airline && (
+          <section className="mt-6 bg-white dark:bg-gray-900 rounded-lg p-6 border border-gray-200 dark:border-gray-800">
+            <div className="flex items-baseline justify-between mb-4 flex-wrap gap-2">
+              <h2 className="text-sm uppercase tracking-wider text-gray-500">
+                📅 Diesen Monat
+              </h2>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                {now.toLocaleDateString('de-DE', {
+                  month: 'long',
+                  year: 'numeric',
+                })}{' '}
+                · vs{' '}
+                {lastMonthStart.toLocaleDateString('de-DE', {
+                  month: 'long',
+                })}
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              {/* Flights this month */}
+              <div>
+                <div className="flex items-baseline gap-3 flex-wrap">
+                  <p className="text-3xl font-bold tabular-nums">
+                    {thisMonthFlights}
+                  </p>
+                  <p className="text-xs uppercase tracking-wider text-gray-500 font-semibold">
+                    Flüge
+                  </p>
+                  {/* Delta-pill: nur rendern wenn last-month auch daten hatte
+                      ODER es nicht-null this-month gibt. Bei beide=0 zeigen
+                      wir kein delta (== ist konfusionsfrei genug). */}
+                  {(thisMonthFlights > 0 || lastMonthFlights > 0) && (
+                    <span
+                      className={`text-xs font-mono px-2 py-0.5 rounded ${
+                        flightsDelta > 0
+                          ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+                          : flightsDelta < 0
+                            ? 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'
+                            : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'
+                      }`}
+                    >
+                      {flightsDelta > 0 ? '+' : ''}
+                      {flightsDelta}
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">
+                  letzter Monat: {lastMonthFlights}
+                </p>
+              </div>
+
+              {/* Hours this month */}
+              <div>
+                <div className="flex items-baseline gap-3 flex-wrap">
+                  <p className="text-3xl font-bold tabular-nums">
+                    {thisMonthHours.toFixed(1)}
+                    <span className="text-base font-normal text-gray-500 ml-1">
+                      h
+                    </span>
+                  </p>
+                  <p className="text-xs uppercase tracking-wider text-gray-500 font-semibold">
+                    Flugzeit
+                  </p>
+                  {(thisMonthHours > 0 || lastMonthHours > 0) && (
+                    <span
+                      className={`text-xs font-mono px-2 py-0.5 rounded ${
+                        hoursDelta > 0
+                          ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+                          : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'
+                      }`}
+                    >
+                      {hoursDelta > 0 ? '+' : ''}
+                      {hoursDelta.toFixed(1)}h
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">
+                  letzter Monat: {lastMonthHours.toFixed(1)} h
+                </p>
+              </div>
+            </div>
           </section>
         )}
 
