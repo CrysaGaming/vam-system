@@ -132,6 +132,35 @@ export default async function PilotProfile({
   // profilen nur wenn der user mindestens ein event hat.
   const userEvents = await getUserEvents(pilot.id);
 
+  // === Track 4 #55 (Section K): Stats-Hero — landing-rate aggregates ===
+  //
+  // Wir holen avg + best landing-rate aus den approved PIREPs. landingRateFpm
+  // ist NEGATIV (touchdown = sink-rate), also "best landing" = MAX (= am
+  // nächsten an 0 = sanftester touchdown). Typische werte:
+  //   -50 fpm   → butter-landing
+  //   -100..-200 → smooth
+  //   -200..-500 → normal
+  //   -500..-800 → firm
+  //   < -800    → hard landing (oft mit ACARS-flag)
+  //
+  // Nur PIREPs mit gesetztem landingRateFpm zählen — ältere/manual PIREPs
+  // ohne ACARS-data haben das feld null und sollen den durchschnitt nicht
+  // verfälschen. Prisma aggregate ignoriert nulls automatisch.
+  const landingStats = await prisma.pirep.aggregate({
+    where: {
+      userId: pilot.id,
+      status: 'Approved',
+      landingRateFpm: { not: null },
+    },
+    _avg: { landingRateFpm: true },
+    _max: { landingRateFpm: true }, // max = closest to 0 = best (siehe oben)
+    _count: { landingRateFpm: true },
+  });
+
+  const avgLandingFpm = landingStats._avg.landingRateFpm;
+  const bestLandingFpm = landingStats._max.landingRateFpm;
+  const landingSampleCount = landingStats._count.landingRateFpm;
+
   // Beitrittsdauer
   const joinedDays = Math.floor(
     (Date.now() - new Date(pilot.createdAt).getTime()) / (1000 * 60 * 60 * 24)
@@ -585,36 +614,130 @@ export default async function PilotProfile({
           </section>
         )}
 
-        {/* Stats */}
-        <div className="grid md:grid-cols-3 gap-6 mb-8">
-          <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6 text-center">
-            <p className="text-xs uppercase tracking-wider text-gray-500 mb-2">
-              Flugstunden
-            </p>
-            <p className="text-4xl font-bold">{pilot.totalFlightHours.toFixed(1)}</p>
-            <p className="text-xs text-gray-500 mt-1">Stunden geflogen</p>
-          </section>
+        {/* === Track 4 #55 (Section K): Stats-Hero ===
 
-          <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6 text-center">
-            <p className="text-xs uppercase tracking-wider text-gray-500 mb-2">
-              Flüge
-            </p>
-            <p className="text-4xl font-bold">{pilot.totalFlights}</p>
-            <p className="text-xs text-gray-500 mt-1">PIREPs eingereicht</p>
-          </section>
+            Vorher: 3-spaltiges grid mit Flugstunden / Flüge / Aktueller-Rang.
+            Rang-info ist schon im profile-header oben (unter dem namen),
+            also redundant hier.
 
-          <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6 text-center">
-            <p className="text-xs uppercase tracking-wider text-gray-500 mb-2">
-              Aktueller Rang
-            </p>
-            <p className="text-2xl font-bold mt-1">{pilot.rank?.name ?? '—'}</p>
-            {pilot.rank && (
-              <p className="text-xs text-gray-500 mt-2">
-                ab {pilot.rank.minFlightHours} h
+            Jetzt: 4-spaltiger hero mit den core-pilot-KPIs:
+              1. Flight Hours (lifetime)
+              2. Flights (count)
+              3. Avg Landing-Rate (smoothness-indikator)
+              4. Best Landing-Rate (butter-flex)
+
+            Landing-cells nur volle inhalte zeigen wenn sample-count > 0 —
+            sonst "—" placeholder mit hint. Farbcoding der avg-rate folgt
+            aviation-konvention:
+              -100..0   → emerald (smooth/butter)
+              -200..-100 → indigo (good)
+              -500..-200 → amber (acceptable)
+              < -500    → rose (firm/hard)
+
+            Hero-styling: subtle gradient-background + leicht erhöhter
+            contrast vs plain card. Md+ grid 4-cols, mobile 2x2. */}
+        <section
+          aria-label="Pilot-Statistiken"
+          className="relative bg-gradient-to-br from-indigo-50 via-white to-emerald-50 dark:from-indigo-950/30 dark:via-gray-900 dark:to-emerald-950/30 border border-indigo-200 dark:border-indigo-800/50 rounded-lg p-6 mb-8 overflow-hidden"
+        >
+          {/* Subtler indigo glow im hintergrund — rein dekorativ, hilft
+              dem hero sich vom rest der page abzuheben. pointer-events:none
+              damit es nicht mit klicks interferiert. */}
+          <div
+            aria-hidden="true"
+            className="absolute -top-12 -right-12 w-48 h-48 bg-indigo-400/10 dark:bg-indigo-500/5 rounded-full blur-3xl pointer-events-none"
+          />
+
+          <div className="relative grid grid-cols-2 md:grid-cols-4 gap-4">
+            {/* Flugstunden — lifetime cum */}
+            <div className="text-center">
+              <p className="text-[10px] uppercase tracking-widest text-indigo-700 dark:text-indigo-400 font-semibold mb-2">
+                Flugstunden
               </p>
-            )}
-          </section>
-        </div>
+              <p className="text-3xl md:text-4xl font-bold tabular-nums">
+                {pilot.totalFlightHours.toFixed(1)}
+              </p>
+              <p className="text-[10px] text-gray-500 dark:text-gray-500 mt-1">
+                h lifetime
+              </p>
+            </div>
+
+            {/* Flüge — count of approved PIREPs */}
+            <div className="text-center">
+              <p className="text-[10px] uppercase tracking-widest text-indigo-700 dark:text-indigo-400 font-semibold mb-2">
+                Flüge
+              </p>
+              <p className="text-3xl md:text-4xl font-bold tabular-nums">
+                {pilot.totalFlights}
+              </p>
+              <p className="text-[10px] text-gray-500 dark:text-gray-500 mt-1">
+                PIREPs eingereicht
+              </p>
+            </div>
+
+            {/* Avg Landing-Rate — smoothness-trend */}
+            <div className="text-center">
+              <p className="text-[10px] uppercase tracking-widest text-indigo-700 dark:text-indigo-400 font-semibold mb-2">
+                Ø Landing
+              </p>
+              {avgLandingFpm !== null ? (
+                <>
+                  <p
+                    className={`text-3xl md:text-4xl font-bold tabular-nums ${(() => {
+                      // Färbung nach landing-quality. avgLandingFpm ist
+                      // negativ → wir vergleichen mit den schwellwerten.
+                      const a = avgLandingFpm;
+                      if (a >= -100) return 'text-emerald-600 dark:text-emerald-400';
+                      if (a >= -200) return 'text-indigo-600 dark:text-indigo-400';
+                      if (a >= -500) return 'text-amber-600 dark:text-amber-400';
+                      return 'text-rose-600 dark:text-rose-400';
+                    })()}`}
+                  >
+                    {Math.round(avgLandingFpm)}
+                  </p>
+                  <p className="text-[10px] text-gray-500 dark:text-gray-500 mt-1">
+                    fpm · n={landingSampleCount}
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="text-2xl md:text-3xl font-bold text-gray-300 dark:text-gray-700 tabular-nums">
+                    —
+                  </p>
+                  <p className="text-[10px] text-gray-500 dark:text-gray-500 mt-1">
+                    noch keine ACARS-daten
+                  </p>
+                </>
+              )}
+            </div>
+
+            {/* Best Landing-Rate — bragging-rights metric */}
+            <div className="text-center">
+              <p className="text-[10px] uppercase tracking-widest text-indigo-700 dark:text-indigo-400 font-semibold mb-2">
+                Best Landing
+              </p>
+              {bestLandingFpm !== null ? (
+                <>
+                  <p className="text-3xl md:text-4xl font-bold tabular-nums text-emerald-600 dark:text-emerald-400">
+                    {Math.round(bestLandingFpm)}
+                  </p>
+                  <p className="text-[10px] text-gray-500 dark:text-gray-500 mt-1">
+                    fpm · sanftester touchdown
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="text-2xl md:text-3xl font-bold text-gray-300 dark:text-gray-700 tabular-nums">
+                    —
+                  </p>
+                  <p className="text-[10px] text-gray-500 dark:text-gray-500 mt-1">
+                    noch keine ACARS-daten
+                  </p>
+                </>
+              )}
+            </div>
+          </div>
+        </section>
 
         {/* Top-Routen */}
         {topRoutesValid.length > 0 && (
