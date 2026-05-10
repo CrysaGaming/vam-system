@@ -82,6 +82,80 @@ const PAGE_SIZE = 25;
  */
 const FILTER_NONE = '__none__';
 
+/**
+ * Track 4 #47 (Section I): CSV-export helpers für die admin-pilots-
+ * tabelle. Exportiert die AKTUELL gefilterten + sortierten rows (also
+ * was der admin grade sieht), nicht den raw-bestand — sonst wäre der
+ * filter-state irrelevant für den export.
+ *
+ * Format: RFC 4180-konform mit CRLF row-terminators und double-quote-
+ * escaping. Excel + LibreOffice öffnen das ohne nachfragen. UTF-8 BOM
+ * vorne damit Excel automatisch utf-8 erkennt (Umlaute in airline-namen
+ * etc. sonst kaputt).
+ */
+function escapeCsvField(value: string | number | null | undefined): string {
+  if (value === null || value === undefined) return '';
+  const str = String(value);
+  // Quoten wenn das field eines der RFC-relevanten zeichen enthält:
+  // comma, double-quote, CR, LF. Double-quotes werden verdoppelt.
+  if (/[",\r\n]/.test(str)) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+}
+
+function rowsToCsv(rows: AdminUser[]): string {
+  const headers = [
+    'Name',
+    'Email',
+    'Airline',
+    'AirlineICAO',
+    'Rank',
+    'Rolle',
+    'FlugStunden',
+    'Anzahl Flüge',
+    'Erstellt',
+  ];
+  const lines: string[] = [headers.map(escapeCsvField).join(',')];
+  for (const u of rows) {
+    lines.push(
+      [
+        escapeCsvField(u.name ?? ''),
+        escapeCsvField(u.email),
+        escapeCsvField(u.airline?.name ?? ''),
+        escapeCsvField(u.airline?.icao ?? ''),
+        escapeCsvField(u.rank?.name ?? ''),
+        escapeCsvField(u.role?.name ?? ''),
+        escapeCsvField(u.totalFlightHours.toFixed(1)),
+        escapeCsvField(u.totalFlights),
+        escapeCsvField(u.createdAt.toISOString().slice(0, 10)),
+      ].join(','),
+    );
+  }
+  // RFC 4180: CRLF zwischen rows. UTF-8 BOM (\uFEFF) am anfang damit
+  // Excel utf-8 als encoding erkennt — sonst werden umlaute kaputt.
+  return '\uFEFF' + lines.join('\r\n') + '\r\n';
+}
+
+/**
+ * Trigger CSV-download im browser. Nutzt einen object-URL der nach dem
+ * click revoked wird damit die memory-page nicht wächst bei mehreren
+ * exports pro session.
+ */
+function downloadCsv(filename: string, content: string): void {
+  const blob = new Blob([content], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  // Defer revoke damit der browser den download initiieren kann bevor
+  // der url ungültig wird. 1s ist konservativ genug.
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 export function AdminPilotsTable({
   users,
   availableAirlines,
@@ -515,6 +589,27 @@ export function AdminPilotsTable({
             className="px-3 py-1 text-xs bg-gray-200 hover:bg-gray-300 dark:bg-gray-800 dark:hover:bg-gray-700 rounded transition"
           >
             Filter zurücksetzen
+          </button>
+        )}
+
+        {/* Track 4 #47 (Section I): CSV-Export. Nur sichtbar wenn mind.
+            1 row zum exportieren da ist — bei leerer ergebnisliste wäre
+            der button useless. Exportiert filteredAndSorted (also was
+            der admin grade sieht), nicht users (raw bestand). Filename
+            enthält ISO-datum damit mehrere exports nicht überschreiben. */}
+        {filteredAndSorted.length > 0 && (
+          <button
+            type="button"
+            onClick={() => {
+              const today = new Date().toISOString().slice(0, 10);
+              const csv = rowsToCsv(filteredAndSorted);
+              downloadCsv(`admin-pilots-${today}.csv`, csv);
+            }}
+            className="px-3 py-1 text-xs bg-emerald-600 hover:bg-emerald-500 text-white rounded transition inline-flex items-center gap-1"
+            title={`${filteredAndSorted.length} Zeilen als CSV exportieren`}
+          >
+            <span aria-hidden="true">📥</span>
+            CSV-Export
           </button>
         )}
 
