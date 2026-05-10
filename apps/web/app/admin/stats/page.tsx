@@ -44,6 +44,43 @@ export default async function AdminStats() {
     where: { airlineId, totalFlights: { gt: 0 } },
   });
 
+  // === Track 4 #48 (Section I): Approval-Rate + 7-day-window KPIs ===
+  // Approval-rate ist die quote Approved / (Approved + Rejected) — nur
+  // genehmigt/abgelehnt zählen mit, "Submitted" (noch pending) ist NICHT
+  // im divisor, weil die nicht-entschiedenen-pireps die rate sonst nach
+  // oben drücken würden (wir wissen ja noch nicht ob sie genehmigt werden).
+  // Wenn die airline nur Submitted-pireps hat, ist die rate undefiniert
+  // → wir zeigen "—" als display-value.
+  //
+  // 7-day-window: Anzahl Submitted-Pireps in den letzten 7 Tagen. Egal
+  // welcher status — admins wollen sehen wie viel grade angekommen ist.
+  // Hilft beim moderieren ("oh, diese woche viel zu tun").
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+  const [approvedCount, rejectedCount, recent7dCount] = await Promise.all([
+    prisma.pirep.count({ where: { airlineId, status: 'Approved' } }),
+    prisma.pirep.count({ where: { airlineId, status: 'Rejected' } }),
+    prisma.pirep.count({
+      where: { airlineId, submittedAt: { gte: sevenDaysAgo } },
+    }),
+  ]);
+
+  const reviewedTotal = approvedCount + rejectedCount;
+  const approvalRate =
+    reviewedTotal > 0
+      ? `${Math.round((approvedCount / reviewedTotal) * 100)}%`
+      : '—';
+  // Color-coding: >=90% grün, >=70% gelb, <70% rot — gibt admins beim
+  // glance einen status. "—" bleibt neutral.
+  const approvalRateColor =
+    reviewedTotal === 0
+      ? 'text-gray-900 dark:text-white'
+      : approvedCount / reviewedTotal >= 0.9
+        ? 'text-emerald-600 dark:text-emerald-400'
+        : approvedCount / reviewedTotal >= 0.7
+          ? 'text-amber-600 dark:text-amber-400'
+          : 'text-red-600 dark:text-red-400';
+
   // === Chart 1: Flüge pro Monat (letzte 6 Monate) ===
   const sixMonthsAgo = new Date();
   sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 5);
@@ -188,6 +225,30 @@ export default async function AdminStats() {
             </p>
             <p className="text-4xl font-bold">{avgTime}</p>
             <p className="text-xs text-gray-500 mt-1">pro PIREP</p>
+          </div>
+
+          {/* Track 4 #48: Approval-Rate KPI — die quote Approved/(Approved+Rejected). */}
+          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6">
+            <p className="text-xs uppercase tracking-wider text-gray-500 mb-2">
+              Approval-Rate
+            </p>
+            <p className={`text-4xl font-bold ${approvalRateColor}`}>
+              {approvalRate}
+            </p>
+            <p className="text-xs text-gray-500 mt-1">
+              {reviewedTotal > 0
+                ? `${approvedCount}/${reviewedTotal} entschieden`
+                : 'noch nichts entschieden'}
+            </p>
+          </div>
+
+          {/* Track 4 #48: 7-Tage-Fenster KPI — wie viele PIREPs sind diese woche reingekommen. */}
+          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6">
+            <p className="text-xs uppercase tracking-wider text-gray-500 mb-2">
+              Letzte 7 Tage
+            </p>
+            <p className="text-4xl font-bold">{recent7dCount}</p>
+            <p className="text-xs text-gray-500 mt-1">PIREPs eingereicht</p>
           </div>
         </div>
 
