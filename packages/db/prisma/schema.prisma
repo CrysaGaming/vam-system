@@ -908,6 +908,11 @@ model User {
   /// Cascade-delete via EventComment.user — wenn user account-deleted wird,
   /// verschwinden seine comments mit (alternativ: anonymisieren, V2-ticket).
   eventCommentsAuthored     EventComment[]         @relation("EventCommentsAuthored")
+  /// Track 4 #101 (Section T): AdminAuditLog-back-relation. Audit-entries
+  /// die dieser user als actor getriggert hat. SetNull beim user-delete:
+  /// audit-history bleibt erhalten, nur der name verschwindet (anonyme
+  /// audit-entries sind besser als gar keine).
+  adminAuditActions         AdminAuditLog[]        @relation("AdminAuditActor")
   flightSchoolEnrollments FlightSchoolEnrollment[]
 
   // Track 1 #7 (Events / Flight-Tours, 9.2.8): Event-system back-relations.
@@ -3358,6 +3363,81 @@ model EventComment {
   ///   - "alle comments von user Y" (profile, future)
   @@index([eventId, createdAt])
   @@index([userId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Track 4 #101 (Section T) — Admin-Audit-Log
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Track 4 #101 (Section T) — AdminAuditLog.
+///
+/// Append-only audit trail von admin-actions. Jede sicherheitsrelevante
+/// oder daten-modifizierende admin-action schreibt einen entry: who, when,
+/// what, target.
+///
+/// # Scope
+///
+/// Bewusst NICHT alle CRUD-actions — nur die mit privilegier-impact
+/// (role-zuweisungen, account-suspensions, event-publish, award-grant,
+/// destructive-deletes). Granularer schemata sind eigene welle.
+///
+/// # Append-only
+///
+/// Keine update/delete-API. Records werden ausschließlich INSERTed
+/// (via logAdminAction()-helper). Sogar bei testdaten-cleanup
+/// bleibt history als forensic-trail erhalten — wenn cleanup-needed,
+/// expliziter DB-truncate.
+///
+/// # Target-shape
+///
+/// targetType + targetId als opaque-strings (z.B. "User"/"cmxyz...",
+/// "Event"/"cm123..."). Kein FK weil viele relations möglich sind und
+/// FK-cascades den audit-trail zerstören würden (z.B. user-delete würde
+/// audit-rows wegputzen — das wollen wir GERADE NICHT).
+///
+/// # metadata Json
+///
+/// Optional JSON-payload mit action-specific kontext (z.B. für
+/// "user.role.changed": { from: "pilot", to: "admin" }). Free-shape,
+/// app-layer-defined per action-type.
+model AdminAuditLog {
+  id           String   @id @default(cuid())
+
+  /// Wer hat die action getriggert. Pflicht — wir loggen nur authentifizierte
+  /// admin-actions. SetNull beim user-delete damit audit-rows die action-
+  /// history nicht verlieren.
+  actorId      String?
+  actor        User?    @relation("AdminAuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  /// Action-type als string (kein enum — schnellere iteration ohne
+  /// migration bei neuen action-types). Konvention: dot-separated
+  /// "noun.verb" z.B. "user.role.changed", "event.published",
+  /// "award.granted", "pirep.approved".
+  action       String
+
+  /// Optional target-info. "User"/"Event"/"Award"/"Pirep" etc. + ID.
+  /// Kein FK (siehe model-comment).
+  targetType   String?
+  targetId     String?
+
+  /// Optional action-specific kontext als JSON.
+  metadata     Json?
+
+  /// Optional request-meta für forensics: IP, user-agent. Beide nullable
+  /// weil sie nicht überall zuverlässig verfügbar sind (z.B. server-side
+  /// in next.js braucht request-header-zugriff).
+  ipAddress    String?
+  userAgent    String?  @db.Text
+
+  createdAt    DateTime @default(now())
+
+  /// Häufige queries:
+  ///   - alle actions chronologisch (admin-dashboard /admin/audit)
+  ///   - alle actions eines bestimmten actors
+  ///   - alle actions auf einem target (z.B. wer hat user X moderiert?)
+  @@index([createdAt])
+  @@index([actorId, createdAt])
+  @@index([targetType, targetId, createdAt])
 }
 
 // ─────────────────────────────────────────────────────────────────────────

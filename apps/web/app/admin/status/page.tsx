@@ -284,16 +284,22 @@ export default async function AdminStatusPage() {
         {/* Info footer */}
         <aside className="bg-gray-100 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-800 rounded-lg p-4 text-sm text-gray-600 dark:text-gray-400 space-y-2">
           <p>
+            <strong className="text-gray-700 dark:text-gray-300">Verwandte tools:</strong>{' '}
+            <Link href="/admin/audit" className="text-indigo-600 dark:text-indigo-400 hover:underline">
+              📜 Audit-Log
+            </Link>{' '}
+            zeigt admin-action-history.{' '}
+            <Link href="/admin/perf" className="text-indigo-600 dark:text-indigo-400 hover:underline">
+              ⏱ Perf-Monitor
+            </Link>{' '}
+            (kommt mit #102) loggt slow-queries.
+          </p>
+          <p>
             <strong className="text-gray-700 dark:text-gray-300">
               DB-Latency-bewertung:
             </strong>{' '}
             &lt;20ms = lokal/optimal (emerald), 20-100ms = ok (default), &gt;100ms
-            = beobachten (amber). Bei einem konsistent hohen wert
-            connection-pool prüfen oder slow-queries via {' '}
-            <Link href="/admin/perf" className="text-indigo-600 dark:text-indigo-400 hover:underline">
-              Perf-Monitor
-            </Link>{' '}
-            (kommt mit #102) untersuchen.
+            = beobachten.
           </p>
           <p>
             <strong className="text-gray-700 dark:text-gray-300">

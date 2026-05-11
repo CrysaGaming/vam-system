@@ -143,6 +143,12 @@ export { EventKind, EventStatus } from "@prisma/client";
 export type { Event, EventParticipant, EventTemplate, EventComment } from "@prisma/client";
 export * from "./events/index.js";
 
+// Track 4 #101 (Section T): AdminAuditLog type re-export + helper.
+// Append-only audit-trail von admin-actions (role-changes, event-publish,
+// award-grant etc.). Helper logAdminAction() lebt in ./audit barrel.
+export type { AdminAuditLog } from "@prisma/client";
+export * from "./audit/index.js";
+
 // Track 1 #5 (Replay-Mode, 9.2.7): PIREP-replay queries. Findet die
 // LiveSession + LiveSessionPosition[] zu einem given PIREP — entweder
 // via AcarsEvent.triggeredPirepId (sauberer pfad für ACARS-PIREPs) oder

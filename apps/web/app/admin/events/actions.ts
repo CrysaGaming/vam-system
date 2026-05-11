@@ -10,6 +10,7 @@ import {
   deleteEvent as dbDeleteEvent,
   markParticipantCompleted as dbMarkCompleted,
   unmarkParticipantCompleted as dbUnmarkCompleted,
+  logAdminAction,
   type CreateEventInput,
   type UpdateEventInput,
   type EventKind,
@@ -280,11 +281,20 @@ export async function updateEventAction(
 
 export async function publishEventAction(eventId: string): Promise<ActionResult> {
   try {
-    await requireAdmin();
+    const admin = await requireAdmin();
     const result = await dbPublishEvent(eventId);
     if (!result.ok) {
       return { ok: false, error: result.reason };
     }
+
+    // Track 4 #101 (Section T): audit-log eintrag (append-only, fail-soft)
+    await logAdminAction({
+      actorId: admin.id,
+      action: 'event.published',
+      targetType: 'Event',
+      targetId: eventId,
+      metadata: { slug: result.event.slug, title: result.event.title },
+    });
 
     revalidatePath('/admin/events');
     revalidatePath(`/admin/events/${eventId}`);
@@ -341,11 +351,21 @@ export async function publishEventAction(eventId: string): Promise<ActionResult>
 
 export async function cancelEventAction(eventId: string): Promise<ActionResult> {
   try {
-    await requireAdmin();
+    const admin = await requireAdmin();
     const result = await dbCancelEvent(eventId);
     if (!result.ok) {
       return { ok: false, error: result.reason };
     }
+
+    // Track 4 #101 (Section T): audit-log eintrag (append-only, fail-soft)
+    await logAdminAction({
+      actorId: admin.id,
+      action: 'event.cancelled',
+      targetType: 'Event',
+      targetId: eventId,
+      metadata: { slug: result.event.slug, title: result.event.title },
+    });
+
     revalidatePath('/admin/events');
     revalidatePath(`/admin/events/${eventId}`);
     revalidatePath('/events');
@@ -365,11 +385,21 @@ export async function cancelEventAction(eventId: string): Promise<ActionResult> 
 
 export async function completeEventAction(eventId: string): Promise<ActionResult> {
   try {
-    await requireAdmin();
+    const admin = await requireAdmin();
     const result = await dbCompleteEvent(eventId);
     if (!result.ok) {
       return { ok: false, error: result.reason };
     }
+
+    // Track 4 #101 (Section T): audit-log eintrag (append-only, fail-soft)
+    await logAdminAction({
+      actorId: admin.id,
+      action: 'event.completed',
+      targetType: 'Event',
+      targetId: eventId,
+      metadata: { slug: result.event.slug, title: result.event.title },
+    });
+
     revalidatePath('/admin/events');
     revalidatePath(`/admin/events/${eventId}`);
     revalidatePath('/events');
@@ -389,11 +419,35 @@ export async function completeEventAction(eventId: string): Promise<ActionResult
 
 export async function deleteEventAction(eventId: string): Promise<ActionResult> {
   try {
-    await requireAdmin();
+    const admin = await requireAdmin();
+
+    // Pre-fetch event-info for audit-metadata BEFORE delete — nach
+    // dem delete sind slug/title nicht mehr abrufbar.
+    const eventInfo = await prisma.event.findUnique({
+      where: { id: eventId },
+      select: { slug: true, title: true },
+    });
+
     const result = await dbDeleteEvent(eventId);
     if (!result.ok) {
       return { ok: false, error: result.reason };
     }
+
+    // Track 4 #101 (Section T): audit-log eintrag (append-only, fail-soft).
+    // Destructive action — wir loggen IMMER, auch wenn eventInfo null war
+    // (shouldn't happen but defensive).
+    await logAdminAction({
+      actorId: admin.id,
+      action: 'event.deleted',
+      targetType: 'Event',
+      targetId: eventId,
+      metadata: {
+        slug: eventInfo?.slug ?? null,
+        title: eventInfo?.title ?? null,
+        participantsDeleted: result.participantsDeleted,
+      },
+    });
+
     revalidatePath('/admin/events');
     revalidatePath('/events');
     const lostMsg =
