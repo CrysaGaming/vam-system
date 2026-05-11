@@ -10,6 +10,7 @@ import { KeyboardShortcutsManager } from './keyboard-shortcuts-manager';
 import { CommandPalette } from './command-palette';
 import { RecentlyViewedBlock } from './recently-viewed-block';
 import { PwaInstallPrompt } from './PwaInstallPrompt';
+import { MobileBottomNav } from './MobileBottomNav';
 
 export type ShellUser = {
   name: string | null;
@@ -213,9 +214,20 @@ export function AppShell({ user, children }: Props) {
             skip-to-content-links (siehe oben). tabIndex={-1} macht das
             element programmatisch fokussierbar (für skip-link.click → focus
             jumps here) ohne es in den natürlichen TAB-order aufzunehmen.
-            Track 3 #11.2.4 Phase 5 a11y-polish. */}
-        <div id="main-content" tabIndex={-1} className="flex-1 min-w-0 overflow-y-auto focus:outline-none">{children}</div>
+            Track 3 #11.2.4 Phase 5 a11y-polish.
+
+            Track 4 #76 (Section O): pb-20 lg:pb-0 — auf mobile braucht der
+            scroll-bereich 80px bottom-padding damit content nicht unter der
+            MobileBottomNav verschwindet. Auf lg+ ist die bottom-nav weg
+            (lg:hidden in der component selbst), also kein padding nötig. */}
+        <div id="main-content" tabIndex={-1} className="flex-1 min-w-0 overflow-y-auto focus:outline-none pb-20 lg:pb-0">{children}</div>
       </div>
+
+      {/* Track 4 #76 (Section O): Mobile Bottom-Nav. Fixed an bottom-edge,
+          nur sichtbar auf <lg (intern via lg:hidden). Außerhalb des
+          flex-row-containers weil es viewport-positioned ist (fixed bottom-0).
+          Sitzt im AppShell-outer damit's auf allen pages konsistent erscheint. */}
+      <MobileBottomNav />
     </div>
   );
 }
