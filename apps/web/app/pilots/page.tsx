@@ -2,6 +2,7 @@ import { auth } from '@/auth';
 import { redirect } from 'next/navigation';
 import { prisma } from '@vam/db';
 import Link from 'next/link';
+import { PilotsRosterTable, type PilotRowData } from './pilots-table';
 
 export default async function PilotsList() {
   const session = await auth();
@@ -96,6 +97,36 @@ export default async function PilotsList() {
     return { label, color };
   }
 
+  // Track 4 #63 (Section L): Pre-formatted rows für client-side PilotsRosterTable.
+  //
+  // Wir formatieren server-side (für consistent clock, kein client-skew),
+  // serialisieren als JSON-friendly props. Date-objekte werden zu ISO-strings
+  // damit der client sie via new Date(...) recovern kann für hover-titles.
+  // medal-icon basiert auf position-in-leaderboard, NICHT auf filtered-position
+  // — die top-3-medals beziehen sich auf die GESAMT-roster, nicht auf die
+  // gefilterte view (sonst würde der filter die medals verschieben, was
+  // verwirrend wäre).
+  const rows: PilotRowData[] = pilots.map((pilot, idx) => {
+    const lastActiveDate = lastActiveMap.get(pilot.id) ?? null;
+    const lastActive = formatLastActive(lastActiveDate);
+    return {
+      id: pilot.id,
+      name: pilot.name,
+      image: pilot.image,
+      rankName: pilot.rank?.name ?? null,
+      roleName: pilot.role?.name ?? null,
+      totalFlightHours: pilot.totalFlightHours,
+      totalFlights: pilot.totalFlights,
+      createdAt: pilot.createdAt.toISOString(),
+      lastActiveLabel: lastActive.label,
+      lastActiveColor: lastActive.color,
+      lastActiveTimestamp: lastActiveDate ? lastActiveDate.toISOString() : null,
+      isMe: pilot.id === currentUser.id,
+      medal:
+        idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : null,
+    };
+  });
+
   return (
     <main className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-white p-4 sm:p-6 lg:p-8">
       <div className="max-w-[100rem] mx-auto">
@@ -120,109 +151,7 @@ export default async function PilotsList() {
             <p className="text-gray-500 dark:text-gray-400">Noch keine Piloten in dieser Airline.</p>
           </div>
         ) : (
-          <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-800 overflow-hidden">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-100 dark:bg-gray-800/50">
-                <tr className="text-left text-xs uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                  <th className="px-4 py-3">Pilot</th>
-                  <th className="px-4 py-3">Rang</th>
-                  <th className="px-4 py-3">Rolle</th>
-                  <th className="px-4 py-3 text-right">Stunden</th>
-                  <th className="px-4 py-3 text-right">Flüge</th>
-                  <th className="px-4 py-3 text-right">Letzter Flug</th>
-                  <th className="px-4 py-3 text-right">Beigetreten</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
-                {pilots.map((pilot, idx) => {
-                  const isMe = pilot.id === currentUser.id;
-                  const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : null;
-                  const lastActive = formatLastActive(
-                    lastActiveMap.get(pilot.id) ?? null,
-                  );
-
-                  return (
-                    <tr
-                      key={pilot.id}
-                      className={`group transition cursor-pointer ${
-                        isMe ? 'bg-indigo-500/5 hover:bg-indigo-500/10' : 'hover:bg-gray-50 dark:hover:bg-gray-800/30'
-                      }`}
-                    >
-                      <td className="px-4 py-3">
-                        <Link
-                          href={`/pilots/${pilot.id}`}
-                          className="flex items-center gap-3"
-                        >
-                          {pilot.image ? (
-                            <img
-                              src={pilot.image}
-                              alt={pilot.name ?? 'Avatar'}
-                              className="w-8 h-8 rounded-full border border-gray-300 dark:border-gray-700"
-                            />
-                          ) : (
-                            <div className="w-8 h-8 rounded-full bg-gray-200 dark:bg-gray-800 border border-gray-300 dark:border-gray-700" />
-                          )}
-                          <div>
-                            <p className="font-semibold flex items-center gap-2">
-                              {medal && <span>{medal}</span>}
-                              {pilot.name ?? 'Unbenannt'}
-                              {isMe && (
-                                <span className="text-xs text-indigo-600 dark:text-indigo-400">(Du)</span>
-                              )}
-                            </p>
-                          </div>
-                        </Link>
-                      </td>
-                      <td className="px-4 py-3 text-gray-600 dark:text-gray-300">
-                        <Link href={`/pilots/${pilot.id}`} className="block">
-                          {pilot.rank?.name ?? '—'}
-                        </Link>
-                      </td>
-                      <td className="px-4 py-3 text-gray-600 dark:text-gray-300">
-                        <Link href={`/pilots/${pilot.id}`} className="block">
-                          {pilot.role?.name ?? 'pilot'}
-                        </Link>
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <Link href={`/pilots/${pilot.id}`} className="block">
-                          {pilot.totalFlightHours.toFixed(1)} h
-                        </Link>
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <Link href={`/pilots/${pilot.id}`} className="block">
-                          {pilot.totalFlights}
-                        </Link>
-                      </td>
-                      <td className="px-4 py-3 text-right text-xs">
-                        <Link
-                          href={`/pilots/${pilot.id}`}
-                          className={`block font-medium ${lastActive.color}`}
-                          title={
-                            lastActiveMap.get(pilot.id)
-                              ? new Date(
-                                  lastActiveMap.get(pilot.id)!,
-                                ).toLocaleString('de-DE')
-                              : undefined
-                          }
-                        >
-                          {lastActive.label}
-                        </Link>
-                      </td>
-                      <td className="px-4 py-3 text-right text-gray-500 dark:text-gray-400 text-xs">
-                        <Link href={`/pilots/${pilot.id}`} className="block">
-                          {new Date(pilot.createdAt).toLocaleDateString('de-DE', {
-                            year: 'numeric',
-                            month: '2-digit',
-                            day: '2-digit',
-                          })}
-                        </Link>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <PilotsRosterTable pilots={rows} />
         )}
       </div>
     </main>
