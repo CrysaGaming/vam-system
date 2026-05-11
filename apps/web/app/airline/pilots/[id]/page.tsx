@@ -80,13 +80,20 @@ export default async function PilotDetailPage({ params }: PageProps) {
 
   return (
     <main className="px-6 py-8 sm:px-10 lg:px-12 max-w-6xl mx-auto">
-      {/* Breadcrumb-back-link */}
-      <nav className="mb-4">
+      {/* Breadcrumb-back-link + Track 4 #90 Skill-Tree shortcut */}
+      <nav className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <Link
           href="/airline/pilots"
           className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition"
         >
           ← Personal-Übersicht
+        </Link>
+        <Link
+          href={`/airline/pilots/${target.id}/skill-tree`}
+          className="px-3 py-1.5 bg-indigo-100 hover:bg-indigo-200 dark:bg-indigo-500/20 dark:hover:bg-indigo-500/30 text-indigo-700 dark:text-indigo-300 rounded text-xs font-medium transition flex items-center gap-1.5"
+        >
+          <span aria-hidden="true">🌳</span>
+          Skill-Tree ansehen →
         </Link>
       </nav>
 
