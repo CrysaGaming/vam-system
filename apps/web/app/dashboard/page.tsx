@@ -4,6 +4,7 @@ import { prisma } from "@vam/db";
 import Link from "next/link";
 import { WalletCard } from "./wallet-card";
 import { CurrencyCard } from "./currency-card";
+import { GoalCard } from "./goal-card";
 
 export default async function Dashboard() {
   const session = await auth();
@@ -120,6 +121,32 @@ export default async function Dashboard() {
 
   const flightsDelta = thisMonthFlights - lastMonthFlights;
   const hoursDelta = thisMonthHours - lastMonthHours;
+
+  // === Track 4 #59 (Section K): Annual Goal-Tracking data ===
+  //
+  // Wir brauchen current-year-hours für den progress-balken + day-of-year +
+  // days-in-year für die rate-projection im GoalCard. Year-start/end-grenzen
+  // mirroren year-in-review (#57). Wenn der user noch kein ziel gesetzt hat
+  // (user.annualHourGoal=null), zeigen wir trotzdem die query-resultate weil
+  // der GoalCard im CTA-state den current-hours-count nicht braucht — aber
+  // wir laden's eh damit umschalten ohne reload geht.
+  const yearStart = new Date(now.getFullYear(), 0, 1);
+  const yearEnd = new Date(now.getFullYear() + 1, 0, 1);
+  const yearStats = await prisma.pirep.aggregate({
+    where: {
+      userId: user.id,
+      status: 'Approved',
+      submittedAt: { gte: yearStart, lt: yearEnd },
+    },
+    _sum: { flightTimeMin: true },
+  });
+  const currentYearHours = (yearStats._sum.flightTimeMin ?? 0) / 60;
+
+  // Day-of-year (1-indexed): tage seit jahresanfang inkl. heute.
+  // Schaltjahr-handling via simple subtraction (Date-arithmetic in JS macht
+  // DST/leap-day-arithmetic für uns).
+  const dayOfYear = Math.floor((now.getTime() - yearStart.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+  const daysInYear = Math.floor((yearEnd.getTime() - yearStart.getTime()) / (1000 * 60 * 60 * 24));
 
   // Welle 13D-2: Wallet-card opt-in. Nur sichtbar wenn beide flags ON.
   // Logik gespiegelt zur EconomyCard's success-state in /settings —
@@ -373,6 +400,21 @@ export default async function Dashboard() {
               </div>
             </div>
           </section>
+        )}
+
+        {/* Track 4 #59 (Section K): Annual Goal-Tracking card. Nach
+            "Diesen Monat" weil das die natural-progression ist: monatlich →
+            jährlich. Gated auf user.airline weil PIREP-aggregation ohne
+            airline-mitgliedschaft sinnlos ist. Self-contained client-
+            component mit inline server-action für set/edit/clear. */}
+        {user.airline && (
+          <GoalCard
+            userId={user.id}
+            currentGoal={user.annualHourGoal}
+            currentYearHours={currentYearHours}
+            dayOfYear={dayOfYear}
+            daysInYear={daysInYear}
+          />
         )}
 
         {/* Letzte PIREPs + Top-3-Leaderboard */}

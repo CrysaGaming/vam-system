@@ -616,6 +616,16 @@ model User {
   totalFlightHours Float    @default(0)
   totalFlights     Int      @default(0)
 
+  // Track 4 #59 (Section K): Optional annual hour-goal. NULL = pilot hat
+  // noch nichts gesetzt → UI zeigt einen "Setze dein ziel"-CTA. Int weil
+  // wir in stunden (nicht minuten) speichern; reasonable range 10..2000
+  // pro jahr (10h = casual, 2000h = berufsmäßig). Persistiert nicht
+  // PRO jahr (kein year-spezifisches feld), sondern wirkt für das CURRENT
+  // year — bei jahreswechsel re-evaluiert sich der progress automatisch.
+  // Wenn pilot in 2027 sein 2026-ziel ändert, ist die "history" verloren —
+  // bewusst, weil annual-goals nicht historisierbar sein müssen.
+  annualHourGoal   Int?
+
   // Track 3 #11.2.5 v1-Full Item 2/10 — Pilot-Birthday-Calendar (vision-doc §9.1.14).
   // Geburtstag des piloten. NULL = nicht gesetzt (default für legacy-users).
   // Speichert nur monat+tag-relevante teile als ganzes datum (jahr ist auch
