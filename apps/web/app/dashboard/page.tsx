@@ -206,7 +206,7 @@ export default async function Dashboard() {
                 <p className="text-gray-600 dark:text-gray-400">
                   ICAO: {user.airline.icao} · Callsign: {user.airline.callsign}
                 </p>
-                <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-800 grid grid-cols-4 gap-4">
+                <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-800 grid grid-cols-2 sm:grid-cols-4 gap-4">
                   <div>
                     <p className="text-gray-500 uppercase tracking-wider text-xs">
                       Rang
