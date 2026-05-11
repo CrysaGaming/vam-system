@@ -194,6 +194,13 @@ export default async function AirlineAircraftPage({
 
           <div className="flex flex-wrap items-center gap-2">
             <Link
+              href="/airline/aircraft/utilization"
+              className="px-3 py-2 bg-gray-200 hover:bg-gray-300 dark:bg-gray-800 dark:hover:bg-gray-700 rounded text-sm transition flex items-center gap-2"
+            >
+              <span aria-hidden="true">📊</span>
+              Utilization
+            </Link>
+            <Link
               href="/airline/aircraft/import"
               className="px-3 py-2 bg-gray-200 hover:bg-gray-300 dark:bg-gray-800 dark:hover:bg-gray-700 rounded text-sm transition flex items-center gap-2"
             >
