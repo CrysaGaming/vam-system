@@ -489,6 +489,20 @@ export default async function AirlineAircraftPage({
                         {(!stats || stats.pireps === 0) && (
                           <p className="italic">Noch keine Flüge geloggt</p>
                         )}
+                        {/* Track 4 #89 (Section Q): "Used By" entry-point.
+                            Inline-link unter den stats damit das ohne extra
+                            clicks erreichbar ist. Nur wenn pireps existieren
+                            macht's sinn (sonst gibt's nichts zu zeigen). */}
+                        {stats && stats.pireps > 0 && (
+                          <p className="mt-1">
+                            <Link
+                              href={`/airline/aircraft/${ac.id}/used-by`}
+                              className="text-indigo-600 dark:text-indigo-400 hover:underline"
+                            >
+                              👥 Pilots ansehen →
+                            </Link>
+                          </p>
+                        )}
                       </div>
 
                       {/* Track 4 #86 (Section Q): Maintenance-notes-display.
