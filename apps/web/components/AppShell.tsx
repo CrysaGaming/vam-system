@@ -7,6 +7,7 @@ import { ThemeToggle } from './Theme';
 import { useUIStore } from '@/lib/stores/ui-store';
 import { navigateWithTransition } from '@/lib/view-transitions';
 import { KeyboardShortcutsManager } from './keyboard-shortcuts-manager';
+import { CommandPalette } from './command-palette';
 
 export type ShellUser = {
   name: string | null;
@@ -138,6 +139,13 @@ export function AppShell({ user, children }: Props) {
           login-page brauchen wir kein `g d` nav. Renders null bis der
           help-dialog (`?`) geöffnet wird. */}
       <KeyboardShortcutsManager />
+
+      {/* Track 4 #70 (Section N): Globaler Command-Palette (Cmd+K / Ctrl+K).
+          Identisches mount-pattern wie der KeyboardShortcutsManager —
+          renders null bis das modal geöffnet wird, also kein DOM-overhead
+          im idle-zustand. Eigener key-listener (Cmd/Ctrl+K) damit es nicht
+          mit dem `g X` sequence-handler im ShortcutsManager kollidiert. */}
+      <CommandPalette />
 
       {/* Skip-to-content link für keyboard-user (Track 3 #11.2.4 Phase 5
           a11y-polish). Default visuell versteckt (transform: translateY(-100%)
