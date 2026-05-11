@@ -904,6 +904,10 @@ model User {
   /// nicht weil templates eh airline-scoped sind (airline-delete räumt
   /// templates auf, user-delete würde sie verwaisen).
   eventTemplatesCreated     EventTemplate[]        @relation("EventTemplateCreatedBy")
+  /// Track 4 #99 (Section S): Event-comments die dieser user verfasst hat.
+  /// Cascade-delete via EventComment.user — wenn user account-deleted wird,
+  /// verschwinden seine comments mit (alternativ: anonymisieren, V2-ticket).
+  eventCommentsAuthored     EventComment[]         @relation("EventCommentsAuthored")
   flightSchoolEnrollments FlightSchoolEnrollment[]
 
   // Track 1 #7 (Events / Flight-Tours, 9.2.8): Event-system back-relations.
@@ -3254,6 +3258,8 @@ model Event {
   createdBy   User   @relation("EventCreatedBy", fields: [createdById], references: [id])
 
   participants EventParticipant[]
+  /// Track 4 #99 (Section S): Comment-thread des events. Cascade-delete.
+  comments     EventComment[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -3297,6 +3303,61 @@ model EventParticipant {
   @@unique([eventId, userId])
   @@index([userId])
   @@index([eventId, completed])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Track 4 #99 (Section S) — Event-Comments
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Track 4 #99 (Section S) — EventComment.
+///
+/// Diskussions-thread auf event-detail-pages. Pilots können fragen
+/// stellen ("welche flugzeug-config wollen wir?"), briefings posten
+/// (admin), oder post-event-feedback geben.
+///
+/// # Scope
+///
+/// Comments gehören zu einem event (cascade-delete via event). Wenn
+/// event gelöscht wird: comments verschwinden mit. Saubere semantik —
+/// comments ohne event sind sinnlos.
+///
+/// # Author
+///
+/// userId pflicht, kein anonym-mode. SetNull beim user-delete würde
+/// "user gelöscht" sub-display erfordern; statt dessen cascade-delete
+/// damit der comment mit dem account verschwindet. Kompromiss: wenn
+/// historische diskussionen wichtig wären müssten wir den user soft-
+/// deleten (out-of-scope für V1).
+///
+/// # Moderation
+///
+/// V1 hat keine moderation-flow. Admin kann jeden comment löschen
+/// (deleteCommentAction prüft admin-role ODER author-ownership).
+/// Pilots können nur eigene comments löschen. V2 könnte report-button
+/// + admin-queue haben.
+///
+/// # Threading
+///
+/// V1 flat — keine reply-to-comment. Pilots erwähnen sich via @name
+/// im body (free-text, kein parsing). Threading wäre eigene welle.
+model EventComment {
+  id      String @id @default(cuid())
+  eventId String
+  event   Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  userId  String
+  user    User   @relation("EventCommentsAuthored", fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Free-text comment body. Max 2000 chars im app-layer-validation.
+  body String @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// Häufigste queries:
+  ///   - "alle comments zu event X, chronologisch" (event-detail-page)
+  ///   - "alle comments von user Y" (profile, future)
+  @@index([eventId, createdAt])
+  @@index([userId])
 }
 
 // ─────────────────────────────────────────────────────────────────────────

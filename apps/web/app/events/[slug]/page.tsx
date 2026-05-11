@@ -10,6 +10,7 @@ import {
   type RuntimeStatus,
 } from '@vam/db';
 import { EventSignupButton } from './signup-button';
+import { CommentsSection } from './comments-section';
 
 /**
  * Track 1 #7 (Events / Flight-Tours, 9.2.8) — Public event-detail-page.
@@ -326,7 +327,7 @@ export default async function EventDetailPage({
 
         {/* Participants */}
         {participants.length > 0 && (
-          <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6">
+          <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6 mb-6">
             <h2 className="font-semibold text-lg mb-3">
               Teilnehmer ({participants.length})
             </h2>
@@ -363,6 +364,17 @@ export default async function EventDetailPage({
             </div>
           </section>
         )}
+
+        {/* Track 4 #99 (Section S): Comments-section. Server-component
+            fetcht comments + rendert post-form. Always shown (auch wenn
+            keine participants existieren) — pilots können fragen stellen
+            vor dem signup. */}
+        <CommentsSection
+          eventId={event.id}
+          slug={event.slug}
+          currentUserId={session.user.id}
+          currentUserIsAdmin={isAdmin}
+        />
       </div>
     </main>
   );

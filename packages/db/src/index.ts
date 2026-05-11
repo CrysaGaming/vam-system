@@ -140,7 +140,7 @@ export * from "./pireps/index.js";
 // mit category="event-bonus" auf user-wallets gebucht (kein separater
 // REVENUE_EVENT_BONUS-enum-value im MVP — siehe schema-comment Event.bonusReward).
 export { EventKind, EventStatus } from "@prisma/client";
-export type { Event, EventParticipant, EventTemplate } from "@prisma/client";
+export type { Event, EventParticipant, EventTemplate, EventComment } from "@prisma/client";
 export * from "./events/index.js";
 
 // Track 1 #5 (Replay-Mode, 9.2.7): PIREP-replay queries. Findet die
