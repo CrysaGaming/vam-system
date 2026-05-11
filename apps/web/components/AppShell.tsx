@@ -11,6 +11,7 @@ import { CommandPalette } from './command-palette';
 import { RecentlyViewedBlock } from './recently-viewed-block';
 import { PwaInstallPrompt } from './PwaInstallPrompt';
 import { MobileBottomNav } from './MobileBottomNav';
+import { PullToRefresh } from './PullToRefresh';
 
 export type ShellUser = {
   name: string | null;
@@ -156,6 +157,14 @@ export function AppShell({ user, children }: Props) {
           noch nicht installed/dismissed hat. Self-contained — kein
           prop-drilling, eigener localStorage-state. */}
       <PwaInstallPrompt />
+
+      {/* Track 4 #78 (Section O): Pull-to-Refresh. Touch-gesture handler
+          der pull-down vom top der scroll-area (#main-content) in einen
+          router.refresh() umsetzt. Self-contained — attached an
+          #main-content via DOM-id, kein prop-drilling. Touch-only
+          (matchMedia pointer:coarse), kein-op auf desktop. Renders nur
+          während pull oder refresh den indicator. */}
+      <PullToRefresh />
 
       {/* Skip-to-content link für keyboard-user (Track 3 #11.2.4 Phase 5
           a11y-polish). Default visuell versteckt (transform: translateY(-100%)
