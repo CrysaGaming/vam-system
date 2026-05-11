@@ -2,7 +2,13 @@ import { auth } from '@/auth';
 import { redirect } from 'next/navigation';
 import { prisma } from '@vam/db';
 import Link from 'next/link';
-import { createBooking, createBookingFromScheduledFlight } from '../actions';
+import {
+  createBooking,
+  createBookingFromScheduledFlight,
+  createBookingFromTemplate,
+  deleteBookingTemplate,
+  saveBookingTemplate,
+} from '../actions';
 
 /**
  * /bookings/new — Pilot-facing booking-creation (Welle 1 + Welle 7 commit 7C).
@@ -39,8 +45,9 @@ export default async function NewBooking() {
   const now = new Date();
   const horizonEnd = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
 
-  // Parallel fetch: routes for free-flight, slots for scheduled-section.
-  const [routes, scheduledSlots] = await Promise.all([
+  // Parallel fetch: routes for free-flight, slots for scheduled-section,
+  // templates for the user's personal-shortcuts-section (option #67).
+  const [routes, scheduledSlots, templates] = await Promise.all([
     prisma.route.findMany({
       where: { airlineId: user.airline.id, active: true },
       include: { departure: true, arrival: true, aircraft: true },
@@ -65,6 +72,23 @@ export default async function NewBooking() {
       },
       orderBy: { departureTime: 'asc' },
       take: 50,
+    }),
+    // Pilot's personal booking-templates. Newest first so frequently-used
+    // ones float to the top after being saved or re-instantiated (updatedAt
+    // would also work but createdAt is stable and good enough for v1).
+    prisma.bookingTemplate.findMany({
+      where: { userId: user.id, airlineId: user.airline.id },
+      include: {
+        route: {
+          select: {
+            flightNumber: true,
+            departure: { select: { icao: true } },
+            arrival: { select: { icao: true } },
+            aircraft: { select: { type: true, registration: true } },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
     }),
   ]);
 
@@ -120,6 +144,36 @@ export default async function NewBooking() {
       legCount,
     });
 
+    // Option #67: optional "save as template" checkbox in the same form.
+    // We save the template AFTER createBooking succeeds so the user only
+    // ends up with a template if the flight itself was actually creatable
+    // (no active-booking-guard violation, route still exists, etc.). If
+    // saveBookingTemplate throws (e.g., 20-template-limit reached), we
+    // swallow + log — the booking is already created and we don't want to
+    // redirect-then-throw which would orphan the user on an error page.
+    // The redirect below proceeds either way; user can re-save the template
+    // from a future booking if they care.
+    const saveAsTemplate = formData.get('saveAsTemplate');
+    const templateLabel = formData.get('templateLabel');
+    if (
+      saveAsTemplate === 'on' &&
+      typeof templateLabel === 'string' &&
+      templateLabel.trim() !== ''
+    ) {
+      try {
+        await saveBookingTemplate({
+          label: templateLabel,
+          routeId,
+          intendedNetwork,
+          legCount,
+        });
+      } catch (err) {
+        // Best-effort: don't block redirect on template-save failure.
+        // E.g., user hit the 20-template-limit — booking is still valid.
+        console.warn('[bookings/new] saveBookingTemplate failed:', err);
+      }
+    }
+
     redirect(`/bookings/${result.id}`);
   }
 
@@ -141,6 +195,37 @@ export default async function NewBooking() {
     redirect(`/bookings/${result.id}`);
   }
 
+  // Option #67: instantiate booking from template (one-click).
+  async function submitTemplateInstantiate(formData: FormData) {
+    'use server';
+
+    const session = await auth();
+    if (!session?.user?.id) redirect('/');
+
+    const templateId = formData.get('templateId');
+    if (typeof templateId !== 'string' || templateId === '') {
+      throw new Error('Template ID is required');
+    }
+
+    const result = await createBookingFromTemplate({ templateId });
+    redirect(`/bookings/${result.id}`);
+  }
+
+  // Option #67: delete template (no redirect — page re-renders fresh list).
+  async function submitTemplateDelete(formData: FormData) {
+    'use server';
+
+    const session = await auth();
+    if (!session?.user?.id) redirect('/');
+
+    const templateId = formData.get('templateId');
+    if (typeof templateId !== 'string' || templateId === '') {
+      throw new Error('Template ID is required');
+    }
+
+    await deleteBookingTemplate({ templateId });
+  }
+
   return (
     <main className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-white p-8">
       <div className="max-w-3xl mx-auto">
@@ -158,6 +243,88 @@ export default async function NewBooking() {
             ← Abbrechen
           </Link>
         </header>
+
+        {/* Section 0 (option #67): Templates — only when pilot has ≥1 saved */}
+        {templates.length > 0 && (
+          <section className="mb-8">
+            <div className="mb-4">
+              <h2 className="text-xl font-semibold">💾 Aus Vorlage</h2>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                Deine gespeicherten Buchungsvorlagen — ein Klick erstellt eine
+                neue Buchung mit denselben Werten. {templates.length} von 20
+                belegt.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {templates.map((t) => (
+                <div
+                  key={t.id}
+                  className="group bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-4 hover:border-indigo-300 dark:hover:border-indigo-700 transition"
+                >
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium text-gray-900 dark:text-white truncate">
+                        {t.label}
+                      </div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400 font-mono mt-0.5">
+                        {t.route.flightNumber} · {t.route.departure.icao} →{' '}
+                        {t.route.arrival.icao}
+                      </div>
+                    </div>
+                    <form action={submitTemplateDelete} className="shrink-0">
+                      <input type="hidden" name="templateId" value={t.id} />
+                      <button
+                        type="submit"
+                        title="Vorlage löschen"
+                        aria-label="Vorlage löschen"
+                        className="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 opacity-60 group-hover:opacity-100 transition"
+                      >
+                        ✕
+                      </button>
+                    </form>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-1.5 mb-3">
+                    {t.intendedNetwork && (
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono bg-violet-100 dark:bg-violet-950/40 text-violet-700 dark:text-violet-300">
+                        {t.intendedNetwork}
+                      </span>
+                    )}
+                    {t.legCount > 1 && (
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300">
+                        {t.legCount} Legs
+                      </span>
+                    )}
+                    {t.route.aircraft && (
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
+                        {t.route.aircraft.type}
+                      </span>
+                    )}
+                  </div>
+
+                  <form action={submitTemplateInstantiate}>
+                    <input type="hidden" name="templateId" value={t.id} />
+                    <button
+                      type="submit"
+                      className="w-full px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-xs font-medium transition"
+                    >
+                      🔁 Buchen
+                    </button>
+                  </form>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-6 flex items-center gap-3">
+              <div className="flex-1 h-px bg-gray-200 dark:bg-gray-800" />
+              <span className="text-xs text-gray-400 dark:text-gray-600 uppercase tracking-wider">
+                Oder
+              </span>
+              <div className="flex-1 h-px bg-gray-200 dark:bg-gray-800" />
+            </div>
+          </section>
+        )}
 
         {/* Section 1: Scheduled flights — only when there are bookable slots */}
         {scheduledSlots.length > 0 && (
@@ -374,6 +541,39 @@ export default async function NewBooking() {
                   10 Legs pro Booking. Für Touren mit verschiedenen Routen leg
                   bitte separate Bookings an.
                 </p>
+              </div>
+
+              {/* Option #67: Save as template (optional). Checkbox controls
+                  whether the booking-create flow ALSO persists a re-usable
+                  template for future one-click instantiation. Label is shown
+                  in the "Aus Vorlage"-section at the top of this page after
+                  next render. Limit 20 templates per pilot — server-action
+                  swallows ZodError silently if hit (best-effort). */}
+              <div className="pt-2 border-t border-gray-200 dark:border-gray-800">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    name="saveAsTemplate"
+                    className="w-4 h-4 accent-indigo-600"
+                  />
+                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                    💾 Als Vorlage speichern
+                  </span>
+                </label>
+                <div className="mt-2 ml-6">
+                  <input
+                    type="text"
+                    name="templateLabel"
+                    maxLength={50}
+                    placeholder="z.B. Daily MUC-FRA Morning"
+                    className="w-full bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded px-3 py-1.5 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-indigo-500"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Optional. Wird nur gespeichert wenn die Checkbox aktiv ist.
+                    Max. 50 Zeichen. Du kannst bis zu 20 Vorlagen pro Pilot
+                    speichern.
+                  </p>
+                </div>
               </div>
             </div>
 

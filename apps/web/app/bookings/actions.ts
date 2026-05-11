@@ -723,3 +723,202 @@ export async function createBookingFromScheduledFlight(
 
   return booking;
 }
+
+// ============================================================================
+// Track-4 Option #67 — Booking-Templates 💾
+// ============================================================================
+
+const MAX_TEMPLATES_PER_PILOT = 20;
+
+const SaveBookingTemplateSchema = z.object({
+  label: z
+    .string()
+    .trim()
+    .min(1, 'Label darf nicht leer sein')
+    .max(50, 'Label darf maximal 50 Zeichen lang sein'),
+  routeId: z.string().cuid(),
+  intendedNetwork: z.nativeEnum(NetworkType).optional(),
+  legCount: z.number().int().min(1).max(10).default(1),
+});
+
+const DeleteBookingTemplateSchema = z.object({
+  templateId: z.string().cuid(),
+});
+
+const CreateBookingFromTemplateSchema = z.object({
+  templateId: z.string().cuid(),
+  // Optional override beim instanziieren — z.B. wenn der pilot heute
+  // ausnahmsweise auf POSCON statt VATSIM fliegen will.
+  scheduledDeparture: z
+    .string()
+    .datetime()
+    .optional()
+    .transform((s) => (s ? new Date(s) : undefined)),
+});
+
+/**
+ * #67 — Speichert eine booking-template für den aktuellen pilot.
+ *
+ * Validierungen (in dieser reihenfolge):
+ *   1. Auth + airline-scope via requireUserWithAirline
+ *   2. Label-trim + length (1..50) via zod
+ *   3. Route gehört zur gleichen airline
+ *   4. Pro-pilot-limit: max 20 templates (MAX_TEMPLATES_PER_PILOT)
+ *
+ * Liefert die ID der neu erstellten template zurück, falls UI sie
+ * direkt highlighten will.
+ */
+export async function saveBookingTemplate(
+  input: z.input<typeof SaveBookingTemplateSchema>,
+) {
+  const parsed = SaveBookingTemplateSchema.parse(input);
+  const { id: userId, airlineId } = await requireUserWithAirline();
+
+  // Route muss zur airline gehören
+  const route = await prisma.route.findFirst({
+    where: { id: parsed.routeId, airlineId },
+    select: { id: true },
+  });
+  if (!route) {
+    throw new Error('Route nicht gefunden oder nicht in deiner Airline.');
+  }
+
+  // Pro-pilot-limit
+  const count = await prisma.bookingTemplate.count({
+    where: { userId, airlineId },
+  });
+  if (count >= MAX_TEMPLATES_PER_PILOT) {
+    throw new Error(
+      `Maximal ${MAX_TEMPLATES_PER_PILOT} Vorlagen pro Pilot. Lösche eine alte, ` +
+        `um eine neue zu speichern.`,
+    );
+  }
+
+  const template = await prisma.bookingTemplate.create({
+    data: {
+      userId,
+      airlineId,
+      label: parsed.label,
+      routeId: parsed.routeId,
+      intendedNetwork: parsed.intendedNetwork,
+      legCount: parsed.legCount,
+    },
+    select: { id: true },
+  });
+
+  revalidatePath('/bookings/new');
+  revalidatePath('/bookings');
+
+  return template;
+}
+
+/**
+ * #67 — Löscht eine booking-template.
+ *
+ * Validiert ownership: pilot kann nur seine eigenen templates löschen.
+ * Mit airlineId-scope zusätzlich gegen cross-airline-akzidente.
+ */
+export async function deleteBookingTemplate(
+  input: z.input<typeof DeleteBookingTemplateSchema>,
+) {
+  const { templateId } = DeleteBookingTemplateSchema.parse(input);
+  const { id: userId, airlineId } = await requireUserWithAirline();
+
+  // Ownership-check: only owner kann löschen
+  const template = await prisma.bookingTemplate.findFirst({
+    where: { id: templateId, userId, airlineId },
+    select: { id: true },
+  });
+  if (!template) {
+    throw new Error('Vorlage nicht gefunden.');
+  }
+
+  await prisma.bookingTemplate.delete({
+    where: { id: templateId },
+  });
+
+  revalidatePath('/bookings/new');
+  revalidatePath('/bookings');
+}
+
+/**
+ * #67 — Erstellt eine neue booking aus einer template.
+ *
+ * Wrapper um createBooking-equivalent-logik, der die werte aus der template
+ * zieht. Wir replizieren bewusst die wichtigsten checks (active-booking-
+ * guard, career-gate, route-airline-scope, expiresAt-TTL) statt createBooking
+ * zu callen, weil createBooking die input-schema-zod-validierung erwartet
+ * und wir die NetworkType-enum direkt aus der DB übernehmen.
+ *
+ * Wenn die template-route inzwischen gelöscht wurde, throws.
+ */
+export async function createBookingFromTemplate(
+  input: z.input<typeof CreateBookingFromTemplateSchema>,
+) {
+  const { templateId, scheduledDeparture } =
+    CreateBookingFromTemplateSchema.parse(input);
+  const { id: userId, airlineId } = await requireUserWithAirline();
+
+  const template = await prisma.bookingTemplate.findFirst({
+    where: { id: templateId, userId, airlineId },
+    select: {
+      id: true,
+      routeId: true,
+      intendedNetwork: true,
+      legCount: true,
+      route: {
+        select: { id: true, aircraftTypeIcao: true },
+      },
+    },
+  });
+  if (!template) {
+    throw new Error('Vorlage nicht gefunden.');
+  }
+  if (!template.route) {
+    throw new Error(
+      'Die Route dieser Vorlage existiert nicht mehr. Bitte lösche die Vorlage.',
+    );
+  }
+
+  // Career-gate analog createBooking
+  await enforceCareerGateForRoute(
+    userId,
+    airlineId,
+    template.route.aircraftTypeIcao,
+  );
+
+  // Active-booking-guard analog createBooking
+  const existing = await prisma.booking.findFirst({
+    where: {
+      userId,
+      airlineId,
+      state: { in: ['Created', 'SimBriefDispatched', 'InProgress'] },
+    },
+    select: { id: true },
+  });
+  if (existing) {
+    throw new Error(
+      'Aktive Buchung vorhanden. Schließe oder storniere sie zuerst.',
+    );
+  }
+
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+  const booking = await prisma.booking.create({
+    data: {
+      airlineId,
+      userId,
+      routeId: template.routeId,
+      intendedNetwork: template.intendedNetwork ?? undefined,
+      scheduledDeparture,
+      legCount: template.legCount,
+      expiresAt,
+    },
+    select: { id: true, state: true },
+  });
+
+  revalidatePath('/bookings');
+  revalidatePath('/bookings/new');
+
+  return booking;
+}

@@ -515,6 +515,10 @@ model Airline {
   // (airlineId=null) sind hier nicht enthalten — sie haben keinen
   // airline-owner.
   events Event[]
+
+  // Track 4 #67 (Section M): Booking-templates dieser airline (alle pilots
+  // dieser airline). Cascade-delete via BookingTemplate.airline.
+  bookingTemplates BookingTemplate[]
 }
 
 model User {
@@ -846,6 +850,11 @@ model User {
   // PirepKudos). Cascade-delete via PirepKudos.user — user-löschung räumt
   // seine vergebenen kudos mit auf.
   pirepKudosGiven PirepKudos[]
+
+  // Track 4 #67 (Section M): Booking-templates dieses pilots. Cascade-
+  // delete via BookingTemplate.user — pilot-löschung räumt seine vorlagen
+  // mit auf. Siehe BookingTemplate-docstring für scope/limits.
+  bookingTemplates BookingTemplate[]
 }
 
 model LiveSession {
@@ -1253,6 +1262,11 @@ model Route {
   // sind weiter möglich).
   scheduleTemplates ScheduleTemplate[]
   scheduledFlights  ScheduledFlight[]
+
+  // Track 4 #67 (Section M): Booking-templates die diese route nutzen.
+  // Cascade-delete via BookingTemplate.route — route-löschung räumt
+  // templates auf damit keine dangling vorlagen entstehen.
+  bookingTemplates BookingTemplate[]
 
   @@unique([airlineId, flightNumber])
   @@index([departureId])
@@ -3086,4 +3100,76 @@ model PirepKudos {
   //   - \"wieviele kudos hat dieser PIREP?\" → covered by unique-prefix index
   //   - \"alle kudos die user X vergeben hat\" (profile/activity-feed)
   @@index([userId, createdAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Track 4 #67 (Section M) — Booking-Templates
+// ─────────────────────────────────────────────────────────────────────────
+
+/// BookingTemplate — pilot-persönliche vorlage für häufig gebuchte
+/// flug-konfigurationen.
+///
+/// Use-case: Pilot bucht regelmäßig denselben flug (z.B. tägliche
+/// MUC-FRA-shuttle auf VATSIM). Statt jedesmal route + network + legCount
+/// neu auszuwählen, kann er einmal eine vorlage speichern und beim nächsten
+/// /bookings/new mit einem klick neu instanzieren.
+///
+/// # Scope
+///
+/// User-scoped (nicht airline-shared). Jeder pilot hat seine eigenen
+/// templates. Schema-feld airlineId ist trotzdem da damit wir queries
+/// einfach scopen können (cross-airline-show-up wäre möglich aber bewusst
+/// vermieden weil semantik unklar wäre).
+///
+/// Cascade-delete via beiden FKs:
+///   - Pilot-löschung räumt seine templates auf
+///   - Airline-löschung räumt alle templates der airline auf
+///   - Route-löschung räumt templates die diese route nutzen auf (sonst
+///     hätten wir dangling-templates die nicht mehr funktionieren)
+///
+/// # Felder
+///
+/// `label` (1..50 chars, app-layer-enforced): kurze human-readable name,
+/// z.B. \"Daily MUC-FRA Morning\" oder \"Cargo-Run nach LFPG\". Wird in
+/// dropdown + management-UI angezeigt.
+///
+/// `intendedNetwork`: optional, mirrors Booking.intendedNetwork. Wenn
+/// gesetzt, wird beim instanziieren übernommen. NULL = pilot wählt
+/// network bei jeder instanz neu.
+///
+/// `legCount`: mirrors Booking.legCount. Default 1 = single-flight.
+/// 2..10 für multi-leg-tours.
+///
+/// # Was wir NICHT speichern
+///
+/// - scheduledDeparture: wäre sinnlos (vorlagen sind zeit-relativ, nicht
+///   zeit-absolut). Pilot setzt das beim instanziieren neu.
+/// - preferredAircraft: aircraft kommt eh aus der route. Wenn pilot
+///   spezifisches airframe will, kann er das auf der booking-detail-page
+///   ändern (kommt mit späterem option). Für jetzt: route-default.
+///
+/// # Pro-pilot limit
+///
+/// App-layer-enforced max 20 templates pro pilot (verhindert spam, hält
+/// dropdown übersichtlich). Wenn jemand das hard-limit erreicht, kann
+/// er alte unbenutzte templates löschen.
+model BookingTemplate {
+  id              String       @id @default(cuid())
+  userId          String
+  user            User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  airlineId       String
+  airline         Airline      @relation(fields: [airlineId], references: [id], onDelete: Cascade)
+  label           String
+  routeId         String
+  route           Route        @relation(fields: [routeId], references: [id], onDelete: Cascade)
+  intendedNetwork NetworkType?
+  legCount        Int          @default(1)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  // Häufigste queries:
+  //   - \"alle templates dieses pilots, neueste zuerst\" (dropdown)
+  //   - \"alle templates dieser airline\" (admin/debug, ggf. später)
+  @@index([userId, createdAt])
+  @@index([airlineId])
 }
