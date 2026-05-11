@@ -39,7 +39,7 @@ export default async function PublicAirlinePage({
 
   // Counts + previews. Single page-specific query block — none of these
   // live in getPublicAirline because the layout doesn't need them.
-  const [counts, hubsPreview, fleetPreview, schedulePreview] =
+  const [counts, hubsPreview, fleetPreview, schedulePreview, featuredPilots] =
     await Promise.all([
       prisma.airline.findUnique({
         where: { id: airline.id },
@@ -85,6 +85,36 @@ export default async function PublicAirlinePage({
         },
         orderBy: { departureTime: 'asc' },
         take: 5,
+      }),
+      // Track 4 #64 (Section L): Featured Pilots — top-4 by lifetime flight-
+      // hours. ACTIVE employment-status only damit inactive/leave-piloten
+      // nicht im public-showcase landen (sie sind nicht aktiv operativ und
+      // sollten auch nicht "öffentliche aushängeschilder" der airline sein).
+      //
+      // Take 4: passt visuell in 2x2 grid auf mobile + 4-col row auf desktop.
+      // 5+ wäre eine zweite zeile auf desktop = unnötig — wir sind nicht
+      // /pilots, sondern ein public-airline-summary.
+      //
+      // totalFlightHours statt totalFlights weil hours mehr "experience"-
+      // signal sind (= viele lange flights > viele short hops).
+      prisma.user.findMany({
+        where: {
+          airlineId: airline.id,
+          employmentStatus: 'ACTIVE',
+        },
+        select: {
+          id: true,
+          name: true,
+          image: true,
+          totalFlightHours: true,
+          totalFlights: true,
+          rank: { select: { name: true } },
+        },
+        orderBy: [
+          { totalFlightHours: 'desc' },
+          { totalFlights: 'desc' },
+        ],
+        take: 4,
       }),
     ]);
 
@@ -209,6 +239,83 @@ export default async function PublicAirlinePage({
             ))}
           </div>
         </PreviewSection>
+      )}
+
+      {/* Track 4 #64 (Section L): Featured Pilots — public airline-page
+          showcase der top-piloten. 2x2 grid auf mobile, 4-col auf
+          desktop. Verlinkt auf jeweilige /pilots/[id]-profile.
+
+          Position: nach Fleet-preview, vor Schedule-preview. Logik:
+          erst kommt "was hat die airline" (hubs/fleet), dann "wer
+          ist die airline" (piloten), dann "was läuft grade" (schedule).
+          Pilot-showcase nach den infrastruktur-blöcken matcht dieses
+          narrativ. */}
+      {featuredPilots.length > 0 && (
+        <section>
+          <header className="flex items-baseline justify-between mb-3">
+            <h2 className="text-lg font-semibold">🌟 Featured Pilots</h2>
+            <Link
+              href={`/a/${airline.icao}/pilots`}
+              className="text-xs font-medium hover:underline"
+              style={{ color: primary }}
+            >
+              Alle anzeigen →
+            </Link>
+          </header>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            {featuredPilots.map((p, idx) => {
+              const medal =
+                idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : null;
+              return (
+                <Link
+                  key={p.id}
+                  href={`/pilots/${p.id}`}
+                  className="block p-4 rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 hover:shadow-md transition group"
+                >
+                  <div className="flex items-center gap-3 mb-3">
+                    {p.image ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={p.image}
+                        alt={p.name ?? 'Avatar'}
+                        className="w-12 h-12 rounded-full border border-gray-300 dark:border-gray-700 shrink-0"
+                      />
+                    ) : (
+                      <div className="w-12 h-12 rounded-full bg-gray-200 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 shrink-0" />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="font-semibold text-sm truncate flex items-center gap-1.5">
+                        {medal && (
+                          <span className="shrink-0" aria-hidden="true">
+                            {medal}
+                          </span>
+                        )}
+                        {p.name ?? 'Unbenannt'}
+                      </p>
+                      {p.rank && (
+                        <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                          {p.rank.name}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-baseline justify-between text-xs">
+                    <span
+                      className="font-mono font-semibold tabular-nums"
+                      style={{ color: primary }}
+                    >
+                      {p.totalFlightHours.toFixed(1)} h
+                    </span>
+                    <span className="text-gray-500 dark:text-gray-500 tabular-nums">
+                      {p.totalFlights}{' '}
+                      {p.totalFlights === 1 ? 'Flug' : 'Flüge'}
+                    </span>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        </section>
       )}
 
       {/* Upcoming schedule */}
