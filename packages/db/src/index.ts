@@ -22,6 +22,7 @@
  */
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { extendWithSlowQueryMonitor } from "./perf/slow-query-monitor.js";
 
 const globalForPrisma = globalThis as unknown as { prisma: PrismaClient | undefined };
 
@@ -32,13 +33,35 @@ const globalForPrisma = globalThis as unknown as { prisma: PrismaClient | undefi
 // next-build sprengen ohne nutzen.
 const connectionString = process.env.DATABASE_URL ?? "";
 
-export const prisma =
+// Base-client (unwrapped). Wird in globalThis gecached für hot-reload
+// resistance. Die slow-query-extension wird IMMER on-top angewandt —
+// die globalThis-cache hat nur den base-client, nicht den extended.
+// Das ist beabsichtigt: $extends macht einen lightweight wrapper,
+// caching des base-clients reicht für connection-pool-stabilität.
+const basePrisma =
   globalForPrisma.prisma ??
   new PrismaClient({
     adapter: new PrismaPg({ connectionString }),
   });
 
-if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
+if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = basePrisma;
+
+// Track 4 #102 (Section T): slow-query-monitor extension. Wrappt jede
+// query mit timing + ring-buffer-recording. Threshold via env-var
+// VAM_SLOW_QUERY_MS (default 200ms). Buffer ist in-memory (siehe
+// ./perf/slow-query-monitor.ts für details).
+//
+// Type-cast über `unknown as PrismaClient`: $extends ändert den
+// laufzeit-typ zu einem "DynamicClientExtensionThis"-wrapper. Downstream
+// code (z.b. economy/wallet.ts) nutzt prisma.$transaction(callback)
+// patterns die mit dem extended-typ TS-overload-resolution-issues haben
+// (TS pickt die array-overload statt callback-overload weil das
+// callback-arg type strict matched gegen die original-Prisma.Transaction-
+// Client-shape, nicht gegen die extended-tx-shape). Workaround: laufzeit
+// bekommt den extended client (mit monitoring), type-system sieht
+// plain PrismaClient (keine breaking changes für consumer).
+const extendedPrisma = extendWithSlowQueryMonitor(basePrisma);
+export const prisma: PrismaClient = extendedPrisma as unknown as PrismaClient;
 
 // Re-export für Typ-Nutzung in anderen Packages.
 //
@@ -148,6 +171,13 @@ export * from "./events/index.js";
 // award-grant etc.). Helper logAdminAction() lebt in ./audit barrel.
 export type { AdminAuditLog } from "@prisma/client";
 export * from "./audit/index.js";
+
+// Track 4 #102 (Section T): Slow-Query-Monitor helpers. getSlowQueries(),
+// getSlowQueryStats(), clearSlowQueryBuffer(), getSlowQueryThresholdMs().
+// Die extension selbst (extendWithSlowQueryMonitor) wird oben schon
+// internally auf den base-client angewandt — consumer brauchen nur die
+// read/clear-helpers für die /admin/perf-page.
+export * from "./perf/index.js";
 
 // Track 1 #5 (Replay-Mode, 9.2.7): PIREP-replay queries. Findet die
 // LiveSession + LiveSessionPosition[] zu einem given PIREP — entweder

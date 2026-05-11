@@ -292,7 +292,7 @@ export default async function AdminStatusPage() {
             <Link href="/admin/perf" className="text-indigo-600 dark:text-indigo-400 hover:underline">
               ⏱ Perf-Monitor
             </Link>{' '}
-            (kommt mit #102) loggt slow-queries.
+            zeigt slow-queries (≥ 200ms) im in-memory ring-buffer.
           </p>
           <p>
             <strong className="text-gray-700 dark:text-gray-300">
