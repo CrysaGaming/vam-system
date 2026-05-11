@@ -240,18 +240,25 @@ const UpdateAircraftSchema = z.object({
     .transform((s) => s.toUpperCase())
     .optional()
     .or(z.literal('')),
+  // Track 4 #85 (Section Q) — Aircraft-Photo. URL-validation analog
+  // Airline.logoUrl. Max 2000 chars weil signed-CDN-URLs (S3, R2) lange
+  // tokens enthalten können. Empty-string wird zu null bei save (clear-
+  // photo-flow).
+  photoUrl: z.string().url().max(2000).optional().or(z.literal('')),
 });
 
 export async function updateAircraft(formData: FormData) {
   const { airlineId } = await requireAirlineAdmin();
 
   const rawHome = String(formData.get('homeIcao') ?? '').trim();
+  const rawPhoto = String(formData.get('photoUrl') ?? '').trim();
   const parsed = UpdateAircraftSchema.safeParse({
     aircraftId: String(formData.get('aircraftId') ?? ''),
     registration: String(formData.get('registration') ?? '').trim(),
     aircraftTypeId: String(formData.get('aircraftTypeId') ?? '').trim() || undefined,
     type: String(formData.get('type') ?? '').trim() || undefined,
     homeIcao: rawHome || undefined,
+    photoUrl: rawPhoto || undefined,
   });
 
   if (!parsed.success) {
@@ -339,6 +346,9 @@ export async function updateAircraft(formData: FormData) {
       type: resolvedType,
       aircraftTypeId: resolvedTypeId,
       homeIcao: parsed.data.homeIcao || null,
+      // Track 4 #85: photoUrl-update. Empty-string → null (admin hat das
+      // URL-feld geleert, was "photo entfernen" bedeutet).
+      photoUrl: parsed.data.photoUrl || null,
     },
   });
 

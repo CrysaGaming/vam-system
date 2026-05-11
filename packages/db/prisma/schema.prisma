@@ -1151,6 +1151,21 @@ model Aircraft {
   // z.B. "this specific D-AIBL has reduced MTOW because of MEL". Über-
   // steuert Airline + Fleet defaults.
   simBriefOverlay Json?
+
+  // Track 4 #85 (Section Q) — Aircraft-Photo. URL-basierte "uploads"
+  // analog zum Airline.logoUrl-pattern: der admin trägt eine URL ein
+  // (z.B. von einem repaint-shot auf flickr/imgur/eigenem CDN), wir
+  // speichern den string + zeigen das image inline. Kein file-upload
+  // weil im codebase keine blob-storage-infrastruktur (S3/R2) existiert
+  // — URL-only ist konsistent mit allen anderen image-features.
+  //
+  // Wird gerendert auf der edit-page (preview oberhalb des forms) und
+  // als thumbnail in der /airline/aircraft-listing. Bei null fällt das
+  // UI auf ein generic ICAO-monogram-block zurück (analog logo-fallback).
+  //
+  // @db.Text weil image-URLs (besonders signed-S3-URLs) oft über
+  // 255 chars gehen.
+  photoUrl        String?  @db.Text
   createdAt       DateTime @default(now())
   updatedAt       DateTime @default(now()) @updatedAt
 

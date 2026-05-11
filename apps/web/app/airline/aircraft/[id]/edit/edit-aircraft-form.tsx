@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState } from 'react';
+import { useActionState, useState } from 'react';
 import { useFormStatus } from 'react-dom';
 import { updateAircraft } from '../../actions';
 import { AircraftTypeAutocomplete } from '@/components/aircraft-type-autocomplete';
@@ -20,6 +20,17 @@ import { AircraftTypeAutocomplete } from '@/components/aircraft-type-autocomplet
  * Hidden field aircraftId wird im server-action für multi-tenant-check
  * + lookup genutzt. aircraftTypeId + type werden vom Autocomplete
  * selbst gerendert (zwei hidden inputs).
+ *
+ * # Track 4 #85 (Section Q) — Photo-URL field
+ *
+ * Statt file-upload nutzen wir das URL-pattern (analog Airline.logoUrl):
+ * admin trägt eine bild-URL ein, wir validieren + speichern. Vorteil:
+ * keine blob-storage-infrastruktur nötig (existiert im codebase nicht),
+ * konsistent mit anderen image-features, deletbar via leeres feld.
+ *
+ * Live-preview: das input ist controlled (useState) damit eine 96x96-
+ * thumbnail neben dem feld sofort beim tippen aktualisiert. Bei invalid
+ * URL fällt das preview-image stillschweigend auf den ICAO-fallback.
  */
 type State = { ok: true } | { ok: false; error: string } | null;
 
@@ -35,6 +46,10 @@ interface Props {
    */
   initialAircraftTypeDisplay: string | null;
   initialHomeIcao: string | null;
+  /**
+   * Track 4 #85: bisherige photo-URL. Null wenn keine gesetzt.
+   */
+  initialPhotoUrl: string | null;
 }
 
 async function updateAircraftAction(
@@ -51,11 +66,36 @@ export function EditAircraftForm({
   initialAircraftTypeId,
   initialAircraftTypeDisplay,
   initialHomeIcao,
+  initialPhotoUrl,
 }: Props) {
   const [state, formAction] = useActionState<State, FormData>(
     updateAircraftAction,
     null,
   );
+
+  // Controlled state für photoUrl — driver der live-preview-thumbnail.
+  // useState statt defaultValue weil wir das preview-bild beim tippen
+  // syncen wollen.
+  const [photoUrl, setPhotoUrl] = useState(initialPhotoUrl ?? '');
+  // Eigener loaded/error-state für preview damit wir bei broken URLs
+  // (404, CORS, malformed) auf den fallback-block schwenken können
+  // statt ein kaputtes alt-text-icon zu zeigen.
+  const [previewBroken, setPreviewBroken] = useState(false);
+
+  // Beim photoUrl-change broken-flag resetten — neue URL kriegt frische
+  // chance zum laden.
+  function handlePhotoChange(value: string) {
+    setPhotoUrl(value);
+    setPreviewBroken(false);
+  }
+
+  // Plausibilitäts-check für preview: nur rendern wenn URL "vernünftig"
+  // aussieht (http/https-prefix). Verhindert dass beim ersten zeichen
+  // schon ein broken-img request gefeuert wird.
+  const showPreview =
+    photoUrl.length > 0 &&
+    /^https?:\/\//i.test(photoUrl) &&
+    !previewBroken;
 
   return (
     <form action={formAction} className="space-y-4">
@@ -113,6 +153,63 @@ export function EditAircraftForm({
             Leer lassen um Home-Hub zu entfernen. Muss im Airport-Catalog
             existieren.
           </p>
+        </div>
+
+        {/* Track 4 #85 (Section Q): Photo-URL field. URL-input + 96x96
+            live-preview rechts daneben. Bei broken-img schwenkt der
+            preview-block auf einen neutralen placeholder; bei leerem
+            input zeigt das placeholder den hint "Kein Foto gesetzt". */}
+        <div className="sm:col-span-2">
+          <label
+            htmlFor="photoUrl"
+            className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+          >
+            Foto-URL
+          </label>
+          <div className="flex flex-col sm:flex-row gap-3">
+            <div className="flex-1">
+              <input
+                type="url"
+                id="photoUrl"
+                name="photoUrl"
+                value={photoUrl}
+                onChange={(e) => handlePhotoChange(e.target.value)}
+                maxLength={2000}
+                placeholder="https://example.com/d-aibc-side-view.jpg"
+                className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded text-gray-900 dark:text-white placeholder:text-gray-400 focus:outline-none focus:border-indigo-500"
+              />
+              <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">
+                URL eines bildes (z.B. von imgur, flickr, oder eigenem
+                CDN). Leer lassen um das foto zu entfernen.
+              </p>
+            </div>
+            {/* Preview-block: 96x96 quadrat. Bei valider URL kommt das
+                bild rein (mit picture-wrapper analog AppShell-pattern um
+                React-Float-preload-warnings zu vermeiden). Bei nicht-
+                gesetzter oder broken URL: subtle placeholder. */}
+            <div className="shrink-0 w-24 h-24 rounded border border-gray-300 dark:border-gray-700 overflow-hidden bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
+              {showPreview ? (
+                <picture>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={photoUrl}
+                    alt="Aircraft-Foto Vorschau"
+                    className="w-full h-full object-cover"
+                    onError={() => setPreviewBroken(true)}
+                  />
+                </picture>
+              ) : (
+                <span
+                  className="text-xs text-gray-400 dark:text-gray-600 text-center px-1"
+                  aria-hidden="true"
+                >
+                  {photoUrl.length > 0 && previewBroken
+                    ? '⚠️\nBroken'
+                    : 'Kein\nFoto'}
+                </span>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 

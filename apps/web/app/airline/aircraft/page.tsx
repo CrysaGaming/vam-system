@@ -331,7 +331,23 @@ export default async function AirlineAircraftPage({
                   }`}
                 >
                   <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="flex-1 min-w-[200px]">
+                    {/* Linke spalte: optionales photo-thumbnail + info-block.
+                        Track 4 #85 (Section Q): 64x64 thumbnail wenn
+                        photoUrl gesetzt ist, sonst skipped — keine leere
+                        platzhalter-fläche damit die liste kompakt bleibt
+                        für admins ohne photos. */}
+                    <div className="flex gap-3 flex-1 min-w-[200px]">
+                      {ac.photoUrl && (
+                        <picture className="shrink-0">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={ac.photoUrl}
+                            alt={`${ac.registration} foto`}
+                            className="w-16 h-16 rounded object-cover border border-gray-200 dark:border-gray-800"
+                          />
+                        </picture>
+                      )}
+                      <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <h3 className="text-lg font-semibold font-mono">
                           {ac.registration}
@@ -460,6 +476,8 @@ export default async function AirlineAircraftPage({
                           <p className="italic">Noch keine Flüge geloggt</p>
                         )}
                       </div>
+                    </div>
+                    {/* Schließt das wrapper-div um photo+info (track 4 #85). */}
                     </div>
 
                     {/* Actions: status-dropdown + edit-link + delete (oder
