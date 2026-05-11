@@ -17,6 +17,7 @@ import { KudosButton } from './kudos-button';
 import { VerticalProfileChart } from './vertical-profile-chart';
 import { AircraftPerformanceChart } from './aircraft-performance-chart';
 import { isApproverRole } from '@/lib/roles';
+import { RecentItemTracker } from '@/components/recent-item-tracker';
 
 /**
  * Track 4 #2 (Phase-Breakdown-Bar): bg-color pro flight-phase.
@@ -317,6 +318,17 @@ export default async function PirepDetail({
 
   return (
     <main className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-white p-8">
+      {/* Track 4 #71 (Section N): Recently-Viewed tracker. Schreibt diese
+          PIREP als "kürzlich besucht" in den localStorage. Pure-side-
+          effect, renders nichts visuell — siehe RecentItemTracker doc-
+          string + lib/recently-viewed.ts. */}
+      <RecentItemTracker
+        id={pirep.id}
+        type="pirep"
+        label={`${pirep.route?.flightNumber ?? 'PIREP'} ${pirep.departure.icao}→${pirep.arrival.icao}`}
+        subLabel={statusLabel}
+        href={`/pireps/${pirep.id}`}
+      />
       <div className="max-w-4xl mx-auto">
         <header className="flex justify-between items-center mb-8 pb-6 border-b border-gray-200 dark:border-gray-800">
           <div>

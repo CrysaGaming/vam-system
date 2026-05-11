@@ -8,6 +8,7 @@ import { useUIStore } from '@/lib/stores/ui-store';
 import { navigateWithTransition } from '@/lib/view-transitions';
 import { KeyboardShortcutsManager } from './keyboard-shortcuts-manager';
 import { CommandPalette } from './command-palette';
+import { RecentlyViewedBlock } from './recently-viewed-block';
 
 export type ShellUser = {
   name: string | null;
@@ -903,6 +904,15 @@ function Sidebar({ user, pathname }: SidebarProps) {
         <NavSection title="Account">
           <NavLink href="/settings" pathname={pathname} icon="⚙️" label="Einstellungen" />
         </NavSection>
+
+        {/* Track 4 #71 (Section N): Recently-Viewed sidebar-block. Zeigt die
+            5 letzten besuchten detail-pages (bookings/PIREPs/routes) als
+            quick-reaccess-links. Renders client-side aus localStorage —
+            zeigt nichts während des ersten render-cycles (mounted-flag-
+            pattern) damit kein hydration-mismatch. Sitzt UNTER allen
+            nav-sections + ÜBER dem position-block, klar als reaccess-tool
+            vom permanenten nav abgegrenzt. */}
+        <RecentlyViewedBlock />
       </div>
 
       {/* Position-block am unteren rand der sidebar (Welle 4). Bewusst

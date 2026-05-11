@@ -14,6 +14,7 @@ import { SimBriefDispatchForm } from './SimBriefDispatchForm';
 import { OfpSummary } from '@/components/OfpSummary';
 import { CancelBookingDialog } from './CancelBookingDialog';
 import { RoutePreviewMap } from './route-preview-map';
+import { RecentItemTracker } from '@/components/recent-item-tracker';
 
 function stateStyle(state: BookingState): { className: string; label: string } {
   switch (state) {
@@ -235,6 +236,18 @@ export default async function BookingDetail({
 
   return (
     <main className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-white p-8">
+      {/* Track 4 #71 (Section N): Recently-Viewed tracker. Schreibt diese
+          booking als "kürzlich besucht" in den localStorage (LRU, dedup
+          auf id+type). Renders nichts visuell — pure-side-effect. Wird
+          oben im main-tree platziert damit der effect garantiert vor
+          dem rest des render-trees landet. */}
+      <RecentItemTracker
+        id={booking.id}
+        type="booking"
+        label={`${booking.route.flightNumber} ${booking.route.departure.icao}→${booking.route.arrival.icao}`}
+        subLabel={style.label}
+        href={`/bookings/${booking.id}`}
+      />
       <div className="max-w-4xl mx-auto">
         <header className="flex justify-between items-center mb-8 pb-6 border-b border-gray-200 dark:border-gray-800">
           <div>
