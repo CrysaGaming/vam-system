@@ -145,6 +145,16 @@ export default async function EventsCatalogPage({
           <div className="flex items-center justify-between flex-wrap gap-4 mb-2">
             <h1 className="text-3xl font-bold">Events</h1>
             <div className="flex items-center gap-2">
+              {/* Track 4 #97 (Section S): Leaderboard-link prominent
+                  vor dem view-toggle. Sichtbar für alle authenticated
+                  users (gated nur server-side via airline-scope auf der
+                  leaderboard-page selbst). */}
+              <Link
+                href="/events/leaderboard"
+                className="px-3 py-2 text-xs font-medium rounded bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-500/30 transition"
+              >
+                🏆 Leaderboard
+              </Link>
               {/* Track 4 #95 (Section S): view-toggle. Sitzt prominent
                   rechts oben damit's der erste sicht-anker ist. List ist
                   der default + matched dem legacy-pfad, calendar ist
