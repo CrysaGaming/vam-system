@@ -913,6 +913,10 @@ model User {
   /// audit-history bleibt erhalten, nur der name verschwindet (anonyme
   /// audit-entries sind besser als gar keine).
   adminAuditActions         AdminAuditLog[]        @relation("AdminAuditActor")
+  /// Track 4 #103 (Section T): ClientErrorLog-back-relation. Browser-errors
+  /// die mit diesem user-account in zusammenhang stehen. SetNull beim
+  /// user-delete (analog zu audit — forensik erhalten, link aufgelöst).
+  clientErrorsReported      ClientErrorLog[]       @relation("ClientErrorUser")
   flightSchoolEnrollments FlightSchoolEnrollment[]
 
   // Track 1 #7 (Events / Flight-Tours, 9.2.8): Event-system back-relations.
@@ -3438,6 +3442,92 @@ model AdminAuditLog {
   @@index([createdAt])
   @@index([actorId, createdAt])
   @@index([targetType, targetId, createdAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Track 4 #103 (Section T) — Client-Error-Log
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Track 4 #103 (Section T) — ClientErrorLog.
+///
+/// Errors die im browser auftreten (React render-errors, unhandled
+/// promise-rejections, global window.onerror) werden via POST /api/errors
+/// an den server geschickt und hier persistiert. Admin-page unter
+/// /admin/errors zeigt die liste mit filter + drill-down.
+///
+/// # Persistence statt in-memory
+///
+/// Im gegensatz zum slow-query-monitor (#102) der in-memory läuft, ist
+/// das hier DB-persistent. Client-errors treten unregelmäßig auf und
+/// sollten investigations überleben (process-restarts, deployments).
+/// Datenmenge ist klein — ein durchschnittlicher webapp-deployment sieht
+/// vielleicht 0-50 client-errors pro tag.
+///
+/// # Retention
+///
+/// Im V1 kein auto-prune. Wenn die tabelle in 6 monaten 50k rows hat,
+/// können wir einen daily-cron job adden der entries > 30d alt löscht.
+/// Out-of-scope für jetzt.
+///
+/// # Rate-limiting
+///
+/// API-endpoint (POST /api/errors) hat einen simple per-IP-rate-limit
+/// (10/min) damit ein crashloop-bug nicht die DB flutet. Limit-trigger
+/// returnen 429 und werden NICHT persistiert.
+///
+/// # PII
+///
+/// URL und stack-trace könnten sensitive paths enthalten (z.B.
+/// /pireps/[id]/edit?token=...). Admin-only access via requireAdmin.
+/// Kein automatisches scrubbing — wer logs einsieht akzeptiert dass
+/// URL-pfade und error-messages drinstehen.
+model ClientErrorLog {
+  id           String   @id @default(cuid())
+
+  /// Wer hat den error verursacht. Optional weil unauth-user-pages
+  /// auch errors triggern können. SetNull bei user-delete (forensik
+  /// soll erhalten bleiben, nur user-link löst sich auf).
+  userId       String?
+  user         User?    @relation("ClientErrorUser", fields: [userId], references: [id], onDelete: SetNull)
+
+  /// Wo trat der error auf. Volle URL inkl. query-string. Pfad-prefix
+  /// (z.B. "/pireps/[id]") via app-side normalisierung optional —
+  /// hier roh gespeichert.
+  url          String   @db.Text
+
+  /// Error.message — typischerweise einzeilig. Bei rendered-react-errors
+  /// "Cannot read property 'x' of undefined", bei unhandled rejections
+  /// die promise-reject-reason.
+  message      String   @db.Text
+
+  /// Volle stack-trace falls vorhanden. Browser-stacks sind oft minified
+  /// in prod — source-map-resolution ist out-of-scope-V1.
+  stack        String?  @db.Text
+
+  /// Browser-user-agent für reproducibility (chrome/firefox version,
+  /// mobile/desktop).
+  userAgent    String?  @db.Text
+
+  /// Wann hat der CLIENT den error gesehen (browser-clock).
+  occurredAt   DateTime
+
+  /// Wann hat der SERVER ihn ingestiert (server-clock). Diff > 1min
+  /// deutet auf offline-buffering oder gestauten client.
+  createdAt    DateTime @default(now())
+
+  /// Free-shape kontext: error.name, react-componentStack,
+  /// query-params, custom meta vom error-boundary.
+  context      Json?
+
+  /// Häufige queries:
+  ///   - chronologisch alle errors (admin /admin/errors)
+  ///   - alle errors eines user (debug-account)
+  ///   - alle errors auf einer URL (page X bricht häufig). Postgres btree
+  ///     hat 8KB-key-limit, app-side URLs sind weit drunter — kein
+  ///     prefix-length nötig wie bei MySQL.
+  @@index([createdAt])
+  @@index([userId, createdAt])
+  @@index([url, createdAt])
 }
 
 // ─────────────────────────────────────────────────────────────────────────

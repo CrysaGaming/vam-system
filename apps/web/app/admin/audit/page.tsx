@@ -117,7 +117,19 @@ export default async function AdminAuditPage({
         <header className="mb-6 pb-6 border-b border-gray-200 dark:border-gray-800">
           <div className="flex flex-wrap items-center justify-between gap-3 mb-2">
             <h1 className="text-3xl font-bold">📜 Admin-Audit-Log</h1>
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
+              <Link
+                href="/admin/errors"
+                className="px-3 py-2 bg-gray-200 hover:bg-gray-300 dark:bg-gray-800 dark:hover:bg-gray-700 rounded text-sm transition"
+              >
+                🐛 Errors
+              </Link>
+              <Link
+                href="/admin/perf"
+                className="px-3 py-2 bg-gray-200 hover:bg-gray-300 dark:bg-gray-800 dark:hover:bg-gray-700 rounded text-sm transition"
+              >
+                ⏱ Perf
+              </Link>
               <Link
                 href="/admin/status"
                 className="px-3 py-2 bg-gray-200 hover:bg-gray-300 dark:bg-gray-800 dark:hover:bg-gray-700 rounded text-sm transition"

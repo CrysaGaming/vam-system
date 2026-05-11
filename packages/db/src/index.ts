@@ -179,6 +179,13 @@ export * from "./audit/index.js";
 // read/clear-helpers für die /admin/perf-page.
 export * from "./perf/index.js";
 
+// Track 4 #103 (Section T): ClientErrorLog type re-export + helpers.
+// recordClientError() vom POST /api/errors-endpoint genutzt,
+// listClientErrors() + getTopErrorUrlsLast24h() von der /admin/errors-page.
+// Rate-limit-state lebt im helper-modul, in-memory wie #102.
+export type { ClientErrorLog } from "@prisma/client";
+export * from "./errors/index.js";
+
 // Track 1 #5 (Replay-Mode, 9.2.7): PIREP-replay queries. Findet die
 // LiveSession + LiveSessionPosition[] zu einem given PIREP — entweder
 // via AcarsEvent.triggeredPirepId (sauberer pfad für ACARS-PIREPs) oder

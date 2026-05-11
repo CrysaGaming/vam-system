@@ -8,6 +8,7 @@ import { AppShell, type ShellUser } from '@/components/AppShell';
 import { ThemeProvider, themeInitScript } from '@/components/Theme';
 import { Providers } from '@/components/Providers';
 import { AirlineBrandingProvider } from '@/components/AirlineBrandingProvider';
+import { ErrorReporter } from '@/components/error-reporter';
 import { isApproverRole } from '@/lib/roles';
 
 const geistSans = Geist({
@@ -257,6 +258,12 @@ export default async function RootLayout({
       <body className="min-h-full flex flex-col">
         <ThemeProvider>
           <Providers>
+            {/* Track 4 #103 (Section T): client-error-reporter. Mounted hier
+                damit window.onerror + unhandledrejection auf jeder page
+                aktiv sind. Pure side-effect-component, rendert null —
+                installiert window-listeners die errors an POST /api/errors
+                schicken mit hash-basiertem dedup + 20-per-minute client-throttle. */}
+            <ErrorReporter />
             <AppShell user={shellUser}>{children}</AppShell>
           </Providers>
         </ThemeProvider>

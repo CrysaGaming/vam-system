@@ -292,7 +292,11 @@ export default async function AdminStatusPage() {
             <Link href="/admin/perf" className="text-indigo-600 dark:text-indigo-400 hover:underline">
               ⏱ Perf-Monitor
             </Link>{' '}
-            zeigt slow-queries (≥ 200ms) im in-memory ring-buffer.
+            zeigt slow-queries (≥ 200ms) im in-memory ring-buffer.{' '}
+            <Link href="/admin/errors" className="text-indigo-600 dark:text-indigo-400 hover:underline">
+              🐛 Client-Errors
+            </Link>{' '}
+            zeigt JS-errors aus dem browser.
           </p>
           <p>
             <strong className="text-gray-700 dark:text-gray-300">
