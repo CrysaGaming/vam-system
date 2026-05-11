@@ -50,6 +50,10 @@ interface Props {
    * Track 4 #85: bisherige photo-URL. Null wenn keine gesetzt.
    */
   initialPhotoUrl: string | null;
+  /**
+   * Track 4 #86: bisherige maintenance-notes. Null wenn keine gesetzt.
+   */
+  initialMaintenanceNotes: string | null;
 }
 
 async function updateAircraftAction(
@@ -67,6 +71,7 @@ export function EditAircraftForm({
   initialAircraftTypeDisplay,
   initialHomeIcao,
   initialPhotoUrl,
+  initialMaintenanceNotes,
 }: Props) {
   const [state, formAction] = useActionState<State, FormData>(
     updateAircraftAction,
@@ -96,6 +101,16 @@ export function EditAircraftForm({
     photoUrl.length > 0 &&
     /^https?:\/\//i.test(photoUrl) &&
     !previewBroken;
+
+  // Track 4 #86: Maintenance-notes als controlled-input damit wir live
+  // den character-counter rendern können. Das gibt dem admin direktes
+  // feedback bevor er das 5000-char-limit hits.
+  const [maintenanceNotes, setMaintenanceNotes] = useState(
+    initialMaintenanceNotes ?? '',
+  );
+  const maintenanceLength = maintenanceNotes.length;
+  const maintenanceMax = 5000;
+  const maintenanceWarn = maintenanceLength > maintenanceMax * 0.9; // >90% = warn
 
   return (
     <form action={formAction} className="space-y-4">
@@ -209,6 +224,50 @@ export function EditAircraftForm({
                 </span>
               )}
             </div>
+          </div>
+        </div>
+
+        {/* Track 4 #86 (Section Q): Maintenance-Notes field. Freier text-
+            bereich für wartungs-notizen — was ist offen, was wurde
+            zuletzt gemacht, was steht an. Sitzt unter dem photo-feld weil
+            das eine logisch zusammenhängende "asset-details"-gruppe ist
+            (foto + zustand des airframes). Character-counter unten rechts
+            wird amber wenn > 90% des limits, damit der admin nicht ins
+            limit rennt ohne warnung. */}
+        <div className="sm:col-span-2">
+          <label
+            htmlFor="maintenanceNotes"
+            className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+          >
+            Wartungs-Notizen
+          </label>
+          <textarea
+            id="maintenanceNotes"
+            name="maintenanceNotes"
+            value={maintenanceNotes}
+            onChange={(e) => setMaintenanceNotes(e.target.value)}
+            maxLength={maintenanceMax}
+            rows={5}
+            placeholder="z.B.: Linkes Fahrwerk wackelt, prüfung 2026-06. — Avionics-update FMS v3.2 fällig 2026-Q3. — MEL: weather-radar reduced range."
+            className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded text-gray-900 dark:text-white placeholder:text-gray-400 focus:outline-none focus:border-indigo-500 resize-y font-mono text-sm leading-relaxed"
+          />
+          <div className="flex flex-wrap items-center justify-between gap-2 mt-1">
+            <p className="text-xs text-gray-500 dark:text-gray-500">
+              Freie notizen zu offenen wartungs-issues und upcoming-checks.
+              Wird in der Übersicht als amber-hinweis angezeigt wenn das
+              aircraft in Wartung ist.
+            </p>
+            <p
+              className={`text-xs font-mono ${
+                maintenanceWarn
+                  ? 'text-amber-700 dark:text-amber-400'
+                  : 'text-gray-400 dark:text-gray-600'
+              }`}
+              aria-live="polite"
+            >
+              {maintenanceLength.toLocaleString('de-DE')} /{' '}
+              {maintenanceMax.toLocaleString('de-DE')}
+            </p>
           </div>
         </div>
       </div>

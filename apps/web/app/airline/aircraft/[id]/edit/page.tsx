@@ -82,6 +82,7 @@ export default async function EditAircraftPage({ params }: Props) {
             }
             initialHomeIcao={aircraft.homeIcao}
             initialPhotoUrl={aircraft.photoUrl}
+            initialMaintenanceNotes={aircraft.maintenanceNotes}
           />
         </section>
 

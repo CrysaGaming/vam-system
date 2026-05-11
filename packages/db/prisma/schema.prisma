@@ -1166,6 +1166,28 @@ model Aircraft {
   // @db.Text weil image-URLs (besonders signed-S3-URLs) oft über
   // 255 chars gehen.
   photoUrl        String?  @db.Text
+
+  // Track 4 #86 (Section Q) — Maintenance-Notes. Freier text in dem
+  // der admin wartungs-relevante info notieren kann:
+  //   - "Linkes Fahrwerk wackelt, prüfung 2026-06"
+  //   - "Avionics-update FMS v3.2 fällig 2026-Q3"
+  //   - "Cabin-refurbishment im plan für 2027"
+  //
+  // Bewusst KEIN strukturiertes maintenance-log mit dates/categories
+  // (das käme in Welle 7+ als operational depth). Hier nur ein freies
+  // text-feld als minimum-viable das den admin dazu zwingt, sich an
+  // open-issues per-aircraft zu erinnern. @db.Text damit auch längere
+  // notizen reinpassen (50+ zeilen wenn nötig).
+  //
+  // Wird gerendert:
+  //   - Im edit-form als <textarea> (admin kann editieren)
+  //   - In der listing als amber-highlight wenn status=MAINTENANCE
+  //     UND notes gesetzt (visuell prominent damit der admin sieht
+  //     warum das aircraft in wartung ist)
+  //   - In der listing als subtle hint (📝) für andere status wenn
+  //     notes existieren (z.B. ACTIVE + "MEL: weather-radar reduced"
+  //     ist informativ aber blockt nicht)
+  maintenanceNotes String?  @db.Text
   createdAt       DateTime @default(now())
   updatedAt       DateTime @default(now()) @updatedAt
 

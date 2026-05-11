@@ -476,6 +476,46 @@ export default async function AirlineAircraftPage({
                           <p className="italic">Noch keine Flüge geloggt</p>
                         )}
                       </div>
+
+                      {/* Track 4 #86 (Section Q): Maintenance-notes-display.
+                          Bei status=MAINTENANCE prominent als amber-card —
+                          das ist die wartungs-info die der admin SEHEN
+                          will wenn er auf das aircraft schaut. Bei anderen
+                          status (ACTIVE/STORED/RETIRED) als subtle 📝
+                          hint, immer noch sichtbar aber nicht aufdringlich
+                          (z.B. MEL-restrictions die nicht blocken aber
+                          informativ sind). */}
+                      {ac.maintenanceNotes && (
+                        <div
+                          className={`mt-3 rounded text-xs ${
+                            ac.status === 'MAINTENANCE'
+                              ? 'border border-amber-500/30 bg-amber-500/10 p-3 text-amber-900 dark:text-amber-200'
+                              : 'border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/50 p-2.5 text-gray-600 dark:text-gray-400'
+                          }`}
+                        >
+                          <div className="flex items-start gap-2">
+                            <span className="shrink-0" aria-hidden="true">
+                              {ac.status === 'MAINTENANCE' ? '🔧' : '📝'}
+                            </span>
+                            <div className="min-w-0 flex-1">
+                              <p
+                                className={`font-semibold mb-1 ${
+                                  ac.status === 'MAINTENANCE'
+                                    ? 'text-amber-800 dark:text-amber-300'
+                                    : 'text-gray-700 dark:text-gray-300'
+                                }`}
+                              >
+                                Wartungs-Notizen
+                              </p>
+                              <p className="whitespace-pre-line break-words leading-snug">
+                                {ac.maintenanceNotes.length > 240
+                                  ? ac.maintenanceNotes.slice(0, 240) + '…'
+                                  : ac.maintenanceNotes}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                     {/* Schließt das wrapper-div um photo+info (track 4 #85). */}
                     </div>

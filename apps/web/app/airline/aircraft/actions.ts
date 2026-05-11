@@ -245,6 +245,11 @@ const UpdateAircraftSchema = z.object({
   // tokens enthalten können. Empty-string wird zu null bei save (clear-
   // photo-flow).
   photoUrl: z.string().url().max(2000).optional().or(z.literal('')),
+  // Track 4 #86 (Section Q) — Maintenance-Notes. Freier text, max
+  // 5000 chars (entspricht ~50-80 zeilen wartungs-notizen — mehr als
+  // genug für laufende issues, weniger als ein full audit-log was
+  // ohnehin in eine eigene tabelle gehören würde).
+  maintenanceNotes: z.string().max(5000).optional().or(z.literal('')),
 });
 
 export async function updateAircraft(formData: FormData) {
@@ -252,6 +257,7 @@ export async function updateAircraft(formData: FormData) {
 
   const rawHome = String(formData.get('homeIcao') ?? '').trim();
   const rawPhoto = String(formData.get('photoUrl') ?? '').trim();
+  const rawMaintenance = String(formData.get('maintenanceNotes') ?? '').trim();
   const parsed = UpdateAircraftSchema.safeParse({
     aircraftId: String(formData.get('aircraftId') ?? ''),
     registration: String(formData.get('registration') ?? '').trim(),
@@ -259,6 +265,7 @@ export async function updateAircraft(formData: FormData) {
     type: String(formData.get('type') ?? '').trim() || undefined,
     homeIcao: rawHome || undefined,
     photoUrl: rawPhoto || undefined,
+    maintenanceNotes: rawMaintenance || undefined,
   });
 
   if (!parsed.success) {
@@ -349,6 +356,9 @@ export async function updateAircraft(formData: FormData) {
       // Track 4 #85: photoUrl-update. Empty-string → null (admin hat das
       // URL-feld geleert, was "photo entfernen" bedeutet).
       photoUrl: parsed.data.photoUrl || null,
+      // Track 4 #86: maintenanceNotes-update. Selbe empty-string→null-
+      // semantik damit "alle notizen löschen" möglich ist.
+      maintenanceNotes: parsed.data.maintenanceNotes || null,
     },
   });
 
