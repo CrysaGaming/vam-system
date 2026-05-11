@@ -80,10 +80,11 @@ export default async function NotificationsPage() {
       <aside className="rounded-lg border border-border bg-muted/30 p-4 text-xs leading-relaxed text-muted-foreground">
         <p>
           <strong className="text-foreground">Hinweis zu E-Mails:</strong>{' '}
-          Die E-Mail-Spalte ist aktuell als &quot;Bald verfügbar&quot;
-          gekennzeichnet — der Versand-Pfad wird mit Track 4 #82
-          (PIREP-Decision-Email) freigeschaltet. Deine Auswahl wird trotzdem
-          schon gespeichert und greift, sobald die Infrastruktur live geht.
+          E-Mails werden für die Kategorie &quot;PIREP-Entscheidung&quot;
+          bereits zugestellt (Track 4 #82). Weitere Kategorien folgen mit den
+          nächsten Sektionen. Falls dein Admin keinen E-Mail-Provider
+          konfiguriert hat, wird der Versand still übersprungen — deine
+          Auswahl bleibt aber erhalten.
         </p>
       </aside>
     </main>

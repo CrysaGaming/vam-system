@@ -139,12 +139,13 @@ export const CHANNEL_LABELS: Record<
   email: {
     label: 'Email-Benachrichtigung',
     shortLabel: 'Email',
-    // Wird auf 'available' geflippt sobald #82 (PIREP-Decision-Email)
-    // die email-dispatch-infrastructure addiert. Bis dahin zeigt die UI
-    // einen "Bald verfügbar"-hinweis und die toggles speichern den wert
-    // schon — wenn email scharf geschaltet wird, sind die user-prefs
-    // direkt aktiv.
-    status: 'coming_soon',
+    // Track 4 #82 (Section P): Email-dispatch ist jetzt live über
+    // `apps/web/lib/email/` (resend-basiert, mit silent-no-op-fallback
+    // wenn RESEND_API_KEY nicht gesetzt ist). Wir flippen den status
+    // auf 'available'; das UI zeigt jetzt die toggles ohne "bald"-badge.
+    // Falls der admin keine API-key konfiguriert, sendet nichts raus,
+    // aber die prefs werden gespeichert + UI ist konsistent.
+    status: 'available',
   },
 };
 

@@ -5,6 +5,10 @@ import { prisma, Prisma, processFlightEconomy, InsufficientFundsError } from '@v
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { emitPirepApproved, emitPirepRejected, emitPirepSubmitted } from '@/lib/bot-events';
+import {
+  dispatchPirepApprovedEmail,
+  dispatchPirepRejectedEmail,
+} from '@/lib/email/dispatchers/pirep-decision';
 import { evaluatePromotion } from '@/lib/ranks';
 import { APPROVER_ROLES, isApproverRole } from '@/lib/roles';
 
@@ -191,6 +195,28 @@ export async function approvePirep(pirepId: string) {
     console.error('[approvePirep] Bot-Event fehlgeschlagen:', err);
   }
 
+  // Track 4 #82 (Section P): Email-dispatch. Gated via user's
+  // notificationPrefs (pirepDecision.email). Silent skip wenn pref off,
+  // no RESEND_API_KEY, oder send fehlschlägt. Niemals throw — der approval
+  // ist schon committed, email ist sekundär.
+  //
+  // Wir spawnen das mit `void` + .catch damit die action sofort zurück-
+  // kommt — der user sieht im UI dass approval durch ist, ohne auf
+  // resend's API-roundtrip (typisch 200-500ms) zu warten. Errors
+  // werden vom dispatcher selbst geloggt.
+  void dispatchPirepApprovedEmail({
+    pirepId: pirep.id,
+    userEmail: pirep.user.email,
+    userName: pirep.user.name,
+    userNotificationPrefs: pirep.user.notificationPrefs,
+    flightNumber: pirep.route?.flightNumber ?? 'PIREP',
+    departureIcao: pirep.departure.icao,
+    arrivalIcao: pirep.arrival.icao,
+    approverName: approver.name ?? 'Unbenannt',
+  }).catch((err) =>
+    console.warn('[approvePirep] email dispatch threw unexpectedly:', err),
+  );
+
   // Caches invalidieren
   revalidatePath('/pireps');
   revalidatePath('/pireps/pending');
@@ -263,6 +289,24 @@ export async function rejectPirep(pirepId: string, reason: string) {
   } catch (err) {
     console.error('[rejectPirep] Bot-Event fehlgeschlagen:', err);
   }
+
+  // Track 4 #82 (Section P): Email-dispatch — siehe approvePirep für
+  // den vollen kommentar zur void+catch-strategie + silent-skip-gating.
+  // Reason wird mit übergeben weil das rejected-template eine begründung
+  // im body anzeigt.
+  void dispatchPirepRejectedEmail({
+    pirepId: pirep.id,
+    userEmail: pirep.user.email,
+    userName: pirep.user.name,
+    userNotificationPrefs: pirep.user.notificationPrefs,
+    flightNumber: pirep.route?.flightNumber ?? 'PIREP',
+    departureIcao: pirep.departure.icao,
+    arrivalIcao: pirep.arrival.icao,
+    approverName: approver.name ?? 'Unbenannt',
+    reason: reason.trim(),
+  }).catch((err) =>
+    console.warn('[rejectPirep] email dispatch threw unexpectedly:', err),
+  );
 
   revalidatePath('/pireps');
   revalidatePath('/pireps/pending');
