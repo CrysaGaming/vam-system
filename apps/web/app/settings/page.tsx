@@ -29,6 +29,7 @@ import { AcarsCard } from './acars-card';
 import { getAcarsStatus } from './acars-actions';
 import { EconomyCard } from './economy-card';
 import { CareerCard } from './career-card';
+import { BioCard } from './bio-card';
 
 /**
  * Settings page — refactored from a long single-column layout into 4
@@ -74,6 +75,8 @@ export default async function SettingsPage({
       twitchUsername: true,
       twitchVerifiedAt: true,
       simBriefUsername: true,
+      // Track 4 #61 (Section L): bio-feld für BioCard im Profil-tab.
+      bio: true,
       // Welle 13D-1: economy-flag + airline-flag für die <EconomyCard>
       // im Profil-tab. user.economyEnabled ist der toggle-state, die
       // airline-flag dient für den hint-text wenn beide voneinander
@@ -194,6 +197,15 @@ export default async function SettingsPage({
           airlineCareerEnabled={user.airline?.careerEnabled ?? null}
           hasAirline={!!user.airline}
         />
+      </div>
+
+      {/* Track 4 #61 (Section L): Pilot-Bio. Profil-tab passt
+          semantisch — free-form self-description gehört zum
+          "wer bist du als pilot"-block. Direkt nach Career damit
+          die opt-in-toggles zusammenstehen und bio etwas darunter
+          als optionaler additiv. */}
+      <div className="mt-6">
+        <BioCard initialBio={user.bio} />
       </div>
     </>
   );

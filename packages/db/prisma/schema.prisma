@@ -626,6 +626,26 @@ model User {
   // bewusst, weil annual-goals nicht historisierbar sein müssen.
   annualHourGoal   Int?
 
+  // Track 4 #61 (Section L): Free-form pilot bio.
+  //
+  // Optional self-description sichtbar auf /pilots/[id] für andere piloten +
+  // airline-public-page. NULL = nicht gesetzt (default; legacy + neue user).
+  //
+  // Length-cap: 500 chars im server-action (nicht im DB-schema, weil
+  // String? ohne @db.Text limit auf ~191 chars im default-mysql geht,
+  // aber wir nutzen postgres + @db.Text — also DB-seitig kein cap.
+  // App-seitig 500 als sinnvoller balance: lang genug für 2-3 sätze
+  // pilot-bio ("Heimatbase EDDF, fliege A320-family und 737, hobby seit
+  // 2018"), kurz genug dass keine wall-of-text entsteht.
+  //
+  // Sanitize im action: trim, strip control-chars, kollabiere multi-newlines.
+  // Kein markdown-rendering — plain-text-display preserves newlines.
+  //
+  // Public-by-default (kein "bioPublic"-flag wie bei birthday) — bio ist
+  // selbst-geschrieben, pilot weiß was er postet. Falls später privacy
+  // gewünscht: additive migration für bioPublic Boolean @default(true).
+  bio              String?   @db.Text
+
   // Track 3 #11.2.5 v1-Full Item 2/10 — Pilot-Birthday-Calendar (vision-doc §9.1.14).
   // Geburtstag des piloten. NULL = nicht gesetzt (default für legacy-users).
   // Speichert nur monat+tag-relevante teile als ganzes datum (jahr ist auch

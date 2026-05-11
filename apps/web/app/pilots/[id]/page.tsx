@@ -643,6 +643,43 @@ export default async function PilotProfile({
           </section>
         )}
 
+        {/* === Track 4 #61 (Section L): Pilot-Bio ===
+
+            Free-form self-description. Nur sichtbar wenn der pilot eine
+            bio gesetzt hat (kein placeholder wenn null — verhindert
+            visual-clutter auf profilen ohne bio). Plain-text mit
+            whitespace-pre-wrap für newline-preservation (siehe
+            BioCard server-action für sanitize-policy).
+
+            Wenn der profile-besucher der pilot selbst ist (isMe) UND
+            keine bio gesetzt ist, zeigen wir einen subtilen
+            CTA-link zur settings-page. Für fremde profile bleibt
+            der bereich einfach ausgeblendet. */}
+        {pilot.bio ? (
+          <section className="mb-8 bg-white dark:bg-gray-900 rounded-lg p-6 border border-gray-200 dark:border-gray-800">
+            <h2 className="text-sm uppercase tracking-wider text-gray-500 mb-3">
+              ✍️ Über mich
+            </h2>
+            <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed">
+              {pilot.bio}
+            </p>
+          </section>
+        ) : (
+          isMe && (
+            <section className="mb-8 bg-white/50 dark:bg-gray-900/50 rounded-lg p-4 border border-dashed border-gray-300 dark:border-gray-700">
+              <p className="text-sm text-gray-500 dark:text-gray-500">
+                ✍️ Noch keine Bio gesetzt.{' '}
+                <Link
+                  href="/settings"
+                  className="text-indigo-600 dark:text-indigo-400 hover:underline"
+                >
+                  Erzähl etwas über dich →
+                </Link>
+              </p>
+            </section>
+          )
+        )}
+
         {/* === Track 4 #55 (Section K): Stats-Hero ===
 
             Vorher: 3-spaltiges grid mit Flugstunden / Flüge / Aktueller-Rang.

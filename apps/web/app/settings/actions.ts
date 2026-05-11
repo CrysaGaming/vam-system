@@ -660,3 +660,72 @@ export async function setUserCareerEnabled(enabled: boolean) {
 
   return { success: true, careerEnabled: enabled };
 }
+
+/**
+ * Track 4 #61 (Section L): Pilot-Bio setter.
+ *
+ * Setzt User.bio. Akzeptiert string (1..500 chars nach sanitize) oder null
+ * (= clear, bio entfernen → UI zeigt placeholder "Keine bio gesetzt").
+ *
+ * Sanitization pipeline:
+ *   1. Trim leading/trailing whitespace
+ *   2. Strip control-chars (NULL, BEL, etc) ausser \n und \t
+ *   3. Kollabiere 3+ consecutive newlines auf max 2 (verhindert
+ *      "wall of empty lines"-trolling)
+ *   4. Wenn nach sanitize length=0 → behandle als null (= clear)
+ *   5. Wenn nach sanitize length>500 → reject mit error
+ *
+ * Length-cap 500 chars: lang genug für 2-3 sätze pilot-bio, kurz genug
+ * dass pilot-profile-cards nicht zu walls-of-text werden.
+ *
+ * Bewusst kein markdown/HTML-rendering — plain-text mit newline-preservation.
+ * Verhindert XSS-vektor + komplexe content-moderation-anforderungen.
+ *
+ * Revalidates /settings + alle pilot-profile-pfade weil bio dort sichtbar
+ * ist. /pilots/[id] kann ich nicht spezifisch revalidieren ohne den
+ * eigenen userId zu kennen — generic /pilots covered alles.
+ */
+export async function setUserBio(rawBio: string | null) {
+  const session = await auth();
+  if (!session?.user) throw new Error('Unauthorized');
+
+  let normalized: string | null = null;
+  if (rawBio !== null) {
+    // 1. Trim
+    let cleaned = rawBio.trim();
+
+    // 2. Strip control-chars ausser \n und \t. Regex matched:
+    //    \x00-\x08 (alle vor \t), \x0B-\x0C (nach \n vor \r), \x0E-\x1F,
+    //    \x7F (DEL). \r wird zu \n normalisiert vorher.
+    cleaned = cleaned.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    cleaned = cleaned.replace(
+      /[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g,
+      '',
+    );
+
+    // 3. Kollabiere 3+ newlines auf 2 (= eine leere zeile zwischen
+    //    absätzen erlaubt, aber kein vertikales scrollen-spam).
+    cleaned = cleaned.replace(/\n{3,}/g, '\n\n');
+
+    // 4. Empty-nach-sanitize = treat als clear
+    if (cleaned.length === 0) {
+      normalized = null;
+    } else if (cleaned.length > 500) {
+      // 5. Hard-cap, reject
+      throw new Error('Bio darf max. 500 zeichen lang sein');
+    } else {
+      normalized = cleaned;
+    }
+  }
+
+  await prisma.user.update({
+    where: { id: session.user.id },
+    data: { bio: normalized },
+  });
+
+  revalidatePath('/settings');
+  revalidatePath('/pilots');
+  revalidatePath(`/pilots/${session.user.id}`);
+
+  return { success: true, bio: normalized };
+}
