@@ -13,6 +13,7 @@ import { refreshSimBriefOfp, processSimBriefCallback, cloneBooking } from '../ac
 import { SimBriefDispatchForm } from './SimBriefDispatchForm';
 import { OfpSummary } from '@/components/OfpSummary';
 import { CancelBookingDialog } from './CancelBookingDialog';
+import { RoutePreviewMap } from './route-preview-map';
 
 function stateStyle(state: BookingState): { className: string; label: string } {
   switch (state) {
@@ -340,6 +341,28 @@ export default async function BookingDetail({
                 </p>
               )}
             </div>
+          </div>
+
+          {/* Track 4 #65 (Section M): Route-Preview-Map. Inline-SVG mit
+              great-circle-route zwischen DEP+ARR. Server-rendered, kein
+              external map-tile-service nötig. Sichtbar direkt unter den
+              ICAO-textblocks für räumlichen kontext "wo geht's hin". */}
+          <div className="mt-6">
+            <RoutePreviewMap
+              departure={{
+                icao: booking.route.departure.icao,
+                name: booking.route.departure.name,
+                lat: booking.route.departure.latitude,
+                lon: booking.route.departure.longitude,
+              }}
+              arrival={{
+                icao: booking.route.arrival.icao,
+                name: booking.route.arrival.name,
+                lat: booking.route.arrival.latitude,
+                lon: booking.route.arrival.longitude,
+              }}
+              distanceNm={booking.route.distanceNm}
+            />
           </div>
         </section>
 
