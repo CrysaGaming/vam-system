@@ -820,6 +820,12 @@ model User {
   // statt das record-recovery zu blockieren.
   notificationsAuthored AdminNotification[] @relation("AdminNotificationAuthor")
   notificationsReceived AdminNotification[] @relation("AdminNotificationRecipient")
+
+  // Track 4 #60 (Section L): Kudos die DIESER user anderen piloten gegeben
+  // hat. Pro PIREP kann ein user max einen kudos vergeben (@@unique auf
+  // PirepKudos). Cascade-delete via PirepKudos.user — user-löschung räumt
+  // seine vergebenen kudos mit auf.
+  pirepKudosGiven PirepKudos[]
 }
 
 model LiveSession {
@@ -1360,6 +1366,12 @@ model Pirep {
   // PIREP gelöscht wird (sollte praktisch nie passieren), bleiben die
   // transactions als orphans im audit-log.
   transactions Transaction[]
+
+  // Track 4 #60 (Section L): Kudos-records von anderen piloten für diesen
+  // PIREP. Cascade-delete via PirepKudos.pirep — wenn PIREP gelöscht wird,
+  // gehen die kudos mit. Unique-constraint auf (pirepId, userId) verhindert
+  // doppel-kudos vom gleichen user.
+  kudos PirepKudos[]
 
   @@index([userId, submittedAt])
   @@index([airlineId, status])
@@ -3013,4 +3025,45 @@ model AdminNotification {
   @@index([recipientId, readAt])
   @@index([authorId, createdAt])
   @@index([createdAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Track 4 #60 (Section L) — PIREP Kudos
+// ─────────────────────────────────────────────────────────────────────────
+
+/// PirepKudos — leichtgewichtiges 👏-anerkennungs-feature für PIREPs.
+///
+/// Pilot A liest PIREP von Pilot B (z.B. besonders glatte landung, lange
+/// strecke, schwieriges wetter) und klickt einen kudos-button. Wir
+/// speichern ein record und zeigen den count + own-state am button.
+///
+/// # Constraints
+///
+/// - `@@unique([pirepId, userId])` verhindert doppel-kudos vom gleichen user
+///   (toggle-pattern: zweiter klick = unkudo via delete statt zweiter insert).
+/// - Cascade-delete via beiden FKs: wenn PIREP gelöscht wird, gehen kudos
+///   mit. Wenn user gelöscht wird, gehen seine vergebenen kudos mit.
+///
+/// # Was wir NICHT machen
+///
+/// - Kein self-kudo-verbot im schema — das wird in der server-action enforced
+///   (cheaper than DB-CHECK-constraint und gibt bessere error-message).
+/// - Kein \"kudos-type\" oder \"reaction-emoji\" — bewusst minimal. Wenn später
+///   mehr nuance gewünscht ist (👏/✈️/🔥), wird das additiv via neuem field.
+/// - Keine notification an den PIREP-owner — vorerst silent. UI-toast wäre
+///   ein follow-up (eigenes ticket).
+model PirepKudos {
+  id        String   @id @default(cuid())
+  pirepId   String
+  pirep     Pirep    @relation(fields: [pirepId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([pirepId, userId])
+  // Häufigste queries:
+  //   - \"hat user X diesem PIREP einen kudo gegeben?\" → unique-index reicht
+  //   - \"wieviele kudos hat dieser PIREP?\" → covered by unique-prefix index
+  //   - \"alle kudos die user X vergeben hat\" (profile/activity-feed)
+  @@index([userId, createdAt])
 }

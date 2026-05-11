@@ -13,6 +13,7 @@ import Link from 'next/link';
 import { OfpSummary } from '@/components/OfpSummary';
 import { ApprovalActions } from './approval-actions';
 import { DraftActions } from './draft-actions';
+import { KudosButton } from './kudos-button';
 import { VerticalProfileChart } from './vertical-profile-chart';
 import { AircraftPerformanceChart } from './aircraft-performance-chart';
 import { isApproverRole } from '@/lib/roles';
@@ -231,6 +232,8 @@ export default async function PirepDetail({
     approachAnalysis,
     landingAnalysis,
     routeAverages,
+    kudosCount,
+    ownKudos,
   ] = await Promise.all([
     prisma.flightSchoolEnrollment.findFirst({
       where: { practicalExamPirepId: pirep.id },
@@ -250,6 +253,14 @@ export default async function PirepDetail({
     pirep.routeId
       ? getRouteAverages(pirep.routeId, pirep.id)
       : Promise.resolve(null),
+    // Track 4 #60 (Section L): Kudos-count + own-state parallel laden.
+    // Count ist für die anzeige am button, ownKudos für initial-given-state.
+    // findUnique via @@unique-index ist O(1).
+    prisma.pirepKudos.count({ where: { pirepId: pirep.id } }),
+    prisma.pirepKudos.findUnique({
+      where: { pirepId_userId: { pirepId: pirep.id, userId: currentUser.id } },
+      select: { id: true },
+    }),
   ]);
 
   // Track 4 #7 — Smoothness-Score wird inline aus den oben gefetchten

@@ -601,3 +601,87 @@ export async function discardDraftPirep(pirepId: string) {
   // want the form-handler in the page to be in control of the
   // redirect target (e.g. /pireps with a toast hint).
 }
+
+/**
+ * Track 4 #60 (Section L): Kudos-toggle für einen PIREP.
+ *
+ * Idempotenter toggle:
+ *   - User hat noch keinen kudos für diesen PIREP → INSERT, return given=true
+ *   - User hat schon einen kudos → DELETE, return given=false
+ *
+ * Self-kudos-block: pilot kann NICHT sich selbst kudos geben. Wir checken
+ * das hier in der action (nicht im schema) damit die error-message
+ * verständlich ist und nicht ein generic constraint-violation aus DB.
+ *
+ * Beide branches revalidieren den PIREP-detail-pfad damit der UI-state
+ * (count + isOwn) frisch geladen wird.
+ *
+ * Race-condition: zwei gleichzeitige toggle-calls könnten theoretisch
+ * race'n und beide entweder INSERT oder beide DELETE versuchen. INSERT-
+ * race wird durch @@unique([pirepId, userId]) als P2002 abgefangen — wir
+ * fangen den fall ab und treat das als \"war schon\". DELETE-race ist
+ * harmlos (zweiter delete betrifft 0 rows).
+ *
+ * Return shape: { given: boolean, count: number } — UI kann optimistisch
+ * den state setzen, aber bekommt die authoritative count zurück damit
+ * die anzeige stimmt.
+ */
+export async function togglePirepKudos(
+  pirepId: string,
+): Promise<{ given: boolean; count: number }> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    throw new Error('Nicht eingeloggt.');
+  }
+  const userId = session.user.id;
+
+  // Resolve PIREP-owner für self-kudos-check. Bewusst kein .findUniqueOrThrow —
+  // wenn pirep nicht existiert, wollen wir eine klare error-message.
+  const pirep = await prisma.pirep.findUnique({
+    where: { id: pirepId },
+    select: { userId: true },
+  });
+  if (!pirep) {
+    throw new Error('PIREP nicht gefunden.');
+  }
+  if (pirep.userId === userId) {
+    throw new Error('Du kannst dir nicht selbst einen Kudos geben.');
+  }
+
+  // Existing-check via unique-index. Falls vorhanden → DELETE (toggle off),
+  // sonst INSERT (toggle on). Wir nutzen das @@unique constraint via
+  // findUnique({ where: { pirepId_userId } }).
+  const existing = await prisma.pirepKudos.findUnique({
+    where: { pirepId_userId: { pirepId, userId } },
+    select: { id: true },
+  });
+
+  let given: boolean;
+  if (existing) {
+    await prisma.pirepKudos.delete({ where: { id: existing.id } });
+    given = false;
+  } else {
+    try {
+      await prisma.pirepKudos.create({ data: { pirepId, userId } });
+      given = true;
+    } catch (e) {
+      // P2002 = unique-constraint violation (race-condition: someone
+      // else's INSERT landed between our findUnique and create). Treat
+      // als \"war schon gegeben\".
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        given = true;
+      } else {
+        throw e;
+      }
+    }
+  }
+
+  // Fresh count nach mutation. Bewusst nach dem toggle weil die UI dann
+  // den authoritative wert hat ohne dass wir einen 2. round-trip vom
+  // client brauchen.
+  const count = await prisma.pirepKudos.count({ where: { pirepId } });
+
+  revalidatePath(`/pireps/${pirepId}`);
+
+  return { given, count };
+}
