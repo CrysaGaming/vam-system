@@ -219,6 +219,19 @@ export default async function EventDetailPage({
                   📅 Zum Kalender hinzufügen
                 </a>
               )}
+              {/* Track 4 #96 (Section S): Recap-link nur für completed/
+                  ended events. Recap-page zeigt teilnehmer-stats,
+                  completion-rate, flugs-stunden im event-fenster und
+                  top-completers-leaderboard. */}
+              {(event.runtimeStatus === 'COMPLETED' ||
+                event.runtimeStatus === 'ENDED') && (
+                <Link
+                  href={`/events/${event.slug}/recap`}
+                  className="inline-flex items-center gap-1.5 mt-2 text-sm text-emerald-600 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-300 hover:underline"
+                >
+                  📊 Event-Recap ansehen
+                </Link>
+              )}
             </div>
 
             <EventSignupButton
