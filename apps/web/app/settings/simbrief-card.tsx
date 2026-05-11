@@ -4,7 +4,7 @@ import { useState, useTransition } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { toast } from 'sonner';
+import { toastSuccess, toastError } from '@/lib/toast';
 
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -130,9 +130,9 @@ export function SimBriefCard({
         // reset mit neuem default — verhindert dass form weiterhin
         // dirty-flag trägt und canSave ungewollt true bleibt.
         reset({ username: value });
-        toast.success('SimBrief-Username gespeichert');
+        toastSuccess('SimBrief-Username gespeichert');
       } else {
-        toast.error(formatError(result.error));
+        toastError(formatError(result.error));
       }
     });
   });
@@ -143,9 +143,9 @@ export function SimBriefCard({
       if (result.success) {
         setCurrentUsername(null);
         reset({ username: '' });
-        toast.success('SimBrief-Username gelöscht');
+        toastSuccess('SimBrief-Username gelöscht');
       } else {
-        toast.error(formatError(result.error));
+        toastError(formatError(result.error));
       }
     });
   }

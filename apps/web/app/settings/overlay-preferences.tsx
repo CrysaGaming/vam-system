@@ -18,7 +18,7 @@
  */
 
 import React, { useState, useTransition } from 'react';
-import { toast } from 'sonner';
+import { toastSuccess, toastError } from '@/lib/toast';
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -132,9 +132,9 @@ export function OverlayPreferences({
     startTransition(async () => {
       const result = await updateOverlayLayout(newLayout);
       if (result.success) {
-        toast.success('Layout gespeichert');
+        toastSuccess('Layout gespeichert');
       } else {
-        toast.error('Layout konnte nicht gespeichert werden');
+        toastError('Layout konnte nicht gespeichert werden');
       }
     });
   }
@@ -144,9 +144,9 @@ export function OverlayPreferences({
     startTransition(async () => {
       const result = await updateOverlayCardPosition(newPosition);
       if (result.success) {
-        toast.success('Position gespeichert');
+        toastSuccess('Position gespeichert');
       } else {
-        toast.error('Position konnte nicht gespeichert werden');
+        toastError('Position konnte nicht gespeichert werden');
       }
     });
   }
@@ -164,9 +164,9 @@ export function OverlayPreferences({
       const toSave = Object.keys(overrides).length > 0 ? overrides : null;
       const result = await updateOverlayPhaseColors(toSave);
       if (result.success) {
-        toast.success('Phasen-Farben gespeichert');
+        toastSuccess('Phasen-Farben gespeichert');
       } else {
-        toast.error('Phasen-Farben konnten nicht gespeichert werden');
+        toastError('Phasen-Farben konnten nicht gespeichert werden');
       }
     });
   }
@@ -176,9 +176,9 @@ export function OverlayPreferences({
       setColors({ ...DEFAULT_PHASE_COLORS });
       const result = await resetOverlayPhaseColors();
       if (result.success) {
-        toast.success('Phasen-Farben auf default zurückgesetzt');
+        toastSuccess('Phasen-Farben auf default zurückgesetzt');
       } else {
-        toast.error('Reset fehlgeschlagen');
+        toastError('Reset fehlgeschlagen');
       }
     });
   }
@@ -194,7 +194,7 @@ export function OverlayPreferences({
         accentColor,
       });
       if (result.success) {
-        toast.success('Branding gespeichert');
+        toastSuccess('Branding gespeichert');
       } else {
         // brandingError bleibt inline — der user braucht zu sehen WELCHES
         // feld invalid ist (URL-format vs primary-hex vs accent-hex), das
@@ -212,9 +212,9 @@ export function OverlayPreferences({
       setAccentColor('#10B981');
       const result = await resetOverlayBranding();
       if (result.success) {
-        toast.success('Branding auf default zurückgesetzt');
+        toastSuccess('Branding auf default zurückgesetzt');
       } else {
-        toast.error('Reset fehlgeschlagen');
+        toastError('Reset fehlgeschlagen');
       }
     });
   }

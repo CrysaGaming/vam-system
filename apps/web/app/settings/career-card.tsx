@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useTransition } from 'react';
-import { toast } from 'sonner';
+import { toastError } from '@/lib/toast';
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Card } from '@/components/ui/card';
@@ -78,8 +78,9 @@ export function CareerCard({
       } catch (e) {
         setEnabled(!newValue); // revert
         // Track 3 #11.2.3 vNext: error → toast statt inline-Alert
-        // (siehe economy-card.tsx für rationale).
-        toast.error(e instanceof Error ? e.message : 'Unbekannter Fehler');
+        // (siehe economy-card.tsx für rationale). Track 4 #80: via
+        // toastError-wrapper für unified error-extraction.
+        toastError(e);
       }
     });
   }

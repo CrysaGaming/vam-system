@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useTransition } from 'react';
-import { toast } from 'sonner';
+import { toastError } from '@/lib/toast';
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Card } from '@/components/ui/card';
@@ -70,7 +70,8 @@ export function EconomyCard({
         // nicht permanent in die UI. Hint-message darunter (success/
         // warning/info) bleibt persistent weil das den state des
         // toggles erklärt, nicht ein fehlerhaftes commit.
-        toast.error(e instanceof Error ? e.message : 'Unbekannter Fehler');
+        // Track 4 #80: via toastError-wrapper für unified error-extraction.
+        toastError(e);
       }
     });
   }
