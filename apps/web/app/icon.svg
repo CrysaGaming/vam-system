@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="VAM System">
+  <title>VAM System</title>
+  <!-- Rounded square indigo background. Color matches Tailwind indigo-600 (the
+       app's default primary). Airlines with custom branding will still see the
+       branded primaryColor inside the app — the manifest icon is global and
+       can't be re-themed per-airline. -->
+  <rect width="512" height="512" rx="96" fill="#4f46e5"/>
+  <!-- Stylized aircraft silhouette: triangular wing + small fuselage tab.
+       White on indigo. The angle (~25° up-right) reads as "departing" and
+       sits well inside the safe-zone for maskable icons (center 80%). -->
+  <g fill="#ffffff" transform="translate(256 256) rotate(-30) translate(-256 -256)">
+    <!-- Main wing -->
+    <path d="M 120 280 L 392 240 L 392 272 L 240 296 L 168 376 L 144 376 L 184 296 L 120 296 Z"/>
+    <!-- Vertical stabilizer / tail -->
+    <path d="M 264 232 L 304 192 L 320 192 L 296 240 Z"/>
+  </g>
+</svg>

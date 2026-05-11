@@ -9,6 +9,7 @@ import { navigateWithTransition } from '@/lib/view-transitions';
 import { KeyboardShortcutsManager } from './keyboard-shortcuts-manager';
 import { CommandPalette } from './command-palette';
 import { RecentlyViewedBlock } from './recently-viewed-block';
+import { PwaInstallPrompt } from './PwaInstallPrompt';
 
 export type ShellUser = {
   name: string | null;
@@ -147,6 +148,13 @@ export function AppShell({ user, children }: Props) {
           im idle-zustand. Eigener key-listener (Cmd/Ctrl+K) damit es nicht
           mit dem `g X` sequence-handler im ShortcutsManager kollidiert. */}
       <CommandPalette />
+
+      {/* Track 4 #75 (Section O): PWA Install-Prompt. Floating banner unten-
+          rechts (oder full-width-edge auf mobile) der appears 8s nach mount
+          wenn der browser beforeinstallprompt fired UND der user die app
+          noch nicht installed/dismissed hat. Self-contained — kein
+          prop-drilling, eigener localStorage-state. */}
+      <PwaInstallPrompt />
 
       {/* Skip-to-content link für keyboard-user (Track 3 #11.2.4 Phase 5
           a11y-polish). Default visuell versteckt (transform: translateY(-100%)

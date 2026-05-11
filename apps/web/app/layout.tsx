@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
 import Script from 'next/script';
 import './globals.css';
@@ -23,6 +23,35 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: 'VAM System',
   description: 'Virtual Airline Management Platform',
+  // Track 4 #75 (Section O): PWA-manifest. Browser liest /manifest.webmanifest
+  // → blendet "App installieren" anweisung ein, behandelt das ding als
+  // installable PWA. Path ist relativ zum origin damit es unabhängig vom
+  // basePath funktioniert. Next.js fügt automatisch <link rel="manifest">
+  // ins <head> ein.
+  manifest: '/manifest.webmanifest',
+  // Apple-spezifische meta-tags damit iOS-add-to-homescreen den richtigen
+  // namen + display-mode + status-bar-style zeigt. iOS ignoriert den
+  // manifest bisher (Stand 2026) und liest nur diese legacy-tags.
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'default',
+    title: 'VAM',
+  },
+};
+
+// Track 4 #75: Viewport-config separat exportieren weil Next.js 16 das
+// aus metadata herausgezogen hat (Vite-style). themeColor steuert die
+// browser-chrome-farbe auf mobile (android-toolbar, ios-status-bar im
+// installed-mode). Match zum manifest.theme_color damit es konsistent
+// wirkt. Light + dark variants damit dark-mode user nicht plötzlich
+// einen hellblauen status-bar haben.
+export const viewport: Viewport = {
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: '#4f46e5' },
+    { media: '(prefers-color-scheme: dark)', color: '#1e1b4b' },
+  ],
+  width: 'device-width',
+  initialScale: 1,
 };
 
 /**

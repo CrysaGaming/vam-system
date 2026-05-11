@@ -1,0 +1,49 @@
+{
+  "name": "VAM System",
+  "short_name": "VAM",
+  "description": "Virtual Airline Management Platform — bookings, PIREPs, fleet, training, careers.",
+  "start_url": "/dashboard",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "theme_color": "#4f46e5",
+  "background_color": "#ffffff",
+  "lang": "de",
+  "categories": ["productivity", "utilities", "travel"],
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Dashboard",
+      "short_name": "Home",
+      "url": "/dashboard"
+    },
+    {
+      "name": "Neuen PIREP",
+      "short_name": "PIREP",
+      "url": "/pireps/new"
+    },
+    {
+      "name": "Bookings",
+      "short_name": "Buchen",
+      "url": "/bookings"
+    },
+    {
+      "name": "Live Map",
+      "short_name": "Live",
+      "url": "/live"
+    }
+  ]
+}
