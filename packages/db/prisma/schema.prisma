@@ -1654,6 +1654,22 @@ model FlightPlanCache {
   fuelKg       Int?
   blockTimeMin Int?
 
+  // Track-4 #68 — OFP-Diff: snapshot der vorherigen version, immer wenn
+  // der cache neu geschrieben wird (refresh Pattern α / Z), werden die
+  // aktuellen werte zuerst in diese previous*-felder kopiert. Erlaubt
+  // pilot zu sehen wie sich SimBrief's plan zwischen zwei generationen
+  // verändert hat (z.B. fuel +120kg wegen anderer wind-konditionen,
+  // block-time +5min wegen reroute durch SID/STAR-änderung).
+  //
+  // NULL = nie refresht (erste cache-version, no previous to compare).
+  // previousOfpId == ofpId would mean "no real refresh happened" — wir
+  // unterdrücken den diff dann UI-seitig.
+  previousOfpId        String?
+  previousFuelKg       Int?
+  previousBlockTimeMin Int?
+  previousRouteString  String?   @db.Text
+  previousGeneratedAt  DateTime?
+
   generatedAt DateTime @default(now())
   expiresAt   DateTime
 

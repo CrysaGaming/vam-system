@@ -242,7 +242,18 @@ export async function refreshSimBriefOfp(
       id: true,
       state: true,
       user: { select: { simBriefUsername: true } },
-      flightPlanCache: { select: { id: true } },
+      flightPlanCache: {
+        select: {
+          id: true,
+          // Track-4 #68: snapshot current cache values before overwrite
+          // so we can populate previous*-fields in the update below.
+          ofpId: true,
+          fuelKg: true,
+          blockTimeMin: true,
+          routeString: true,
+          generatedAt: true,
+        },
+      },
     },
   });
   if (!booking) {
@@ -300,9 +311,19 @@ export async function refreshSimBriefOfp(
   };
 
   if (booking.flightPlanCache) {
+    // Track-4 #68: snapshot the values we're about to overwrite into the
+    // previous*-fields so the UI can show what changed at refresh time.
+    const prev = booking.flightPlanCache;
     await prisma.flightPlanCache.update({
-      where: { id: booking.flightPlanCache.id },
-      data: cacheData,
+      where: { id: prev.id },
+      data: {
+        ...cacheData,
+        previousOfpId: prev.ofpId,
+        previousFuelKg: prev.fuelKg,
+        previousBlockTimeMin: prev.blockTimeMin,
+        previousRouteString: prev.routeString,
+        previousGeneratedAt: prev.generatedAt,
+      },
     });
   } else {
     await prisma.flightPlanCache.create({ data: cacheData });
@@ -403,7 +424,18 @@ export async function processSimBriefCallback(
     select: {
       id: true,
       state: true,
-      flightPlanCache: { select: { id: true } },
+      flightPlanCache: {
+        select: {
+          id: true,
+          // Track-4 #68: snapshot current cache values before overwrite
+          // so we can populate previous*-fields in the update below.
+          ofpId: true,
+          fuelKg: true,
+          blockTimeMin: true,
+          routeString: true,
+          generatedAt: true,
+        },
+      },
     },
   });
   if (!booking) {
@@ -452,9 +484,20 @@ export async function processSimBriefCallback(
   };
 
   if (booking.flightPlanCache) {
+    // Track-4 #68: snapshot previous values before overwrite — analog
+    // zum refreshSimBriefOfp-pfad oben, weil Pattern Z auch ein "refresh"
+    // ist wenn der pilot mehrfach via popup-flow neue OFPs erzeugt.
+    const prev = booking.flightPlanCache;
     await prisma.flightPlanCache.update({
-      where: { id: booking.flightPlanCache.id },
-      data: cacheData,
+      where: { id: prev.id },
+      data: {
+        ...cacheData,
+        previousOfpId: prev.ofpId,
+        previousFuelKg: prev.fuelKg,
+        previousBlockTimeMin: prev.blockTimeMin,
+        previousRouteString: prev.routeString,
+        previousGeneratedAt: prev.generatedAt,
+      },
     });
   } else {
     await prisma.flightPlanCache.create({ data: cacheData });

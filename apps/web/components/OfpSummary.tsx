@@ -22,6 +22,23 @@ export type OfpSummaryCache = {
    * work; they just don't get the staleness hint.
    */
   expiresAt?: Date;
+  /**
+   * Track-4 #68: Previous-version snapshot for OFP-Diff. Set by
+   * refreshSimBriefOfp / processSimBriefCallback whenever a cache row
+   * is overwritten — captures what the values WERE before the new OFP.
+   *
+   * NULL = nie refresht (erste version, kein vergleich möglich).
+   * previousOfpId === ofpId würde "kein echter refresh" bedeuten — wir
+   * unterdrücken den diff dann im UI.
+   *
+   * Alle nullable für graceful-degradation. Component zeigt nur die
+   * deltas wo BEIDE seiten (alt+neu) vorhanden sind.
+   */
+  previousOfpId?: string | null;
+  previousFuelKg?: number | null;
+  previousBlockTimeMin?: number | null;
+  previousRouteString?: string | null;
+  previousGeneratedAt?: Date | null;
 };
 
 /**
@@ -146,6 +163,72 @@ function PlanActualRow({
 }
 
 /**
+ * Track-4 #68: OFP-Refresh-Diff row.
+ *
+ * Analog zu PlanActualRow aber für die "vorherige version vs aktuell"-
+ * dimension. Color-coding ist umgekehrt: bei refreshes ist mehr fuel
+ * oder mehr block-time NICHT \"schlecht\" — es spiegelt nur neue real-
+ * weather-conditions wider. Wir nutzen daher amber (notable) für
+ * jede signifikante änderung statt red, und gray für kleine drifts.
+ */
+function OfpDiffRow({
+  label,
+  previous,
+  current,
+  format,
+  formatDelta,
+}: {
+  label: string;
+  previous: number | null | undefined;
+  current: number | null;
+  format: (n: number) => string;
+  formatDelta: (delta: number) => string;
+}) {
+  if (
+    previous === null ||
+    previous === undefined ||
+    current === null ||
+    previous === current
+  ) {
+    return null;
+  }
+
+  const delta = current - previous;
+  const pct = previous !== 0 ? (delta / previous) * 100 : 0;
+  const absPct = Math.abs(pct);
+
+  // Refresh-deltas sind faktisch (wetter/route geändert) — wir signalisieren
+  // nur die magnitude: kleine drift gray, signifikant amber, sehr groß rose.
+  let deltaColor = 'text-gray-400';
+  if (absPct >= 10) deltaColor = 'text-rose-400';
+  else if (absPct >= 2) deltaColor = 'text-amber-400';
+
+  return (
+    <div className="flex items-baseline gap-3 flex-wrap">
+      <span className="text-xs uppercase tracking-wider text-gray-500 w-24 shrink-0">
+        {label}
+      </span>
+      <span className="text-sm text-gray-400 tabular-nums line-through opacity-70">
+        {format(previous)}
+      </span>
+      <span className="text-gray-600">→</span>
+      <span className="text-sm font-semibold tabular-nums">
+        {format(current)}
+      </span>
+      <span className={`text-xs tabular-nums ${deltaColor}`}>
+        {formatDelta(delta)}
+        {previous !== 0 && (
+          <span className="ml-1 opacity-70">
+            ({pct >= 0 ? '+' : '−'}
+            {absPct.toFixed(1)}%)
+          </span>
+        )}
+      </span>
+    </div>
+  );
+}
+
+/**
  * OFP Summary card.
  *
  * Renders the four canonical headline fields from a SimBrief OFP — id,
@@ -177,6 +260,28 @@ export function OfpSummary({ cache, actions, actual }: OfpSummaryProps) {
     actual !== undefined &&
     (actual.flightTimeMin !== null || actual.fuelUsedKg !== null);
   const showActualSection = actual !== undefined;
+
+  // Track-4 #68: OFP-Refresh-Diff section. Nur rendern wenn:
+  //   1. previous*-fields populated sind (=> mindestens 1 refresh passierte)
+  //   2. previousOfpId !== current ofpId (=> echter refresh, kein no-op)
+  //   3. mindestens 1 metric hat tatsächliche änderung (sonst suppressed)
+  // Helper-rows zeigen sich selbst nur bei delta != 0, so der diff-block
+  // taucht nur auf wenn er substanzielle info trägt.
+  const hasPrevious =
+    cache.previousOfpId !== null &&
+    cache.previousOfpId !== undefined &&
+    cache.previousOfpId !== cache.ofpId;
+  const hasAnyDelta =
+    hasPrevious &&
+    ((cache.previousBlockTimeMin !== null &&
+      cache.previousBlockTimeMin !== undefined &&
+      cache.previousBlockTimeMin !== cache.blockTimeMin) ||
+      (cache.previousFuelKg !== null &&
+        cache.previousFuelKg !== undefined &&
+        cache.previousFuelKg !== cache.fuelKg) ||
+      (cache.previousRouteString !== null &&
+        cache.previousRouteString !== undefined &&
+        cache.previousRouteString !== cache.routeString));
 
   return (
     <section
@@ -224,12 +329,75 @@ export function OfpSummary({ cache, actions, actual }: OfpSummaryProps) {
         </div>
       </div>
       {cache.routeString && (
-        <div className={actions || showActualSection ? 'mb-6' : ''}>
+        <div
+          className={
+            actions || showActualSection || hasAnyDelta ? 'mb-6' : ''
+          }
+        >
           <p className="text-xs uppercase tracking-wider text-gray-500 mb-2">
             Route
           </p>
           <p className="font-mono text-sm bg-gray-950 border border-gray-800 rounded p-3 break-all">
             {cache.routeString}
+          </p>
+        </div>
+      )}
+      {hasAnyDelta && (
+        <div className="pt-4 border-t border-gray-800 mb-6">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-xs uppercase tracking-wider text-gray-500">
+              📋 Letzte OFP-Änderung
+            </p>
+            {cache.previousGeneratedAt && (
+              <p
+                className="text-[10px] text-gray-500"
+                title={`Vorherige version generiert am ${new Date(
+                  cache.previousGeneratedAt,
+                ).toLocaleString('de-DE')}`}
+              >
+                vorher:{' '}
+                {new Date(cache.previousGeneratedAt).toLocaleString('de-DE', {
+                  day: '2-digit',
+                  month: '2-digit',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })}
+              </p>
+            )}
+          </div>
+          <div className="space-y-2">
+            <OfpDiffRow
+              label="Block Time"
+              previous={cache.previousBlockTimeMin}
+              current={cache.blockTimeMin}
+              format={(n) => formatBlockTime(n)}
+              formatDelta={formatDeltaMin}
+            />
+            <OfpDiffRow
+              label="Block Fuel"
+              previous={cache.previousFuelKg}
+              current={cache.fuelKg}
+              format={(n) => `${n} kg`}
+              formatDelta={(d) =>
+                `${d > 0 ? '+' : d < 0 ? '−' : ''}${Math.abs(d)} kg`
+              }
+            />
+            {cache.previousRouteString !== null &&
+              cache.previousRouteString !== undefined &&
+              cache.previousRouteString !== cache.routeString && (
+                <div className="flex items-baseline gap-3 flex-wrap">
+                  <span className="text-xs uppercase tracking-wider text-gray-500 w-24 shrink-0">
+                    Route
+                  </span>
+                  <span className="text-xs text-amber-400 italic">
+                    geändert (siehe oben für aktuelle version)
+                  </span>
+                </div>
+              )}
+          </div>
+          <p className="text-[10px] text-gray-600 mt-3 italic">
+            Diff zwischen vorherigem und aktuellem OFP. Änderungen kommen
+            meist von neuem Wetter oder geänderten SID/STAR-routings.
           </p>
         </div>
       )}
