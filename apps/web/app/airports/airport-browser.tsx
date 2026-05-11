@@ -3,6 +3,7 @@
 import { useState, useTransition, useCallback, useEffect, useRef } from 'react';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import Link from 'next/link';
+import { AirportsMapView } from './airports-map-view';
 
 interface Airport {
   id: string;
@@ -87,6 +88,12 @@ export function AirportBrowser({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [isPending, startTransition] = useTransition();
+
+  // #72: View-mode. 'list' = paginated table (default), 'map' = inline-SVG
+  // world-map. Strictly URL-driven damit bookmarks/share-links den view
+  // beibehalten und damit der server-render keinen flicker beim hydrate
+  // produziert. Unrecognized values → fallback auf 'list'.
+  const view = searchParams.get('view') === 'map' ? 'map' : 'list';
 
   // Local state für inputs die debounced werden — beim direkten URL-update
   // würde der user bei jedem keystroke ein query feuern.
@@ -287,9 +294,65 @@ export function AirportBrowser({
             </span>
           </label>
         </div>
+
+        {/* #72: View-toggle (list ↔ map). Wir setzen den view-param via
+            updateFilter (preserved alle anderen filter-params, resettet
+            page=1 was hier irrelevant ist da die map keine pagination hat,
+            aber harmlos). Two-button-toggle als segmented control. */}
+        <div className="flex items-center gap-2 pt-2 border-t border-gray-100 dark:border-gray-800/50">
+          <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+            Ansicht
+          </span>
+          <div
+            role="tablist"
+            aria-label="Airport-Ansicht"
+            className="inline-flex rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden"
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={view === 'list'}
+              onClick={() => updateFilter('view', null)}
+              className={`px-3 py-1.5 text-xs font-medium transition ${
+                view === 'list'
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+              }`}
+            >
+              📋 Liste
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={view === 'map'}
+              onClick={() => updateFilter('view', 'map')}
+              className={`px-3 py-1.5 text-xs font-medium transition border-l border-gray-200 dark:border-gray-700 ${
+                view === 'map'
+                  ? 'bg-indigo-600 text-white border-indigo-600'
+                  : 'bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+              }`}
+            >
+              🗺 Karte
+            </button>
+          </div>
+          {view === 'map' && (
+            <span className="ml-2 text-xs text-gray-400 dark:text-gray-500 italic">
+              Karte zeigt die aktuelle Seite — paginieren via Liste
+            </span>
+          )}
+        </div>
       </div>
 
-      {/* ───── Result Table ───── */}
+      {/* ───── Result: Table or Map ─────
+          #72: view===map ersetzt die tabelle durch die inline-SVG world-
+          map. Empty-state-handling bleibt gleich — wenn keine airports
+          gematcht haben, hat weder die map noch die tabelle sinn, also
+          zeigen wir die existing empty-state-box.
+
+          Pagination wird nur im list-view gezeigt. In map-view ist
+          pagination wenig sinnvoll (man würde die punkte verschieben statt
+          neuer airports zu sehen) und der hint in der filter-bar verweist
+          den user auf den list-view zum paginieren. */}
       {airports.length === 0 ? (
         <div className="text-center py-12 bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-800">
           <p className="text-gray-500 dark:text-gray-400">
@@ -303,6 +366,8 @@ export function AirportBrowser({
             .
           </p>
         </div>
+      ) : view === 'map' ? (
+        <AirportsMapView airports={airports} />
       ) : (
         <>
           <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-800 overflow-hidden">
