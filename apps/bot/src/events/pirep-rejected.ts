@@ -11,6 +11,12 @@ export type PirepRejectedPayload = {
   departureIcao: string;
   arrivalIcao: string;
   reason: string;
+  /**
+   * Track 4 #83 (Section P): Per-airline template-overrides für title
+   * und description (siehe pirep-approved.ts für details).
+   */
+  titleOverride?: string;
+  descriptionOverride?: string;
 };
 
 export async function handlePirepRejected(
@@ -34,12 +40,20 @@ export async function handlePirepRejected(
     ? `<@${payload.approverDiscordId}>`
     : payload.approverName;
 
+  // Track 4 #83 (Section P): Defaults mit override-präzedenz. Begründung-
+  // Field bleibt SEPARAT (auch bei custom-template) damit der pilot die
+  // reason garantiert sieht — der admin kann sie zwar in die description
+  // einbauen via `{reason}` placeholder, aber das field-rendering ist
+  // hier nicht negotiable.
+  const title = payload.titleOverride ?? `❌ ${payload.flightNumber} abgelehnt`;
+  const description =
+    payload.descriptionOverride ??
+    `${pilotMention}'s Flug wurde von **${approverMention}** abgelehnt.`;
+
   const embed = new EmbedBuilder()
     .setColor(0xe74c3c) // rot
-    .setTitle(`❌ ${payload.flightNumber} abgelehnt`)
-    .setDescription(
-      `${pilotMention}'s Flug wurde von **${approverMention}** abgelehnt.`
-    )
+    .setTitle(title)
+    .setDescription(description)
     .addFields(
       {
         name: 'Route',

@@ -55,6 +55,14 @@ export type PirepApprovedPayload = {
   approverDiscordId: string | null;
   departureIcao: string;
   arrivalIcao: string;
+  /**
+   * Track 4 #83 (Section P): Optional discord-template-overrides für den
+   * embed. Wenn vom web-caller gesetzt (via renderForEvent), nutzt der bot
+   * diese strings statt der defaults. Wenn undefined, bleibt default-text.
+   * Andere embed-properties (color, fields, button) sind nicht overrideable.
+   */
+  titleOverride?: string;
+  descriptionOverride?: string;
 };
 
 export type PirepRejectedPayload = {
@@ -67,6 +75,9 @@ export type PirepRejectedPayload = {
   departureIcao: string;
   arrivalIcao: string;
   reason: string;
+  /** Track 4 #83 (Section P): siehe PirepApprovedPayload für details. */
+  titleOverride?: string;
+  descriptionOverride?: string;
 };
 
 /**

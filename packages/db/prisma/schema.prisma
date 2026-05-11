@@ -439,6 +439,32 @@ model Airline {
   // section 4 realism-spectrum).
   careerEnabled Boolean @default(false)
 
+  // Track 4 #83 (Section P): Per-airline Discord-template overrides.
+  // Json-shape (see apps/web/lib/discord-templates.ts für TypeScript-
+  // types + render-engine):
+  //
+  //   {
+  //     pirepSubmitted?: { title?: string; description?: string };
+  //     pirepApproved?:  { title?: string; description?: string };
+  //     pirepRejected?:  { title?: string; description?: string };
+  //     rankUpgraded?:   { title?: string; description?: string };
+  //     awardEarned?:    { title?: string; description?: string };
+  //     eventPublished?: { title?: string; description?: string };
+  //   }
+  //
+  // Variablen werden über {placeholder}-syntax aufgelöst (z.B.
+  // {pilot}, {flightNumber}, {route}, {approver}, {reason}). Liste der
+  // verfügbaren placeholder pro category steht in der lib/discord-
+  // templates.ts dokumentation.
+  //
+  // Wenn null oder eine category fehlt → bot rendert den default-embed
+  // wie immer. Mit override wird der entsprechende title/description-
+  // text ersetzt; restliche embed-elemente (color, fields, button) bleiben.
+  // Damit kann ein admin den ton anpassen ("LEAV begrüßt {pilot} im
+  // approved-club" statt "{pilot} flight was approved by {approver}")
+  // ohne den ganzen embed-builder neu schreiben zu müssen.
+  discordTemplates Json?
+
   // ─── TypeRating-Currency-Enforcement (option #29) ──────────────────
   // Per-airline opt-in für hard-blocking von buchungen wenn pilot's
   // type-rating zwar exists aber recency-lapsed ist (lastFlownAt < 90d

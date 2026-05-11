@@ -9,6 +9,10 @@ import {
   dispatchPirepApprovedEmail,
   dispatchPirepRejectedEmail,
 } from '@/lib/email/dispatchers/pirep-decision';
+import {
+  parseDiscordTemplates,
+  renderForEvent,
+} from '@/lib/discord-templates';
 import { evaluatePromotion } from '@/lib/ranks';
 import { APPROVER_ROLES, isApproverRole } from '@/lib/roles';
 
@@ -63,6 +67,13 @@ export async function approvePirep(pirepId: string) {
           accounts: {
             where: { provider: 'discord' },
             select: { providerAccountId: true },
+          },
+          // Track 4 #83 (Section P): Discord-template-overrides werden
+          // auf airline-ebene konfiguriert. Wir holen sie via user.airline
+          // damit das include in einem roundtrip mit dem rest der PIREP-
+          // daten kommt — keine separate query.
+          airline: {
+            select: { discordTemplates: true },
           },
         },
       },
@@ -181,15 +192,34 @@ export async function approvePirep(pirepId: string) {
 
   // Bot benachrichtigen — silent failure wenn Bot offline
   try {
+    // Track 4 #83 (Section P): Render airline-spezifische template-
+    // overrides (falls konfiguriert), spreade in den payload. Wenn keine
+    // templates gesetzt, ist overrides ein leeres objekt — bot rendert
+    // den default-embed.
+    const flightNumber = pirep.route?.flightNumber ?? 'PIREP';
+    const route = `${pirep.departure.icao} → ${pirep.arrival.icao}`;
+    const templates = parseDiscordTemplates(
+      pirep.user.airline?.discordTemplates ?? null,
+    );
+    const overrides = renderForEvent(templates, 'pirepApproved', {
+      pilot: pirep.user.name ?? 'Unbenannt',
+      flightNumber,
+      departure: pirep.departure.icao,
+      arrival: pirep.arrival.icao,
+      route,
+      approver: approver.name ?? 'Unbenannt',
+    });
+
     await emitPirepApproved({
       pirepId: pirep.id,
-      flightNumber: pirep.route?.flightNumber ?? 'PIREP',
+      flightNumber,
       pilotDiscordId: pirep.user.accounts[0]?.providerAccountId ?? null,
       pilotName: pirep.user.name ?? 'Unbenannt',
       approverName: approver.name ?? 'Unbenannt',
       approverDiscordId: null, // wird im nächsten Step befüllt wenn nötig
       departureIcao: pirep.departure.icao,
       arrivalIcao: pirep.arrival.icao,
+      ...overrides,
     });
   } catch (err) {
     console.error('[approvePirep] Bot-Event fehlgeschlagen:', err);
@@ -249,6 +279,11 @@ export async function rejectPirep(pirepId: string, reason: string) {
             where: { provider: 'discord' },
             select: { providerAccountId: true },
           },
+          // Track 4 #83 (Section P): siehe approvePirep für details zum
+          // airline-template-include.
+          airline: {
+            select: { discordTemplates: true },
+          },
         },
       },
     },
@@ -275,9 +310,28 @@ export async function rejectPirep(pirepId: string, reason: string) {
 
   // Bot benachrichtigen
   try {
+    // Track 4 #83 (Section P): Render airline-spezifische template-
+    // overrides (falls konfiguriert). Reason wird als placeholder
+    // mitgegeben damit der admin im rejected-template die begründung
+    // einbauen kann (`{reason}`).
+    const flightNumber = pirep.route?.flightNumber ?? 'PIREP';
+    const route = `${pirep.departure.icao} → ${pirep.arrival.icao}`;
+    const templates = parseDiscordTemplates(
+      pirep.user.airline?.discordTemplates ?? null,
+    );
+    const overrides = renderForEvent(templates, 'pirepRejected', {
+      pilot: pirep.user.name ?? 'Unbenannt',
+      flightNumber,
+      departure: pirep.departure.icao,
+      arrival: pirep.arrival.icao,
+      route,
+      approver: approver.name ?? 'Unbenannt',
+      reason: reason.trim(),
+    });
+
     await emitPirepRejected({
       pirepId: pirep.id,
-      flightNumber: pirep.route?.flightNumber ?? 'PIREP',
+      flightNumber,
       pilotDiscordId: pirep.user.accounts[0]?.providerAccountId ?? null,
       pilotName: pirep.user.name ?? 'Unbenannt',
       approverName: approver.name ?? 'Unbenannt',
@@ -285,6 +339,7 @@ export async function rejectPirep(pirepId: string, reason: string) {
       departureIcao: pirep.departure.icao,
       arrivalIcao: pirep.arrival.icao,
       reason: reason.trim(),
+      ...overrides,
     });
   } catch (err) {
     console.error('[rejectPirep] Bot-Event fehlgeschlagen:', err);

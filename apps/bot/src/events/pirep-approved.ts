@@ -10,6 +10,15 @@ export type PirepApprovedPayload = {
   approverDiscordId: string | null;
   departureIcao: string;
   arrivalIcao: string;
+  /**
+   * Track 4 #83 (Section P): Per-airline template-overrides für title
+   * und description. Wenn web-side gerendert wird (renderForEvent in
+   * apps/web/lib/discord-templates.ts) und gesetzt, ersetzt der wert
+   * den default-text. Andere embed-properties (color, fields, button)
+   * bleiben unverändert.
+   */
+  titleOverride?: string;
+  descriptionOverride?: string;
 };
 
 export async function handlePirepApproved(
@@ -31,12 +40,20 @@ export async function handlePirepApproved(
     ? `<@${payload.approverDiscordId}>`
     : payload.approverName;
 
+  // Track 4 #83 (Section P): Defaults für title + description. Wenn der
+  // airline-admin templates gesetzt hat, kommt der web-rendered text
+  // schon im payload als titleOverride/descriptionOverride. Wir nutzen
+  // hier `??` damit override-präsenz default ersetzt; bei undefined
+  // bleibt der default. Color/Fields/Button werden NICHT überschrieben.
+  const title = payload.titleOverride ?? `✅ ${payload.flightNumber} genehmigt`;
+  const description =
+    payload.descriptionOverride ??
+    `${pilotMention}'s Flug wurde von **${approverMention}** genehmigt.`;
+
   const embed = new EmbedBuilder()
     .setColor(0x2ecc71) // grün
-    .setTitle(`✅ ${payload.flightNumber} genehmigt`)
-    .setDescription(
-      `${pilotMention}'s Flug wurde von **${approverMention}** genehmigt.`
-    )
+    .setTitle(title)
+    .setDescription(description)
     .addFields({
       name: 'Route',
       value: `\`${payload.departureIcao}\` → \`${payload.arrivalIcao}\``,

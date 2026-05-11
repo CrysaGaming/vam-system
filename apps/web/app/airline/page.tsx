@@ -6,11 +6,13 @@ import {
   listAvailableRoles,
   listAvailableRanks,
   getAirlineSettings,
+  getDiscordTemplates,
 } from './actions';
 import { listInvites, listRolesForInvite } from './invites-actions';
 import { MemberTable } from './member-table';
 import { AirlineSettingsForm } from './airline-settings-form';
 import { InviteSection } from './invite-section';
+import { DiscordTemplatesForm } from './discord-templates-form';
 
 /**
  * Airline-Admin-Panel. Gated on role ∈ {admin, airline-admin, instructor}
@@ -26,7 +28,7 @@ import { InviteSection } from './invite-section';
  */
 export default async function AirlineAdminPage() {
   const user = await requireAirlineManagerWithAirlinePage();
-  const [members, roles, ranks, settings, invites, inviteRoles] =
+  const [members, roles, ranks, settings, invites, inviteRoles, discordTemplates] =
     await Promise.all([
       listAirlineMembers(),
       listAvailableRoles(),
@@ -34,6 +36,7 @@ export default async function AirlineAdminPage() {
       getAirlineSettings(),
       listInvites(),
       listRolesForInvite(),
+      getDiscordTemplates(),
     ]);
 
   // App-URL für invite-link construction. Falls process.env.NEXTAUTH_URL
@@ -83,6 +86,11 @@ export default async function AirlineAdminPage() {
             />
             <AirlineSettingsForm initial={settings} />
           </div>
+          {/* Track 4 #83 (Section P): Discord-template-overrides. Full-width
+              card unter den 2-col-sections weil die hint-spalte rechts auf
+              schmalen viewports bereits eine 2nd column innerhalb der card
+              hat — eine 3rd dimension wäre too much. */}
+          <DiscordTemplatesForm initial={discordTemplates} />
         </div>
       </div>
     </main>

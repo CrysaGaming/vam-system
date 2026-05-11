@@ -1,6 +1,6 @@
 'use server';
 
-import { prisma } from '@vam/db';
+import { prisma, Prisma } from '@vam/db';
 import { requireAirlineManagerWithAirline } from '@/lib/roles';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
@@ -676,4 +676,134 @@ export async function updateAirlineSettings(
   // page covers the visibility toggle anyway.
   revalidatePath(`/a/${newIcao}`);
   revalidatePath('/airlines');
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Track 4 #83 (Section P) — Discord-template overrides
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Schema für ein einzelnes (title, description) override-pair.
+ * Beide felder sind optional + nullable damit das form-payload "clear
+ * the field" als null senden kann. Empty-string nach trim wird auch zu
+ * null normalisiert in der action.
+ *
+ * Length-limits:
+ *  - title: Discord embed-title max 256 chars. Wir limitieren auf 200
+ *    um buffer für rendered-output zu haben (wenn alle placeholders
+ *    aufgelöst sind, kann der string deutlich länger werden als der
+ *    raw-template).
+ *  - description: Discord embed-description max 4096 chars. 2000 als
+ *    template-limit (rendered kann größer werden, defensive).
+ */
+const DiscordTemplateEntrySchema = z.object({
+  title: z.string().max(200).nullable().optional(),
+  description: z.string().max(2000).nullable().optional(),
+});
+
+/**
+ * Schema für das ganze discordTemplates-objekt. Pro category eine
+ * optional entry. z.enum aus DISCORD_TEMPLATE_CATEGORIES halten wir
+ * hier inline statt z.record() weil wir gewünscht-explicit sein wollen
+ * über welche keys akzeptabel sind — ein typo im UI würde sonst silent
+ * akzeptiert.
+ */
+const DiscordTemplatesSchema = z.object({
+  pirepSubmitted: DiscordTemplateEntrySchema.optional(),
+  pirepApproved: DiscordTemplateEntrySchema.optional(),
+  pirepRejected: DiscordTemplateEntrySchema.optional(),
+  rankUpgraded: DiscordTemplateEntrySchema.optional(),
+  awardEarned: DiscordTemplateEntrySchema.optional(),
+  eventPublished: DiscordTemplateEntrySchema.optional(),
+});
+
+/**
+ * Read raw discord-templates für die admin-airline. Returnt das geparste
+ * objekt (immer `{}` minimum, nie null) — UI kann direkt iterieren.
+ *
+ * Bewusst kein parse hier (parseDiscordTemplates ist server-only und
+ * import bringt 'server-only' modul mit). Wir trusten das Json-format
+ * vom DB-write (das WIR validieren beim write), also reicht ein direkter
+ * cast für die read-side. Wenn DB-row corrupted wäre, würde das UI
+ * harmlos broken aussehen (leere felder) statt zu crashen.
+ */
+export async function getDiscordTemplates(): Promise<
+  z.infer<typeof DiscordTemplatesSchema>
+> {
+  const { airlineId } = await requireAirlineAdmin();
+  const a = await prisma.airline.findUnique({
+    where: { id: airlineId },
+    select: { discordTemplates: true },
+  });
+  if (!a) throw new Error('not-found');
+
+  // Type-coerce: Prisma's Json typ ist JsonValue, wir wissen aus dem
+  // write-pfad dass es dem schema entspricht (sonst hätten wir's nicht
+  // geschrieben). Falls jemand manuell die DB-row editiert hat und ein
+  // invalides shape rein gekommen ist, fängt safeParse das ab.
+  const parsed = DiscordTemplatesSchema.safeParse(a.discordTemplates ?? {});
+  return parsed.success ? parsed.data : {};
+}
+
+/**
+ * Update discord-templates für die admin-airline. Empty fields werden
+ * auf null normalisiert; categories mit beiden feldern leer/null werden
+ * ganz weggeworfen — damit die DB-row sauber bleibt (kein leerer
+ * `{ pirepApproved: { title: null, description: null } }`-eintrag).
+ *
+ * Wenn alle categories nach normalisierung leer sind, schreiben wir
+ * Prisma.JsonNull (echte DB-NULL) statt `{}` — das macht den "kein
+ * template gesetzt"-zustand sauberer im storage.
+ */
+export async function updateDiscordTemplates(
+  input: z.infer<typeof DiscordTemplatesSchema>,
+) {
+  const { airlineId } = await requireAirlineAdmin();
+  const parsed = DiscordTemplatesSchema.parse(input);
+
+  // Normalisieren: trim strings, empty → null, leere category-entries
+  // ganz weglassen.
+  const normalized: z.infer<typeof DiscordTemplatesSchema> = {};
+  for (const category of [
+    'pirepSubmitted',
+    'pirepApproved',
+    'pirepRejected',
+    'rankUpgraded',
+    'awardEarned',
+    'eventPublished',
+  ] as const) {
+    const entry = parsed[category];
+    if (!entry) continue;
+
+    const title = entry.title?.trim();
+    const description = entry.description?.trim();
+    const cleanTitle = title && title.length > 0 ? title : null;
+    const cleanDescription =
+      description && description.length > 0 ? description : null;
+
+    // Nur addieren wenn mindestens ein feld gesetzt ist — sonst lassen wir
+    // die category ganz weg (sauberer storage).
+    if (cleanTitle !== null || cleanDescription !== null) {
+      normalized[category] = {
+        ...(cleanTitle !== null ? { title: cleanTitle } : {}),
+        ...(cleanDescription !== null ? { description: cleanDescription } : {}),
+      };
+    }
+  }
+
+  // Prisma's JsonNull vs DbNull: wir wollen echtes SQL NULL in der DB
+  // wenn alle templates entfernt wurden — damit die "kein override"-
+  // detection in der read-side (parseDiscordTemplates) einfach bleibt.
+  const allEmpty = Object.keys(normalized).length === 0;
+
+  await prisma.airline.update({
+    where: { id: airlineId },
+    data: {
+      discordTemplates: allEmpty
+        ? Prisma.JsonNull
+        : (normalized as unknown as Prisma.InputJsonValue),
+    },
+  });
+
+  revalidatePath('/airline');
 }
