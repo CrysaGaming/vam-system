@@ -444,6 +444,31 @@ function BookingSection({ title, bookings, muted }: BookingSectionProps) {
                     {booking.route.aircraft.registration}
                   </span>
                 )}
+                {/* Track 4 #69 (Section M): distance + estimated duration
+                    auf der booking-list-row. Pilot kann auf einen blick
+                    sehen wie weit/lang der flug wird ohne klicken zu müssen.
+                    Hidden auf mobile damit die row nicht zu eng wird —
+                    auf lg+ sehen wir es. tabular-nums damit zahlen sauber
+                    untereinander stehen. distanceNm + estimatedMinutes
+                    sind Int (non-null im schema), aber legacy-routes
+                    können 0 haben — wir suppressen bei 0 weil "0 NM"
+                    wenig informativ ist. */}
+                {booking.route.distanceNm > 0 && (
+                  <span
+                    className="text-xs font-mono text-gray-500 tabular-nums hidden lg:inline"
+                    title={`Distanz: ${booking.route.distanceNm} NM`}
+                  >
+                    📏 {booking.route.distanceNm} NM
+                  </span>
+                )}
+                {booking.route.estimatedMinutes > 0 && (
+                  <span
+                    className="text-xs font-mono text-gray-500 tabular-nums hidden lg:inline"
+                    title={`Geschätzte Block-Time: ${booking.route.estimatedMinutes} min`}
+                  >
+                    ⏱️ {formatEstimatedDuration(booking.route.estimatedMinutes)}
+                  </span>
+                )}
               </div>
               <div className="flex items-center gap-3 flex-shrink-0">
                 {hasOfp && (
@@ -482,4 +507,29 @@ function BookingSection({ title, bookings, muted }: BookingSectionProps) {
       </div>
     </section>
   );
+}
+
+/**
+ * Track 4 #69: Format an `estimatedMinutes`-int as a compact human string.
+ *
+ * Examples:
+ *   45  → "45min"
+ *   60  → "1h"
+ *   95  → "1h 35min"
+ *   720 → "12h"
+ *
+ * Bewusst NICHT colon-formatted ("1:35") weil das aussieht wie eine
+ * uhrzeit, nicht eine dauer. Block-times sind durations, not times.
+ *
+ * Lokales helper-duplikat vom OfpSummary-helper (formatBlockTime) damit
+ * wir keinen extra import + cycle haben. Wenn ein dritter call-site
+ * auftaucht → in @/lib/datetime hoisten.
+ */
+function formatEstimatedDuration(minutes: number): string {
+  if (minutes <= 0) return '—';
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (h === 0) return `${m}min`;
+  if (m === 0) return `${h}h`;
+  return `${h}h ${m}min`;
 }
