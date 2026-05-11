@@ -89,13 +89,22 @@ export default async function PilotDetailPage({ params }: PageProps) {
         >
           ← Personal-Übersicht
         </Link>
-        <Link
-          href={`/airline/pilots/${target.id}/skill-tree`}
-          className="px-3 py-1.5 bg-indigo-100 hover:bg-indigo-200 dark:bg-indigo-500/20 dark:hover:bg-indigo-500/30 text-indigo-700 dark:text-indigo-300 rounded text-xs font-medium transition flex items-center gap-1.5"
-        >
-          <span aria-hidden="true">🌳</span>
-          Skill-Tree ansehen →
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          <Link
+            href={`/airline/pilots/${target.id}/training-log`}
+            className="px-3 py-1.5 bg-indigo-100 hover:bg-indigo-200 dark:bg-indigo-500/20 dark:hover:bg-indigo-500/30 text-indigo-700 dark:text-indigo-300 rounded text-xs font-medium transition flex items-center gap-1.5"
+          >
+            <span aria-hidden="true">📚</span>
+            Training-Log →
+          </Link>
+          <Link
+            href={`/airline/pilots/${target.id}/skill-tree`}
+            className="px-3 py-1.5 bg-indigo-100 hover:bg-indigo-200 dark:bg-indigo-500/20 dark:hover:bg-indigo-500/30 text-indigo-700 dark:text-indigo-300 rounded text-xs font-medium transition flex items-center gap-1.5"
+          >
+            <span aria-hidden="true">🌳</span>
+            Skill-Tree ansehen →
+          </Link>
+        </div>
       </nav>
 
       {/* Pilot-info-block */}
