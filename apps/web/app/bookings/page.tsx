@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 import { Prisma, prisma, BookingState } from '@vam/db';
 import Link from 'next/link';
 import { EmptyState } from '@/components/empty-state';
+import { RepeatBookingButton } from './repeat-booking-button';
 
 // Mirror of the helper in [id]/page.tsx — kept duplicated here intentionally
 // to avoid premature extraction. If a third caller appears, hoist into a
@@ -457,6 +458,14 @@ function BookingSection({ title, bookings, muted }: BookingSectionProps) {
                   <span className="text-xs text-gray-500 font-mono hidden sm:inline">
                     {booking.intendedNetwork}
                   </span>
+                )}
+                {/* Track 4 #66 (Section M): Quick-repeat button für completed
+                    bookings. Render inline im rechten flex-container, vor
+                    dem state-badge. RepeatBookingButton ist ein client-
+                    component mit e.stopPropagation() — verhindert dass der
+                    outer Link parallel zum klone-flow getriggert wird. */}
+                {booking.state === 'Completed' && (
+                  <RepeatBookingButton bookingId={booking.id} />
                 )}
                 <span
                   className={`px-2 py-0.5 rounded text-xs font-semibold border ${style.className}`}
