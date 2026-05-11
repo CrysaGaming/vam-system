@@ -87,7 +87,7 @@ export * from "./economy/index.js";
 // FlightSchoolEnrollment enums + types. Enums werden in switch-statements
 // im UI gemappt (status-badges, license-badge-colors), types in queries
 // die licenses/ratings includen.
-export { LicenseType, LicenseStatus, EnrollmentStatus, TypeRatingExamStatus } from "@prisma/client";
+export { LicenseType, LicenseStatus, EnrollmentStatus, TypeRatingExamStatus, MentorshipStatus } from "@prisma/client";
 export type {
   PilotLicense,
   TypeRating,

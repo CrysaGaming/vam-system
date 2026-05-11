@@ -503,6 +503,13 @@ model Airline {
   /// multi-tenant-isolation. Cascade-delete wenn airline gelöscht wird
   /// (history-cleanup).
   typeRatingExams  TypeRatingExam[]
+  /// Track 4 #93 (Section R): Mentorships gehören zur airline (mentor+mentee
+  /// müssen beide in der airline sein). History bleibt erhalten beim
+  /// airline-delete? — kein cascade, aber Mentorship.airline relation ist
+  /// pflicht, also würde delete tatsächlich fehlen-mit-fk-error wenn
+  /// historische records vorhanden sind. Akzeptabel weil airline-delete
+  /// extrem selten ist und vorher manuelles cleanup verlangt.
+  mentorships      Mentorship[]
   sceneries        Scenery[]
   featureFlags     FeatureFlag[]
   roleMappings     DiscordRoleMapping[]
@@ -881,6 +888,11 @@ model User {
   ///                                durchführt (für workload-views)
   typeRatingExamsAsPilot    TypeRatingExam[]       @relation("TypeRatingExamPilot")
   typeRatingExamsAsExaminer TypeRatingExam[]       @relation("TypeRatingExamExaminer")
+  /// Track 4 #93 (Section R): Mentorship back-relations.
+  ///   mentorshipsAsMentor = mentorships wo DIESER user als mentor agiert
+  ///   mentorshipsAsMentee = mentorships wo DIESER user mentee ist
+  mentorshipsAsMentor       Mentorship[]           @relation("MentorshipMentor")
+  mentorshipsAsMentee       Mentorship[]           @relation("MentorshipMentee")
   flightSchoolEnrollments FlightSchoolEnrollment[]
 
   // Track 1 #7 (Events / Flight-Tours, 9.2.8): Event-system back-relations.
@@ -2743,6 +2755,77 @@ enum TypeRatingExamStatus {
   CANCELLED
   /// Pilot ist nicht zum termin erschienen. Audit-trail-zweck.
   NO_SHOW
+}
+
+/// Track 4 #93 (Section R) — Mentorship: pairing zwischen senior pilots
+/// (mentors) und junior pilots (mentees). Senior pilots mit erfahrung
+/// (ATPL/CPL + viele stunden) geben informelle guidance an trainees ohne
+/// formelles training-curriculum.
+///
+/// Architektur:
+/// - Standalone-model, kein link zu FlightSchoolEnrollment (das ist
+///   structured training; mentorship ist informell und freier)
+/// - Status-lifecycle: PROPOSED → ACTIVE → ENDED, oder PROPOSED →
+///   REJECTED. Admin kann assign'n (default ACTIVE) ODER mentee/mentor
+///   kann selbst proposen (default PROPOSED → die andere seite akzeptiert)
+/// - Multi-tenant: airlineId direkt am model (analog TypeRatingExam),
+///   beide user müssen in der airline sein
+/// - Constraint app-layer: pro mentee max 1 ACTIVE mentorship gleichzeitig.
+///   Historische ENDED/REJECTED mentorships bleiben erhalten (audit-trail)
+/// - Topics: Postgres-array von freiformulierten strings (z.B. "IFR-flying",
+///   "Crew Resource Management") für quick-glance content-focus
+///
+/// Unterschied zu FlightSchoolEnrollment:
+/// - Enrollment: structured curriculum mit theory-stunden, sim, practical-
+///   exam, dauer-tracking. Endet mit license-issuance.
+/// - Mentorship: informell, freier guidance. Kein curriculum, kein exam.
+///   Endet wenn beide seiten zufrieden sind oder das interesse nachlässt.
+model Mentorship {
+  id        String           @id @default(cuid())
+  airlineId String
+  airline   Airline          @relation(fields: [airlineId], references: [id])
+  /// Mentor — typically senior pilot mit erfahrung (ATPL/CPL + viele h)
+  mentorId  String
+  mentor    User             @relation("MentorshipMentor", fields: [mentorId], references: [id], onDelete: Cascade)
+  /// Mentee — typically junior pilot der guidance sucht
+  menteeId  String
+  mentee    User             @relation("MentorshipMentee", fields: [menteeId], references: [id], onDelete: Cascade)
+  status    MentorshipStatus @default(PROPOSED)
+  /// Topics als Postgres-array (z.B. ["IFR-flying", "Long-haul ops"]).
+  /// Empty default — admin/pilot kann später nachpflegen.
+  topics    String[]         @default([])
+  /// Optional notes vom admin (warum dieses pairing) oder mentor/mentee
+  /// (was sie sich erhoffen).
+  notes     String?
+  /// Wann wurde die mentorship gestartet (status=ACTIVE). NULL solange
+  /// PROPOSED. Setzt sich beim accept oder direkt beim admin-assign.
+  startedAt DateTime?
+  /// Wann wurde die mentorship beendet (status=ENDED oder REJECTED).
+  endedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Häufige queries:
+  //   - "alle active mentorships meiner airline" (admin-dashboard)
+  //   - "meine mentees" (mentor-view) / "mein mentor" (mentee-view)
+  //   - "history dieser mentee/mentor-combo"
+  @@index([airlineId, status])
+  @@index([mentorId, status])
+  @@index([menteeId, status])
+}
+
+/// Track 4 #93 (Section R) — Lifecycle einer Mentorship.
+enum MentorshipStatus {
+  /// Initial: vorgeschlagen aber noch nicht von beiden seiten bestätigt.
+  /// Admin-assign oder peer-request kommt hier rein.
+  PROPOSED
+  /// Aktive mentorship — beide seiten committed.
+  ACTIVE
+  /// Beendet (mentor/mentee/admin hat geschlossen). Bleibt für audit-trail.
+  ENDED
+  /// Vorschlag abgelehnt (vor ACTIVE). Audit-trail-zweck.
+  REJECTED
 }
 
 /// FlightSchool — training-organisation an einem airport. NPC-betrieben im

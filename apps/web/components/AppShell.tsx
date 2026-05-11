@@ -927,6 +927,15 @@ function Sidebar({ user, pathname }: SidebarProps) {
             {user.isApprover && user.airlineCareerEnabled && (
               <NavLink href="/airline/exams/type-ratings" pathname={pathname} icon="⏰" label="Type-Rating Exams" />
             )}
+            {/* Track 4 #93 (Section R): Mentor-Mentee Matching.
+                Direkt unter Type-Rating Exams in der instructor-tools-
+                gruppe. Mentorship ist informell (kein curriculum, kein
+                exam) — daher separate kategorie von der enrollment-driven
+                praktischen-prüfungs-pipeline. Admin paart pilots oder
+                erlaubt PROPOSED-vorschläge. */}
+            {user.isApprover && user.airlineCareerEnabled && (
+              <NavLink href="/airline/mentorship" pathname={pathname} icon="🤝" label="Mentorship" />
+            )}
             {user.isAdmin && (
               <>
                 {/* Track 3 #11.2.5 Foundation: /admin landing-page (vorher
