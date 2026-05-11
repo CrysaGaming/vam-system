@@ -11,6 +11,7 @@ import { requireAirlineManagerWithAirlinePage } from '@/lib/roles';
 import Link from 'next/link';
 import { LicenseGrantForm } from './license-grant-form';
 import { LicenseActions, TypeRatingActions } from './license-actions';
+import { EndorsementStickers } from '@/components/endorsement-stickers';
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -141,6 +142,33 @@ export default async function PilotDetailPage({ params }: PageProps) {
           </div>
         </div>
       </header>
+
+      {/* Track 4 #92 (Section R): Endorsement-Stickers. Compact-mode
+          weil's hier ein supplementary-block ist (skill-tree zeigt die
+          vollversion). Datenfluss: allLicenses (über getUserLicenses,
+          schon ACTIVE+inactive) + typeRatings + target stats. Filterung
+          in der component (nur ACTIVE-licenses, nur gültige type-ratings,
+          nur höchster hour/pirep-milestone). */}
+      <section className="mb-6 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-4">
+        <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
+          <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+            🏅 Endorsements
+          </h2>
+          <Link
+            href={`/airline/pilots/${target.id}/skill-tree`}
+            className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline"
+          >
+            Skill-Tree öffnen →
+          </Link>
+        </div>
+        <EndorsementStickers
+          licenses={allLicenses}
+          typeRatings={typeRatings}
+          totalFlightHours={target.totalFlightHours}
+          totalFlights={target.totalFlights}
+          compact
+        />
+      </section>
 
       {/* Career-flag-banner: wenn airline.careerEnabled false ist, ist
           das management hier theoretisch unwirksam (booking-gate prüft

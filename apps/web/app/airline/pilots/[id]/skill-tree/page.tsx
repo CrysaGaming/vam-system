@@ -7,6 +7,7 @@ import {
 } from '@vam/db';
 import { requireAirlineManagerWithAirlinePage } from '@/lib/roles';
 import Link from 'next/link';
+import { EndorsementStickers } from '@/components/endorsement-stickers';
 
 /**
  * Track 4 #90 (Section R) — Skill-Tree für pilot-progression.
@@ -292,6 +293,10 @@ export default async function PilotSkillTreePage({ params }: Props) {
       image: true,
       airlineId: true,
       careerEnabled: true,
+      // Track 4 #92: Stats für endorsement-stickers. Denormalized
+      // fields auf User (von PIREP-approval-flow maintained).
+      totalFlightHours: true,
+      totalFlights: true,
       rank: { select: { name: true } },
       role: { select: { name: true } },
     },
@@ -455,6 +460,26 @@ export default async function PilotSkillTreePage({ params }: Props) {
             value={expiredCount.toString()}
             sublabel="Lizenzen zum erneuern"
             warn={expiredCount > 0}
+          />
+        </section>
+
+        {/* Track 4 #92 (Section R): Endorsement-Stickers — achievement-
+            badge-collection. Sky=license, Emerald=type-rating, Amber=
+            top-hour-milestone, Purple=top-pirep-milestone. Sitzt zwischen
+            summary-cards und tree weil's der celebratory-overview ist —
+            erst stats (zahlen), dann achievements (was hab ich erreicht),
+            dann progression-tree (was kommt noch). */}
+        <section className="mb-8 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-5">
+          <h2 className="text-lg font-semibold mb-1">Endorsements</h2>
+          <p className="text-xs text-gray-500 dark:text-gray-500 mb-4">
+            Achievement-Sticker für aktive Lizenzen, gültige Type-Ratings
+            und höchste Stunden-/Flug-Meilensteine.
+          </p>
+          <EndorsementStickers
+            licenses={licenses}
+            typeRatings={typeRatings}
+            totalFlightHours={target.totalFlightHours}
+            totalFlights={target.totalFlights}
           />
         </section>
 
