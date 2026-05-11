@@ -736,6 +736,38 @@ model User {
   // entstehen.
   careerEnabled Boolean @default(false)
 
+  // Track 4 #81 (Section P): Per-user notification preferences.
+  //
+  // Json-shape: { [category: string]: { inApp?: boolean; email?: boolean } }
+  // Categories (initial set, additive):
+  //   - pirepDecision    — own PIREP approved/rejected
+  //   - pirepKudos       — someone gave kudos to own PIREP
+  //   - bookingReminder  — 24h before scheduled departure
+  //   - eventReminder    — event-day reminder
+  //   - promotion        — career rank-up notification
+  //   - adminBroadcast   — system-wide announcements
+  //
+  // Channels:
+  //   - inApp: rendered into the AdminNotification model (in-app drawer).
+  //     Honored TODAY by die notification-creation paths.
+  //   - email: dispatched via die email-infrastructure built in #82+.
+  //     Honored once that ships; until then ist der toggle ein no-op gate.
+  //
+  // Defaults (when field is null OR category-key is missing):
+  //   - inApp: true (opt-out)
+  //   - email: false (opt-in)
+  //
+  // Why Json statt eigenes NotificationPreference-model: die struktur ist
+  // klein (~6 categories × 2 channels), read-pattern ist immer "alle prefs
+  // für einen user" (kein cross-query), writes sind nur via settings-page.
+  // Json hält die migration leichtgewichtig — neue categories/channels
+  // ohne schema-changes.
+  //
+  // Forward-compat: discord-channel könnte später dazukommen (DM-via-bot
+  // oder personal-webhook). Schema-shape muss dann nicht ändern, nur
+  // die UI + dispatch-logik.
+  notificationPrefs Json?
+
   // Welle 6B (commit 6B-2): Employment-Status — ist dieser pilot operativ
   // aktiv? Default ACTIVE für alle (additive migration). Siehe enum-
   // docstring oben für die semantik der drei states. Status-changes

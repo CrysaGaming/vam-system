@@ -939,7 +939,14 @@ function Sidebar({ user, pathname }: SidebarProps) {
         )}
 
         <NavSection title="Account">
-          <NavLink href="/settings" pathname={pathname} icon="⚙️" label="Einstellungen" />
+          <NavLink href="/settings" pathname={pathname} icon="⚙️" label="Einstellungen" exact />
+          {/* Track 4 #81 (Section P): Notification-Preferences-Page.
+              Sitzt direkt unter Einstellungen weil's konzeptionell ein
+              sub-tool davon ist. `exact` auf /settings damit der parent-
+              link nicht aktiv-highlighted ist während man hier auf
+              /settings/notifications steht (ohne exact würde startsWith-
+              matching beide gleichzeitig hervorheben). */}
+          <NavLink href="/settings/notifications" pathname={pathname} icon="🔔" label="Benachrichtigungen" />
         </NavSection>
 
         {/* Track 4 #71 (Section N): Recently-Viewed sidebar-block. Zeigt die
