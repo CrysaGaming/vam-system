@@ -125,7 +125,17 @@ export default async function AdminEventsPage({
               Tours, Themen-Events und Flight-Tours anlegen, publizieren + verwalten.
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
+            {/* Track 4 #98 (Section S): Link zu /admin/events/templates für
+                wiederverwendbare event-vorlagen. Lebt visuell zwischen
+                "Catalog ansehen" und "Dashboard" — admin-tool aber nicht
+                primary. */}
+            <Link
+              href="/admin/events/templates"
+              className="px-4 py-2 bg-emerald-100 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:hover:bg-emerald-900/50 text-emerald-900 dark:text-emerald-100 rounded text-sm transition"
+            >
+              📋 Templates
+            </Link>
             <Link
               href="/events"
               className="px-4 py-2 bg-indigo-100 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:hover:bg-indigo-900/50 text-indigo-900 dark:text-indigo-100 rounded text-sm transition"

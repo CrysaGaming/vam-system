@@ -510,6 +510,11 @@ model Airline {
   /// historische records vorhanden sind. Akzeptabel weil airline-delete
   /// extrem selten ist und vorher manuelles cleanup verlangt.
   mentorships      Mentorship[]
+  /// Track 4 #98 (Section S): Event-Templates der airline. Cascade-delete
+  /// via EventTemplate.airline — airline-delete räumt templates mit auf
+  /// (sind nicht wertvoller als die airline selbst, schließlich kann
+  /// admin sie jederzeit neu erstellen).
+  eventTemplates   EventTemplate[]
   sceneries        Scenery[]
   featureFlags     FeatureFlag[]
   roleMappings     DiscordRoleMapping[]
@@ -893,6 +898,12 @@ model User {
   ///   mentorshipsAsMentee = mentorships wo DIESER user mentee ist
   mentorshipsAsMentor       Mentorship[]           @relation("MentorshipMentor")
   mentorshipsAsMentee       Mentorship[]           @relation("MentorshipMentee")
+  /// Track 4 #98 (Section S): EventTemplate-back-relation. Templates die
+  /// dieser user erstellt hat. SetNull beim user-delete um historische
+  /// templates nicht zu verlieren — wäre möglich aber MVP nutzt cascade
+  /// nicht weil templates eh airline-scoped sind (airline-delete räumt
+  /// templates auf, user-delete würde sie verwaisen).
+  eventTemplatesCreated     EventTemplate[]        @relation("EventTemplateCreatedBy")
   flightSchoolEnrollments FlightSchoolEnrollment[]
 
   // Track 1 #7 (Events / Flight-Tours, 9.2.8): Event-system back-relations.
@@ -3286,6 +3297,83 @@ model EventParticipant {
   @@unique([eventId, userId])
   @@index([userId])
   @@index([eventId, completed])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Track 4 #98 (Section S) — Event-Templates
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Track 4 #98 (Section S) — EventTemplate.
+///
+/// Wiederverwendbare event-vorlage. Admin definiert einmal das "muster"
+/// (z.B. "Friday Night Group-Flight" mit standard-description, bonus,
+/// max-participants, kind) und kann dann mit einem klick neue events
+/// daraus spawnen — startsAt/endsAt werden per-instance gesetzt, alle
+/// anderen felder vom template kopiert.
+///
+/// # Scope
+///
+/// Template gehört zu einer airline. Cascade-delete via airline:
+/// airline-löschung räumt templates mit auf (sind nicht wertvoller
+/// als die airline selbst).
+///
+/// # Verhältnis zu Event
+///
+/// Template ist NICHT ein FK-parent von Event — events sind unabhängig
+/// sobald gespawnt. Wenn admin das template später editiert, ändert
+/// das KEINE bestehenden events. Das ist die "snapshot-at-spawn"-
+/// semantik analog zu BookingTemplate (Track 4 #67).
+///
+/// # useCount
+///
+/// Optional analytics-counter, bei jedem successful spawnEventFromTemplate
+/// incremented. Hilft dem admin zu sehen welche templates oft genutzt
+/// werden vs. dead-weight. Resettable via update-action.
+///
+/// # legs als JSON
+///
+/// Identisches format wie Event.legs: [{ icao, label?, note? }]. Bei
+/// kind=TOUR sinnvoll, bei anderen kinds optional/null. Beim spawn
+/// wird das JSON 1:1 in das neue Event übernommen.
+model EventTemplate {
+  id          String    @id @default(cuid())
+  airlineId   String
+  airline     Airline   @relation(fields: [airlineId], references: [id], onDelete: Cascade)
+
+  /// Template-name (admin-facing label, z.B. "Friday Night Group-Flight").
+  /// NICHT der event-titel — der wird beim spawn gesetzt (kann vom
+  /// template-titel inheritet werden oder admin tippt was anderes).
+  name        String
+
+  /// Default-event-titel der beim spawn pre-filled wird. Admin kann
+  /// per-instance abändern.
+  title       String
+  description String    @db.Text
+  kind        EventKind @default(THEMED)
+
+  /// Default bonus-VAM\$ (kann beim spawn überschrieben werden).
+  /// Decimal(12, 2) konsistent mit Event.bonusReward.
+  bonusReward Decimal   @default(0) @db.Decimal(12, 2)
+
+  /// Default max-participants. Null = unlimited.
+  maxParticipants Int?
+
+  /// Tour-legs als JSON-array (gleiche shape wie Event.legs).
+  legs Json?
+
+  /// Analytics: anzahl der ge-spawned-events aus diesem template.
+  useCount Int @default(0)
+
+  createdById String
+  createdBy   User   @relation("EventTemplateCreatedBy", fields: [createdById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Häufige queries:
+  //   - "alle templates meiner airline" (admin-list)
+  //   - "template by id" (spawn-action)
+  @@index([airlineId])
 }
 
 // ─────────────────────────────────────────────────────────────────────────
