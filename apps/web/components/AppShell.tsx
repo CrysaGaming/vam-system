@@ -918,6 +918,15 @@ function Sidebar({ user, pathname }: SidebarProps) {
             {user.isApprover && user.airlineCareerEnabled && (
               <NavLink href="/airline/practical-exams" pathname={pathname} icon="🎓" label="Praktische Prüfungen" />
             )}
+            {/* Track 4 #91 (Section R): Type-Rating Exam-Scheduler.
+                Direkt unter den Praktischen Prüfungen weil's auch zur
+                instructor-review-kategorie gehört. Type-Rating-Exams sind
+                eigenständig (nicht via FlightSchoolEnrollment) — admin
+                kann hier termine ansetzen + nach durchführung passen/failen,
+                bei pass wird automatisch ein TypeRating erzeugt. */}
+            {user.isApprover && user.airlineCareerEnabled && (
+              <NavLink href="/airline/exams/type-ratings" pathname={pathname} icon="⏰" label="Type-Rating Exams" />
+            )}
             {user.isAdmin && (
               <>
                 {/* Track 3 #11.2.5 Foundation: /admin landing-page (vorher

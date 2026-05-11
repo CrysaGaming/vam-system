@@ -499,6 +499,10 @@ model Airline {
   fleets           Fleet[]
   routes           Route[]
   pireps           Pirep[]
+  /// Track 4 #91 (Section R): TypeRating-Exams gehören zur airline für
+  /// multi-tenant-isolation. Cascade-delete wenn airline gelöscht wird
+  /// (history-cleanup).
+  typeRatingExams  TypeRatingExam[]
   sceneries        Scenery[]
   featureFlags     FeatureFlag[]
   roleMappings     DiscordRoleMapping[]
@@ -871,6 +875,12 @@ model User {
   licensesIssued          PilotLicense[]           @relation("LicensesIssued")
   typeRatings             TypeRating[]
   typeRatingsIssued       TypeRating[]             @relation("TypeRatingsIssued")
+  /// Track 4 #91 (Section R): TypeRating-Exam back-relations.
+  ///   typeRatingExamsAsPilot    = exams die DIESER user ablegt
+  ///   typeRatingExamsAsExaminer = exams die DIESER user als examiner
+  ///                                durchführt (für workload-views)
+  typeRatingExamsAsPilot    TypeRatingExam[]       @relation("TypeRatingExamPilot")
+  typeRatingExamsAsExaminer TypeRatingExam[]       @relation("TypeRatingExamExaminer")
   flightSchoolEnrollments FlightSchoolEnrollment[]
 
   // Track 1 #7 (Events / Flight-Tours, 9.2.8): Event-system back-relations.
@@ -2627,6 +2637,12 @@ model TypeRating {
 
   notes String?
 
+  /// Track 4 #91 (Section R): Wenn dieser type-rating durch ein
+  /// TypeRatingExam erzeugt wurde, zeigt die back-relation darauf.
+  /// Optional weil legacy type-ratings (vor #91) keine exam-history
+  /// haben, und manuelle grants auch ohne exam möglich sind.
+  fromExam TypeRatingExam?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -2635,6 +2651,98 @@ model TypeRating {
   @@index([userId])
   @@index([aircraftType])
   @@index([expiresAt])
+}
+
+/// Track 4 #91 (Section R) — TypeRatingExam: scheduled type-rating
+/// exams. Standalone-model (nicht via FlightSchoolEnrollment) weil
+/// type-rating-shootouts oft direkt zwischen airline-examiner und pilot
+/// ablaufen ohne formelle flight-school-enrollment dahinter. Existing
+/// license-exam-pattern (FlightSchoolEnrollment.practicalExam*) bleibt
+/// für SPL/PPL/CPL/ATPL-issuance, dieses model deckt nur type-ratings
+/// auf einem aircraft-type ab.
+///
+/// Lifecycle:
+///   SCHEDULED → PASSED          (examiner marks pass → creates TypeRating)
+///   SCHEDULED → FAILED          (examiner marks fail → exam closed,
+///                                pilot kann neuen scheduled exam haben)
+///   SCHEDULED → CANCELLED       (admin/pilot cancels vor durchführung)
+///   SCHEDULED → NO_SHOW         (pilot erschien nicht)
+///
+/// Multi-tenant: airlineId direkt am model damit multi-tenant-queries
+/// in actions ohne join-traversal funktionieren. Constraint:
+/// pilot + airline + aircraftType muss eindeutig sein PRO active-exam —
+/// das verhindert dass admin versehentlich 2x scheduled exams für den
+/// selben type anlegt. Bei nicht-active (PASSED/FAILED/CANCELLED/NO_SHOW)
+/// gibt's keine constraint, weil mehrere historische exams ok sind.
+/// (Wird via app-layer enforced, nicht schema-constraint, weil postgres
+/// partial unique-index zwar geht aber prisma's @@unique nicht direkt
+/// conditional ist.)
+///
+/// Bei PASSED: examineraktion erstellt einen TypeRating-record für den
+/// pilot mit obtainedAt=completedAt, expiresAt=obtainedAt+12mo (standard
+/// recurrent-cycle). Wird via app-layer in der mark-pass-action gemacht
+/// damit wir auch die typeRating-FK hier zurücksetzen können (audit-trail
+/// "this exam created this rating").
+model TypeRatingExam {
+  id           String                @id @default(cuid())
+  /// Pilot der die prüfung ablegt.
+  userId       String
+  user         User                  @relation("TypeRatingExamPilot", fields: [userId], references: [id], onDelete: Cascade)
+  /// Airline für multi-tenant scoping. Bewusst denormalized statt über
+  /// user.airlineId zu joinen — vereinfacht queries und macht ownership
+  /// explizit.
+  airlineId    String
+  airline      Airline               @relation(fields: [airlineId], references: [id])
+  /// ICAO type-designator (A320, B738, B748). Validation app-layer
+  /// (analog TypeRating.aircraftType).
+  aircraftType String
+  /// Termin des exams. Future = scheduled, past + status=SCHEDULED =
+  /// overdue (admin sollte status updaten).
+  scheduledFor DateTime
+  /// Optionaler examiner (User mit TRE-license, in der gleichen airline).
+  /// Nullable für den fall dass examiner erst später zugewiesen wird.
+  examinerId   String?
+  examiner     User?                 @relation("TypeRatingExamExaminer", fields: [examinerId], references: [id], onDelete: SetNull)
+  status       TypeRatingExamStatus  @default(SCHEDULED)
+  /// Notizen vom admin beim scheduling (z.B. "Lufthansa-A320-program,
+  /// FFS-time gebucht für Tag X").
+  notes        String?
+  /// Notizen vom examiner nach durchführung (debrief, areas-to-improve).
+  /// Nur relevant bei status != SCHEDULED.
+  resultNotes  String?
+  /// Wann wurde das exam abgeschlossen (pass/fail/cancelled/no-show).
+  /// NULL solange status=SCHEDULED.
+  completedAt  DateTime?
+  /// Bei PASSED: der erzeugte TypeRating-record. NULL bei allen anderen
+  /// status. Onetoone weil ein exam max ein type-rating produziert.
+  typeRatingId String?               @unique
+  typeRating   TypeRating?           @relation(fields: [typeRatingId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Häufige queries:
+  //   - "alle upcoming exams meiner airline" (admin-dashboard)
+  //   - "alle exams dieses pilots" (pilot-profil)
+  //   - "alle exams dieses examiners" (examiner-workload)
+  @@index([airlineId, status, scheduledFor])
+  @@index([userId])
+  @@index([examinerId])
+}
+
+/// Track 4 #91 (Section R) — Lifecycle eines TypeRatingExam.
+enum TypeRatingExamStatus {
+  /// Termin angesetzt, prüfung ausstehend. Default beim create.
+  SCHEDULED
+  /// Pilot hat bestanden. typeRatingId zeigt auf den erzeugten TypeRating.
+  PASSED
+  /// Pilot hat nicht bestanden. Kein TypeRating ausgestellt. Pilot kann
+  /// neuen exam scheduled bekommen.
+  FAILED
+  /// Termin wurde vor durchführung abgesagt (admin/pilot/examiner).
+  CANCELLED
+  /// Pilot ist nicht zum termin erschienen. Audit-trail-zweck.
+  NO_SHOW
 }
 
 /// FlightSchool — training-organisation an einem airport. NPC-betrieben im
