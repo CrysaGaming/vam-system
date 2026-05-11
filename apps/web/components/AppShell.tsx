@@ -12,6 +12,7 @@ import { RecentlyViewedBlock } from './recently-viewed-block';
 import { PwaInstallPrompt } from './PwaInstallPrompt';
 import { MobileBottomNav } from './MobileBottomNav';
 import { PullToRefresh } from './PullToRefresh';
+import { OfflineBanner } from './OfflineBanner';
 
 export type ShellUser = {
   name: string | null;
@@ -137,6 +138,13 @@ export function AppShell({ user, children }: Props) {
 
   return (
     <div className="flex flex-col h-screen">
+      {/* Track 4 #79 (Section O): Offline-Banner. Sticky top-0 mit z-50 damit
+          es ÜBER dem header (z-30) und drawer-backdrop (z-40) liegt. Renders
+          null wenn online, amber-banner wenn offline, kurzen grünen toast
+          beim reconnect. Erstes element im shell damit es visuell über
+          allem anderen sitzt. */}
+      <OfflineBanner />
+
       {/* Track 4 #53: Global keyboard-shortcut manager. Mounted hier
           (innerhalb shell, nach auth-gate) damit shortcuts NUR für
           authentifizierte user mit shell aktiv sind — auf der landing/
