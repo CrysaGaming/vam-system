@@ -940,6 +940,13 @@ function Sidebar({ user, pathname }: SidebarProps) {
 
         <NavSection title="Account">
           <NavLink href="/settings" pathname={pathname} icon="⚙️" label="Einstellungen" exact />
+          {/* Track 4 #84 (Section P): Notification-Inbox.
+              Sitzt ÜBER der preferences-page weil das die häufigere
+              destination ist (inbox lesen = täglich, preferences setzen
+              = einmal-im-monat). Eigenes ✉️-icon damit's visuell vom
+              🔔-preferences-link UND vom 📥-icon des admin-requests-
+              links zu unterscheiden ist (admin sehen beide). */}
+          <NavLink href="/notifications" pathname={pathname} icon="✉️" label="Posteingang" />
           {/* Track 4 #81 (Section P): Notification-Preferences-Page.
               Sitzt direkt unter Einstellungen weil's konzeptionell ein
               sub-tool davon ist. `exact` auf /settings damit der parent-
