@@ -38,21 +38,38 @@
  * den browser eh oft schließt. Eine "Update verfügbar"-banner-UX kommt
  * separat in einem späteren feature (out-of-scope für #22).
  *
- * # Why no precache list?
+ * # Minimaler precache (Track 5 #23)
  *
- * Klassische SW-tutorials precachen den "app shell" beim install-event.
- * Bei Next.js 16 sind die static-assets aber hashed (`/_next/static/chunks/
- * page-abc123.js`) und ändern sich pro-build — ein precache-manifest müsste
- * vom build-step generiert werden (was Workbox/next-pwa machen).
+ * Wir precachen nur /offline beim install-event. Klassische SW-tutorials
+ * precachen den ganzen "app shell" aber bei Next.js 16 sind static-assets
+ * hashed (`/_next/static/chunks/page-abc123.js`) und ändern sich pro-build
+ * — ein vollständiges precache-manifest müsste vom build-step generiert
+ * werden (was Workbox/next-pwa machen).
  *
- * Stattdessen: on-demand caching. Erster page-visit ist online (cache miss
- * → network → cache). Nachfolgende visits zeigen cached content sofort.
- * Offline-fallback nur wenn cache existiert. Das ist simpler, build-step-
- * frei, und für ein angemeldetes pilot-tool wo der erste login eh online
- * sein muss, genauso effektiv.
+ * Stattdessen: on-demand caching für die meisten assets. Erster page-visit
+ * ist online (cache miss → network → cache). Nachfolgende visits zeigen
+ * cached content sofort. /offline wird trotzdem aktiv precached weil's der
+ * navigation-fallback bei totalem cache-miss ist (siehe networkFirst).
  */
 
-const CACHE_VERSION = 'vam-sw-v1';
+// CACHE_VERSION bump-history:
+//   v1 — Initial release (Track 5 #22)
+//   v2 — Add /offline precache for navigation-fallback (Track 5 #23)
+const CACHE_VERSION = 'vam-sw-v2';
+
+// Routes die beim install-event aktiv geholt + gecached werden (statt
+// on-demand). Aktuell nur /offline damit der navigation-fallback in
+// networkFirst() funktioniert auch wenn der user die offline-page nie
+// online besucht hat. Best-effort: fetch-failure beim precache crasht
+// das SW-install NICHT (Promise.allSettled + try/catch).
+//
+// Was NICHT precached wird:
+//   - Static assets (/_next/static/...) — hashed filenames ändern sich
+//     pro build, ein precache-manifest müsste vom build-step generiert
+//     werden. Stattdessen: on-demand-caching via cache-first.
+//   - Dashboard/pages — würden user-spezifische daten cachen die offline
+//     veraltet wären. Stattdessen: network-first cached organisch.
+const PRECACHE_URLS = ['/offline'];
 
 // Pfad-prefixe die NIE durch den SW gehen — direkt an network weiter.
 // Reihenfolge: most-specific first damit early-return cheap ist.
@@ -76,9 +93,31 @@ const IMAGE_EXTENSIONS = /\.(png|jpe?g|gif|svg|webp|ico|avif)$/i;
 // ─────────────────────────────────────────────────────────────────────
 
 self.addEventListener('install', (event) => {
-  // Keine precache-liste (siehe header-kommentar) — wir öffnen nur den
-  // cache-bucket damit nachfolgende fetch-handler darauf schreiben können.
-  event.waitUntil(caches.open(CACHE_VERSION));
+  event.waitUntil(
+    (async () => {
+      const cache = await caches.open(CACHE_VERSION);
+      // Best-effort precache: jede URL einzeln fetchen + cachen. Promise.
+      // allSettled damit eine failure (z.B. /offline noch nicht deployed
+      // bei rolling-deploy) NICHT den ganzen SW-install zerlegt — wäre
+      // ein outage worst-case. cache: 'no-cache' am fetch zwingt einen
+      // frischen request statt browser-cache (sonst könnten wir veraltete
+      // versionen einlocken).
+      await Promise.allSettled(
+        PRECACHE_URLS.map(async (url) => {
+          try {
+            const response = await fetch(url, { cache: 'no-cache' });
+            if (response.ok) {
+              await cache.put(url, response);
+            }
+          } catch {
+            // Network-fail beim precache → ignorieren. Cache-miss bei
+            // späterem navigation-fallback bedeutet halt browser-default
+            // offline-error, was wir auch vor #23 hatten. Kein regression.
+          }
+        }),
+      );
+    })(),
+  );
 });
 
 // ─────────────────────────────────────────────────────────────────────
@@ -229,13 +268,19 @@ async function staleWhileRevalidate(request) {
  * wird der cache aktualisiert. Geeignet für navigation/RSC wo wir
  * frische daten bevorzugen aber offline-fallback brauchen.
  *
- * # Offline-page-handoff
+ * # Navigation-fallback (Track 5 #23)
  *
- * Bei navigation-requests die FAILEN und KEIN cache-fallback haben,
- * wird Track 5 #23 hier einen offline-page-fallback einhängen
- * (cache.match('/offline')). Aktuell: einfach throw — browser zeigt
- * default offline-error. Der OfflineBanner (Track 4 #79) gibt dem
- * user trotzdem den visuellen kontext.
+ * Wenn der request eine navigation war (mode === 'navigate'), und weder
+ * network noch cache funktionieren, servieren wir die precachierte
+ * /offline-page statt einen browser-default-error zu zeigen. Die page
+ * detektiert client-side wann der user wieder online ist und redirected
+ * dann automatisch.
+ *
+ * RSC-requests (mode === 'cors' aber gleicher accept-header) kriegen
+ * den fallback NICHT — sie würden HTML servieren wo der client RSC-payload
+ * erwartet, was hydration komplett verseucht. Stattdessen wirft network-
+ * first für RSC und next-router fängt das als navigation-error → triggert
+ * eine echte navigation → kommt dann durch den navigate-branch.
  */
 async function networkFirst(request) {
   const cache = await caches.open(CACHE_VERSION);
@@ -250,8 +295,18 @@ async function networkFirst(request) {
     // Network failed → versuche cache.
     const cached = await cache.match(request);
     if (cached) return cached;
-    // Kein cache, kein network → wirf. Track 5 #23 wird hier einen
-    // `/offline` fallback einhängen für request.mode === 'navigate'.
+
+    // Track 5 #23: navigation-fallback zur precachierten /offline-page.
+    // Nur für echte top-level navigations (request.mode === 'navigate')
+    // — RSC-fetches kriegen einen throw damit next-router das richtig
+    // als navigation-error behandelt.
+    if (request.mode === 'navigate') {
+      const offlineFallback = await cache.match('/offline');
+      if (offlineFallback) return offlineFallback;
+    }
+
+    // Letzter resort: throw → browser zeigt default offline-error.
+    // Sollte praktisch nie passieren wenn /offline im precache landet.
     throw err;
   }
 }

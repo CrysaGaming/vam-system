@@ -106,6 +106,12 @@ function isPublicPath(pathname: string): boolean {
   if (pathname.startsWith('/invite/')) return true;
   if (pathname.startsWith('/overlay/')) return true;
   if (pathname.startsWith('/api/')) return true;
+  // Track 5 #23: /offline ist standalone — wird vom Service Worker als
+  // navigation-fallback serviert wenn netzwerk + cache beide miss sind.
+  // Muss ohne AppShell rendern damit (a) keine auth-roundtrips offline
+  // fehlschlagen und (b) der cached HTML minimal bleibt (kein header/
+  // sidebar-bundle in der gecachten response).
+  if (pathname === '/offline') return true;
   return false;
 }
 
