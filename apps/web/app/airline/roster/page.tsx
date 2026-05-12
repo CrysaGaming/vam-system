@@ -94,23 +94,31 @@ export default async function AirlineRosterPage({
 
   return (
     <main className="mx-auto flex w-full max-w-6xl flex-col gap-6 p-6">
-      <header className="flex flex-col gap-1">
-        <div className="text-sm text-muted-foreground">
-          <Link
-            href="/airline"
-            className="hover:text-foreground hover:underline"
-          >
-            Airline
-          </Link>
-          <span className="mx-2 text-muted-foreground/40">/</span>
-          <span>Roster</span>
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex flex-col gap-1">
+          <div className="text-sm text-muted-foreground">
+            <Link
+              href="/airline"
+              className="hover:text-foreground hover:underline"
+            >
+              Airline
+            </Link>
+            <span className="mx-2 text-muted-foreground/40">/</span>
+            <span>Roster</span>
+          </div>
+          <h1 className="text-2xl font-bold tracking-tight">📋 Roster</h1>
+          <p className="text-sm text-muted-foreground">
+            Übersicht aller zugewiesenen Flüge. Manuelle Zuweisung über
+            den Button rechts; Auto-Rostering kommt in #28.
+          </p>
         </div>
-        <h1 className="text-2xl font-bold tracking-tight">📋 Roster</h1>
-        <p className="text-sm text-muted-foreground">
-          Übersicht aller zugewiesenen Flüge. Pilot↔ScheduledFlight-
-          assignments mit ihrem aktuellen status. Manuelles erstellen +
-          auto-rostering kommen in den nächsten features.
-        </p>
+        <Link
+          href="/airline/roster/new"
+          className="inline-flex shrink-0 items-center gap-2 px-4 py-2 rounded-md bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium transition"
+        >
+          <span aria-hidden="true">✏️</span>
+          Neue Zuweisung
+        </Link>
       </header>
 
       <FilterTabs current={params.status} counts={counts} />
@@ -175,7 +183,7 @@ function FilterTabs({
 function EmptyState({ filter }: { filter?: string }) {
   const message = filter
     ? `Keine assignments im filter "${filter}".`
-    : 'Noch keine roster-assignments. Manuelles erstellen kommt in #27.';
+    : 'Noch keine roster-assignments. Nutze „Neue Zuweisung" oben um die erste zu erstellen.';
   return (
     <div className="rounded-lg border border-dashed border-gray-300 dark:border-gray-800 p-12 text-center text-muted-foreground">
       <div className="text-4xl mb-2" aria-hidden="true">📋</div>
