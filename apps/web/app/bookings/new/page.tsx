@@ -9,6 +9,7 @@ import {
   deleteBookingTemplate,
   saveBookingTemplate,
 } from '../actions';
+import { RouteSuggestions } from './route-suggestions';
 
 /**
  * /bookings/new — Pilot-facing booking-creation (Welle 1 + Welle 7 commit 7C).
@@ -243,6 +244,14 @@ export default async function NewBooking() {
             ← Abbrechen
           </Link>
         </header>
+
+        {/* Track 5 #17 (Section D) — Route-Suggester. Smart "wo flieg
+            ich als nächstes hin"-suggestions ab pilot's currentLocationIcao
+            (Welle 4) mit aircraft-availability + familiarity scoring.
+            Conditional: section hidden wenn kein location resolvable
+            ODER keine routes ab diesem airport. Quick-book "Buchen"-button
+            pro card via createBooking server-action. */}
+        <RouteSuggestions userId={user.id} airlineId={user.airline.id} />
 
         {/* Section 0 (option #67): Templates — only when pilot has ≥1 saved */}
         {templates.length > 0 && (

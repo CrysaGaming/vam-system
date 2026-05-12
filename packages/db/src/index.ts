@@ -238,3 +238,9 @@ export * from "./comments/index.js";
 // @@index([authorId, createdAt]). Hard-cap 12 photos pro PIREP.
 // Konsumiert von der PIREP-detail-page photo-gallery section.
 export * from "./photos/index.js";
+
+// Track 5 #17 (Section D): Route-Suggester. Smart "wo flieg ich als
+// nächstes hin"-suggestions basierend auf User.currentLocationIcao
+// (Welle 4) + Aircraft.currentLocationIcao + pilot's PIREP-history.
+// Pure aggregator, kein neues schema. Konsumiert von /bookings/new.
+export * from "./routes/index.js";
