@@ -16,3 +16,14 @@ export {
   type PersonalBestRecord,
   type RecordPirepSummary,
 } from "./personal-bests.js";
+
+// Track 5 #9 — Airline Leaderboards. Cross-pilot rankings innerhalb
+// einer airline. 5 boards: mostFlights/Hours/Distance, smoothestPilot
+// (avg|fpm| asc, min 5 landings), mostRecentActivity (last 7d).
+export {
+  getAirlineLeaderboards,
+  type AirlineLeaderboards,
+  type LeaderboardEntry,
+  type LeaderboardPilotSummary,
+  type LeaderboardKind,
+} from "./leaderboards.js";
