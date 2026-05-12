@@ -31,3 +31,20 @@ export {
   type GrantAwardResult,
   type RevokeAwardResult,
 } from "./actions.js";
+
+// Track 5 #7 — Criteria DSL + evaluator + auto-grant runner.
+// Award.criteria JSON-feld (existiert seit prisma initial-schema, war
+// bisher ungenutzt) wird jetzt als strukturiertes DSL interpretiert.
+// parseCriteria validiert raw JSON → typed AwardCriteriaV1, evaluator
+// returnt {met, progress, target}, runAutoGrantForUser triggert nach
+// PIREP-approval und vergibt erfüllte awards.
+export {
+  parseCriteria,
+  evaluateCriteria,
+  evaluateAllAwardsForUser,
+  runAutoGrantForUser,
+  type AwardCriteriaV1,
+  type EvaluationResult,
+  type AutoGrantedAward,
+  type AwardWithProgress,
+} from "./criteria.js";

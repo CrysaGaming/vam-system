@@ -1,7 +1,7 @@
 'use server';
 
 import { auth } from '@/auth';
-import { prisma, Prisma, processFlightEconomy, InsufficientFundsError } from '@vam/db';
+import { prisma, Prisma, processFlightEconomy, InsufficientFundsError, runAutoGrantForUser } from '@vam/db';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { emitPirepApproved, emitPirepRejected, emitPirepSubmitted } from '@/lib/bot-events';
@@ -246,6 +246,30 @@ export async function approvePirep(pirepId: string) {
   }).catch((err) =>
     console.warn('[approvePirep] email dispatch threw unexpectedly:', err),
   );
+
+  // Track 5 #7 — Auto-grant awards. Nach jeder approval evaluieren ob
+  // der pilot durch diesen flug neue criteria-awards verdient hat.
+  // Async-fire-and-forget mit eigenem try/catch: ein fehlschlag im
+  // award-system darf den approval-flow nicht blockieren.
+  //
+  // Idempotent: runAutoGrantForUser checkt ownedAwards und skippt
+  // bereits vergebene. Bei race-conditions (zwei parallel-approvals
+  // beider auf den gleichen threshold-flip fallen) fängt der @@unique-
+  // constraint auf UserAward die zweite vergabe ab.
+  //
+  // Toast/notification: V1 silent grant. Pilot sieht die awards beim
+  // nächsten visit auf /awards/personal. V2 könnte einen toast über
+  // den dashboard-stream pushen.
+  try {
+    const granted = await runAutoGrantForUser(pirep.userId);
+    if (granted.length > 0) {
+      console.info(
+        `[approvePirep] auto-granted ${granted.length} award(s) to user ${pirep.userId}: ${granted.map((g) => g.awardName).join(', ')}`,
+      );
+    }
+  } catch (err) {
+    console.error('[approvePirep] auto-grant evaluation failed:', err);
+  }
 
   // Caches invalidieren
   revalidatePath('/pireps');
