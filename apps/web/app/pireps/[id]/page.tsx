@@ -18,6 +18,7 @@ import { VerticalProfileChart } from './vertical-profile-chart';
 import { AircraftPerformanceChart } from './aircraft-performance-chart';
 import { isApproverRole } from '@/lib/roles';
 import { RecentItemTracker } from '@/components/recent-item-tracker';
+import { computeSmoothnessScore } from '@/lib/pirep-metrics';
 
 /**
  * Track 4 #2 (Phase-Breakdown-Bar): bg-color pro flight-phase.
@@ -71,66 +72,12 @@ function formatPhaseDuration(ms: number): string {
 }
 
 /**
- * Track 4 #7 — Smoothness-Score (combined-metric).
- *
- * Kombiniert die drei verfügbaren approach + landing-metrics zu einem
- * 0-100 score der "wie smooth war der flug" zusammenfasst. Fills den
- * Score-placeholder im Hero-KPI-strip aus #1.
- *
- * # Components & weights
- *
- *   Touchdown-VSI    → weight 0.5  (most directly perceived, gear-stress)
- *   Stabilization    → weight 0.3  (FAA stable-approach criteria #5)
- *   Glideslope       → weight 0.2  (3°-deviation from ILS-standard)
- *
- * Wenn nicht alle 3 verfügbar (z.B. VATSIM ohne ACARS = nur stabilization
- * + glideslope, kein touchdown), werden die weights re-normalisiert auf
- * 1.0. Score bleibt vergleichbar wenn auch leicht degraded in confidence.
- *
- * # Touchdown-VSI scoring-curve
- *
- * Linear: score = max(0, 100 - |fpm|/15)
- *   0 fpm   → 100  (impossible-perfect)
- *   200 fpm → 87   (smooth)
- *   400 fpm → 73   (normal)
- *   600 fpm → 60   (firm)
- *   1000 fpm → 33  (hard)
- *   1500+ fpm → 0  (severe)
- *
- * Maps gut zur intuition: smooth-landings sind 85+, normal 70+, firm 55+,
- * hard ≤40, severe ≤20.
- *
- * Returns null wenn keine component verfügbar — caller rendert dann
- * den placeholder. Sonst Math.round'd integer 0-100.
+ * Track 4 #7 — Smoothness-Score now lives in @/lib/pirep-metrics (Track 5 #1
+ * extracted it so both this detail-page and the Comparison-page share the
+ * exact same algorithm). The function is imported at the top of this file;
+ * the inline definition that used to be here was removed. Component weights
+ * and the touchdown-VSI scoring-curve are documented in pirep-metrics.ts.
  */
-function computeSmoothnessScore(
-  touchdownFpm: number | null | undefined,
-  stabilizationPercent: number | null | undefined,
-  glideslopePercent: number | null | undefined,
-): number | null {
-  const components: { score: number; weight: number }[] = [];
-
-  if (touchdownFpm !== null && touchdownFpm !== undefined) {
-    const absFpm = Math.abs(touchdownFpm);
-    const tdScore = Math.max(0, 100 - absFpm / 15);
-    components.push({ score: tdScore, weight: 0.5 });
-  }
-  if (stabilizationPercent !== null && stabilizationPercent !== undefined) {
-    components.push({ score: stabilizationPercent, weight: 0.3 });
-  }
-  if (glideslopePercent !== null && glideslopePercent !== undefined) {
-    components.push({ score: glideslopePercent, weight: 0.2 });
-  }
-
-  if (components.length === 0) return null;
-
-  const totalWeight = components.reduce((sum, c) => sum + c.weight, 0);
-  const weighted = components.reduce(
-    (sum, c) => sum + c.score * (c.weight / totalWeight),
-    0,
-  );
-  return Math.round(weighted);
-}
 
 export default async function PirepDetail({
   params,
@@ -235,6 +182,7 @@ export default async function PirepDetail({
     routeAverages,
     kudosCount,
     ownKudos,
+    compareCandidates,
   ] = await Promise.all([
     prisma.flightSchoolEnrollment.findFirst({
       where: { practicalExamPirepId: pirep.id },
@@ -261,6 +209,36 @@ export default async function PirepDetail({
     prisma.pirepKudos.findUnique({
       where: { pirepId_userId: { pirepId: pirep.id, userId: currentUser.id } },
       select: { id: true },
+    }),
+    // Track 5 #1 (PIREP-Comparison-Mode) — compare-candidates picker.
+    // Findet bis zu 8 PIREPs die für vergleich geeignet sind. Heuristik:
+    //   - selber user (preference; eigene history macht den meisten sinn)
+    //   - selbe route ODER selbe departure+arrival (route-id-match wäre
+    //     strikter aber wir wollen auch standalone-PIREPs ohne route-FK
+    //     mit-erfassen → match auf airport-ICAOs als fallback)
+    //   - NICHT der current PIREP selbst (exclude id)
+    //   - sortiert by submittedAt desc (recent zuerst)
+    // Fallback: wenn weniger als 3 same-route-flüge gefunden, ergänzen
+    // wir mit recent-other-flights vom selben user (allgemeiner vergleich).
+    // V1 keep it simple: nur same-route, kein fallback. Wenn keiner da
+    // ist, zeigt der picker einen empty-hint statt fehlt.
+    prisma.pirep.findMany({
+      where: {
+        userId: pirep.userId,
+        id: { not: pirep.id },
+        departure: { icao: pirep.departure.icao },
+        arrival: { icao: pirep.arrival.icao },
+      },
+      select: {
+        id: true,
+        submittedAt: true,
+        status: true,
+        flightTimeMin: true,
+        route: { select: { flightNumber: true } },
+        aircraft: { select: { registration: true } },
+      },
+      orderBy: { submittedAt: 'desc' },
+      take: 8,
     }),
   ]);
 
@@ -363,6 +341,76 @@ export default async function PirepDetail({
                 <span aria-hidden="true">▶</span>
                 Play Flight
               </Link>
+            )}
+            {/* Track 5 #1 (PIREP-Comparison-Mode): "Compare with..."-picker.
+                Native <details>+<summary> als zero-JS-dropdown. Bei click
+                expandiert eine list mit max 8 sibling-PIREPs (selbe user,
+                selbe route, sortiert by submittedAt desc). Klick → linkt
+                auf /pireps/compare?a=<self>&b=<sibling>.
+
+                Wenn keine siblings: dropdown bleibt geschlossen-empty
+                mit hint "keine vergleichbaren flüge gefunden". Cheaper
+                als conditional-render weil der button trotzdem visible
+                bleibt — der user sieht dass die feature existiert.
+
+                Positioning: native <details> + absolute <div> innen.
+                z-index oben damit das menu über nachfolgenden sections
+                schwebt. */}
+            {compareCandidates.length > 0 && (
+              <details className="relative group">
+                <summary className="list-none px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded text-sm font-medium transition flex items-center gap-1.5 cursor-pointer">
+                  <span aria-hidden="true">🔄</span>
+                  Vergleichen
+                </summary>
+                <div className="absolute right-0 top-full mt-2 z-10 w-80 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg shadow-lg overflow-hidden">
+                  <div className="px-3 py-2 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-800">
+                    <p className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
+                      Andere Flüge auf {pirep.departure.icao} →{' '}
+                      {pirep.arrival.icao}
+                    </p>
+                  </div>
+                  <ul className="max-h-80 overflow-y-auto divide-y divide-gray-200 dark:divide-gray-800">
+                    {compareCandidates.map((c) => {
+                      const h = c.flightTimeMin
+                        ? Math.floor(c.flightTimeMin / 60)
+                        : 0;
+                      const m = c.flightTimeMin ? c.flightTimeMin % 60 : 0;
+                      const ftLabel = c.flightTimeMin
+                        ? h > 0
+                          ? `${h}h ${m}min`
+                          : `${m}min`
+                        : '—';
+                      return (
+                        <li key={c.id}>
+                          <Link
+                            href={`/pireps/compare?a=${pirep.id}&b=${c.id}`}
+                            className="block px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800 transition"
+                          >
+                            <div className="flex items-baseline justify-between gap-2">
+                              <span className="font-mono text-xs font-semibold text-gray-900 dark:text-white">
+                                {c.route?.flightNumber ?? 'PIREP'}
+                              </span>
+                              <span className="text-[10px] text-gray-500 font-mono">
+                                {new Date(c.submittedAt).toLocaleDateString(
+                                  'de-DE',
+                                )}
+                              </span>
+                            </div>
+                            <div className="flex items-baseline justify-between gap-2 mt-0.5">
+                              <span className="text-[11px] text-gray-600 dark:text-gray-400">
+                                {c.aircraft?.registration ?? '—'} · {c.status}
+                              </span>
+                              <span className="text-[11px] text-gray-500 font-mono tabular-nums">
+                                {ftLabel}
+                              </span>
+                            </div>
+                          </Link>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              </details>
             )}
             <Link
               href={isApprover && pirep.status === 'Submitted' ? '/pireps/pending' : '/pireps'}
