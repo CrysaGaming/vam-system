@@ -14,6 +14,7 @@ import { SimBriefDispatchForm } from './SimBriefDispatchForm';
 import { OfpSummary } from '@/components/OfpSummary';
 import { CancelBookingDialog } from './CancelBookingDialog';
 import { RoutePreviewMap } from './route-preview-map';
+import { WeatherBriefing } from './weather-briefing';
 import { RecentItemTracker } from '@/components/recent-item-tracker';
 
 function stateStyle(state: BookingState): { className: string; label: string } {
@@ -378,6 +379,15 @@ export default async function BookingDetail({
             />
           </div>
         </section>
+
+        {/* Track 5 #16 (Section D) — Weather Briefing. METAR-cards für
+            DEP + ARR, direkt nach dem RoutePreviewMap. "wo flieg ich hin"
+            + "wie sieht's da aus" gehört zusammen. Server-component,
+            zieht decoded METARs aus dem bot-cache (60s revalidate). */}
+        <WeatherBriefing
+          departureIcao={booking.route.departure.icao}
+          arrivalIcao={booking.route.arrival.icao}
+        />
 
         {/* Tour-Progress (option #17). Only rendered for multi-leg bookings
             (legCount > 1) — single-leg bookings see no extra card and the
