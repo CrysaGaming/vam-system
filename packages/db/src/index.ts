@@ -224,3 +224,10 @@ export * from "./activity/index.js";
 // getFollowState/Counts, listFollowers/Following. Schema: Follow model
 // mit @@unique + zwei descending-indizes für list-queries.
 export * from "./follows/index.js";
+
+// Track 5 #14 (Section C): PIREP Discussion Comments. Free-form
+// comments unter PIREPs. Schema: PirepComment model mit
+// @@index([pirepId, createdAt]) für thread-reading. Helpers für
+// list/create/update/delete + 15-min edit-window enforcement.
+// Konsumiert von der PIREP-detail-page comments-section.
+export * from "./comments/index.js";

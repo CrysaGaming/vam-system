@@ -20,6 +20,7 @@ import { isApproverRole } from '@/lib/roles';
 import { RecentItemTracker } from '@/components/recent-item-tracker';
 import { computeSmoothnessScore, computeSuggestions } from '@/lib/pirep-metrics';
 import { AnnotationList } from './annotation-list';
+import { CommentsSection } from './comments-section';
 
 /**
  * Track 4 #2 (Phase-Breakdown-Bar): bg-color pro flight-phase.
@@ -1712,6 +1713,12 @@ export default async function PirepDetail({
           hasReplay={hasReplay}
           isApprover={isApprover && sameAirline}
         />
+
+        {/* Track 5 #14 — PIREP Discussion Comments. Free-form thread
+            unter dem PIREP. Komplementär zu AnnotationList (approver-
+            only frame-bound feedback) — comments sind general-purpose,
+            jeder logged-in user kann posten. */}
+        <CommentsSection pirepId={pirep.id} currentUserId={currentUser.id} />
       </div>
     </main>
   );

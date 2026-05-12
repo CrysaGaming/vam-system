@@ -986,6 +986,11 @@ model User {
   // feedback-context).
   pirepAnnotationsAuthored PirepAnnotation[] @relation("PirepAnnotationAuthor")
 
+  // Track 5 #14 (Section C): PIREP-Comments authored by this user.
+  // Cascade-delete via PirepComment.author — orphan comments sind
+  // sinnlos sobald der author weg ist (selber pattern wie annotations).
+  pirepCommentsAuthored PirepComment[] @relation("PirepCommentAuthor")
+
   // Track 5 #10 (Flight Streaks & Goals): Selbst gesetzte ziele des pilots
   // (weekly flights, monthly hours, etc.). Cascade-delete via PilotGoal.user
   // — bei user-löschung verschwinden die goals mit. Pro user max 1 goal
@@ -1593,6 +1598,13 @@ model Pirep {
   // Cascade-delete via PirepAnnotation.pirep — orphan-annotations sind
   // sinnlos sobald der PIREP weg ist.
   annotations PirepAnnotation[]
+
+  // Track 5 #14 (Section C): Public comments unter dem PIREP. Anders
+  // als PirepAnnotation (frame-bound, approver-only feedback) sind
+  // comments allgemeine discussion threads — jeder authentifizierte
+  // pilot kann kommentieren, body ist plaintext, kein frame-binding.
+  // Cascade-delete via PirepComment.pirep.
+  comments PirepComment[]
 
   @@index([userId, submittedAt])
   @@index([airlineId, status])
@@ -4048,4 +4060,58 @@ model Follow {
   @@unique([followerId, followeeId])
   @@index([followeeId, createdAt(sort: Desc)])
   @@index([followerId, createdAt(sort: Desc)])
+}
+
+/// Track 5 #14 (Section C): PIREP Discussion Comments.
+///
+/// Free-form discussion threads unter einem PIREP. Jeder authentifizierte
+/// pilot kann kommentieren — kein approval-context, kein frame-binding,
+/// pure conversation.
+///
+/// # Difference to other PIREP-interaction-tabs
+///
+///   - PirepKudos: boolean reaction (👍). Eine pro user/pirep.
+///   - PirepAnnotation: frame-bound feedback von APPROVERS (instructor/
+///     airline-admin/admin) im replay-trail.
+///   - PirepComment: general-purpose discussion. Jeder logged-in user
+///     kann posten, body ist plaintext, nicht an einen frame gebunden.
+///
+/// # Body constraints (enforced server-action-side)
+///
+///   - Max 2000 chars
+///   - Plaintext (sanitization wie User.bio: trim + strip control-chars
+///     + collapse blank lines)
+///   - Kein markdown-rendering V1 (sicherheit + scope)
+///
+/// # Edit-window
+///
+///   - Author kann eigene comments für 15 min editieren/löschen
+///   - Danach locked (V2: admin-override für moderation)
+///   - editedAt-feld trackt "(bearbeitet)"-marker im UI
+///
+/// # Cascade-delete
+///
+///   - PirepComment.pirep CASCADE — wenn PIREP gelöscht, comments weg
+///   - PirepComment.author CASCADE — wenn author gelöscht, comments weg
+///     (KEIN anonymize-to-null, selber pattern wie PirepAnnotation —
+///     orphan-comments sind semantisch nutzlos)
+///
+/// # Indizes
+///
+///   - @@index([pirepId, createdAt]) — primary query "alle comments
+///     dieses PIREPs, älteste zuerst" (chrono-order für thread-reading)
+///   - @@index([authorId, createdAt]) — "alle comments dieses users",
+///     z.b. für moderation/admin V2 oder profile-recent-activity
+model PirepComment {
+  id        String    @id @default(cuid())
+  pirepId   String
+  pirep     Pirep     @relation(fields: [pirepId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User      @relation("PirepCommentAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  body      String    @db.Text
+  createdAt DateTime  @default(now())
+  editedAt  DateTime?
+
+  @@index([pirepId, createdAt])
+  @@index([authorId, createdAt])
 }
