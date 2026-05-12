@@ -1,25 +1,6 @@
 /**
  * Track 5 #1 — Shared PIREP-metric helpers.
- *
- * Bisher lebte computeSmoothnessScore inline in /pireps/[id]/page.tsx.
- * Mit der Comparison-Page (Track 5 #1) brauchen mehrere call-sites
- * den selben score → hierher extrahiert + zusätzliche delta-helpers
- * für side-by-side-vergleiche.
- *
- * # computeSmoothnessScore (extracted)
- *
- * Originally defined in Track 4 #7. Kombiniert touchdown-vsi (50%),
- * stabilization (30%), glideslope (20%) zu einem 0-100 score. Wenn
- * eine component fehlt, werden die weights re-normalisiert.
- *
- * # Delta-helpers (new for #1)
- *
- * computeDelta(a, b, direction) gibt strukturiertes objekt zurück mit
- * numerischer differenz, percent-change und classification für die UI.
- * classification ist direction-aware: bei flight-time + fuel ist
- * NIEDRIGER besser, bei landing-rate ist DICHTER AN ZERO besser,
- * bei smoothness ist HÖHER besser. Caller specifiziert das via
- * MetricDirection.
+ * Track 5 #4 — Auto-Improvement-Suggestions added.
  */
 
 /**
@@ -66,14 +47,6 @@ export function computeSmoothnessScore(
 // Delta-helpers (Track 5 #1 Comparison-Mode)
 // ─────────────────────────────────────────────────────────────────────────
 
-/**
- * Direction-of-goodness pro metric. Used by computeDelta zum klassifizieren.
- *
- *   preferLower  — fuel-used, flight-time (effizienz)
- *   preferZero   — touchdown-vsi (smooth landing = nahe 0)
- *   preferHigher — smoothness-score, glideslope%, stabilization%
- *   neutral      — passenger-count, IAS@1000 (kein "besser"-direction)
- */
 export type MetricDirection =
   | 'preferLower'
   | 'preferZero'
@@ -83,29 +56,11 @@ export type MetricDirection =
 export type DeltaClassification = 'better' | 'worse' | 'neutral' | 'tie';
 
 export type DeltaResult = {
-  /** numerische differenz: a - b */
   diff: number;
-  /** percent-change: (a - b) / |b| * 100 (null wenn b=0 oder direction=preferZero) */
   percent: number | null;
-  /** A relative zu B */
   classification: DeltaClassification;
 };
 
-/**
- * Compute delta zwischen zwei werten mit direction-aware classification.
- *
- * Returns null wenn entweder a oder b null/undefined ist — caller rendert
- * dann em-dash oder skipped die delta-anzeige.
- *
- * # TIE-tolerance
- * Bei preferLower/preferHigher: tie nur wenn diff===0.
- * Bei preferZero: tie wenn |a| === |b| (beide gleich smooth bzgl mitte,
- * egal mit welchem vorzeichen).
- *
- * # percent=null wenn
- * b=0 (division-by-zero) oder direction=preferZero (percent macht hier
- * keinen semantischen sinn — "200% mehr smooth" ist absurd).
- */
 export function computeDelta(
   a: number | null | undefined,
   b: number | null | undefined,
@@ -143,11 +98,6 @@ export function computeDelta(
   return { diff, percent, classification };
 }
 
-/**
- * Tailwind-color-classes für eine classification. Subtle damit das
- * ganze nicht wie "competitive trash-talk" wirkt — grün+rot in der
- * mittel-intensität.
- */
 export function classificationStyles(c: DeltaClassification): string {
   switch (c) {
     case 'better':
@@ -161,14 +111,6 @@ export function classificationStyles(c: DeltaClassification): string {
   }
 }
 
-/**
- * Format a delta-value mit leading +/- sign damit der user direction
- * sofort sieht. Decimals werden auf precision gerundet.
- *
- *   formatDelta(-12, 'min')   → "-12min"
- *   formatDelta(+340, 'fpm')  → "+340fpm"
- *   formatDelta(0, 'min')     → "±0min"
- */
 export function formatDelta(
   diff: number,
   unit?: string,
@@ -178,4 +120,127 @@ export function formatDelta(
   const rounded =
     precision === 0 ? Math.round(diff).toString() : diff.toFixed(precision);
   return unit ? `${sign}${rounded}${unit}` : `${sign}${rounded}`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Auto-Improvement-Suggestions (Track 5 #4)
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Regelbasierte hints aus ACARS-Metriken. Kein LLM. Severity:
+ *  'warning' = klarer Handlungsbedarf (über industrie-threshold)
+ *  'info'    = Verbesserungspotenzial
+ *
+ * Regeln:
+ *  Landing >1000 fpm → warning severe
+ *  Landing 600-1000  → warning hard
+ *  Landing 400-600   → info firm
+ *  Glideslope <50%   → warning
+ *  Glideslope 50-70% → info
+ *  Stabilization <50%  → warning
+ *  Stabilization 50-70% → info
+ *  Fuel >15% über Schnitt → info
+ *  Fuel >10% über Schnitt → info
+ *  Blockzeit >10% über Schnitt → info
+ *  Smoothness <55  → info
+ *  Smoothness <70  → info
+ */
+export type SuggestionSeverity = 'warning' | 'info';
+
+export type Suggestion = {
+  severity: SuggestionSeverity;
+  title: string;
+  detail?: string;
+};
+
+export type SuggestionsInput = {
+  landingAnalysis?: { verticalFpmAtTouchdown?: number | null } | null;
+  approachAnalysis?: {
+    glideslopeQualityPercent?: number | null;
+    stabilizationScorePercent?: number | null;
+  } | null;
+  routeAverages?: {
+    avgFuelUsedKg?: number | null;
+    avgFlightTimeMin?: number | null;
+  } | null;
+  pirep?: {
+    fuelUsedKg?: number | null;
+    flightTimeMin?: number | null;
+    landingRateFpm?: number | null;
+  } | null;
+  smoothnessScore?: number | null;
+};
+
+export function computeSuggestions(input: SuggestionsInput): Suggestion[] {
+  const out: Suggestion[] = [];
+
+  // Landing rate
+  const tdFpm =
+    input.landingAnalysis?.verticalFpmAtTouchdown ??
+    input.pirep?.landingRateFpm ??
+    null;
+  if (tdFpm !== null) {
+    const abs = Math.abs(tdFpm);
+    if (abs > 1000) {
+      out.push({ severity: 'warning', title: `Touchdown-Sinkrate sehr hoch (${abs} fpm)`, detail: 'Über 1000 fpm = "severe". Flare deutlich früher beginnen, Gear-Check empfohlen.' });
+    } else if (abs > 600) {
+      out.push({ severity: 'warning', title: `Harte Landung (${abs} fpm)`, detail: 'Zielbereich: 200–400 fpm. Flare-Timing früher üben.' });
+    } else if (abs > 400) {
+      out.push({ severity: 'info', title: `Feste Landung (${abs} fpm)`, detail: 'Etwas mehr Back-Pressure kurz über der Schwelle.' });
+    }
+  }
+
+  // Glideslope
+  const gs = input.approachAnalysis?.glideslopeQualityPercent ?? null;
+  if (gs !== null) {
+    if (gs < 50) {
+      out.push({ severity: 'warning', title: `Glideslope nur ${gs.toFixed(0)}% stabil`, detail: 'Häufige 3°-Abweichungen. ILS früher abfangen.' });
+    } else if (gs < 70) {
+      out.push({ severity: 'info', title: `Glideslope ${gs.toFixed(0)}% — verbesserbar`, detail: 'ILS-Intercept früher einleiten und Pfad gleichmäßiger halten.' });
+    }
+  }
+
+  // Stabilization
+  const stab = input.approachAnalysis?.stabilizationScorePercent ?? null;
+  if (stab !== null) {
+    if (stab < 50) {
+      out.push({ severity: 'warning', title: `Anflug überwiegend nicht stabil (${stab.toFixed(0)}%)`, detail: 'VSI/Bank/Pitch unter 1000ft AGL häufig außerhalb Grenzen. Früher konfigurieren.' });
+    } else if (stab < 70) {
+      out.push({ severity: 'info', title: `Stabilization ${stab.toFixed(0)}% — verbesserbar`, detail: 'Konsistentere Endanflugkonfiguration beim Final-Turn anstreben.' });
+    }
+  }
+
+  // Fuel vs. route average
+  const ownFuel = input.pirep?.fuelUsedKg ?? null;
+  const avgFuel = input.routeAverages?.avgFuelUsedKg ?? null;
+  if (ownFuel !== null && avgFuel !== null && avgFuel > 0) {
+    const pct = ((ownFuel - avgFuel) / avgFuel) * 100;
+    if (pct > 15) {
+      out.push({ severity: 'info', title: `Treibstoff ${pct.toFixed(0)}% über Schnitt`, detail: 'Step-Climb-Profil, optimale Reiseflugebene oder Mach-Zahl prüfen.' });
+    } else if (pct > 10) {
+      out.push({ severity: 'info', title: `Treibstoff leicht erhöht (+${pct.toFixed(0)}% vs. Schnitt)` });
+    }
+  }
+
+  // Block-time vs. average
+  const ownTime = input.pirep?.flightTimeMin ?? null;
+  const avgTime = input.routeAverages?.avgFlightTimeMin ?? null;
+  if (ownTime !== null && avgTime !== null && avgTime > 0) {
+    const pct = ((ownTime - avgTime) / avgTime) * 100;
+    if (pct > 10) {
+      out.push({ severity: 'info', title: `Blockzeit ${pct.toFixed(0)}% über Schnitt`, detail: 'Mögliche Ursachen: Abflugzeitpunkt, Wind oder suboptimale Reiseflugebene.' });
+    }
+  }
+
+  // Smoothness
+  const score = input.smoothnessScore ?? null;
+  if (score !== null) {
+    if (score < 55) {
+      out.push({ severity: 'info', title: `Smoothness ${score}/100 — gezielt üben`, detail: 'Kombination aus Sinkrate, Glideslope und Stabilization verbessern.' });
+    } else if (score < 70) {
+      out.push({ severity: 'info', title: `Smoothness ${score}/100 — Luft nach oben`, detail: 'Konsequente Stabilization-Praxis bringt dich in den 70+-Bereich.' });
+    }
+  }
+
+  return out;
 }

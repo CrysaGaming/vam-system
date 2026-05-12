@@ -18,7 +18,7 @@ import { VerticalProfileChart } from './vertical-profile-chart';
 import { AircraftPerformanceChart } from './aircraft-performance-chart';
 import { isApproverRole } from '@/lib/roles';
 import { RecentItemTracker } from '@/components/recent-item-tracker';
-import { computeSmoothnessScore } from '@/lib/pirep-metrics';
+import { computeSmoothnessScore, computeSuggestions } from '@/lib/pirep-metrics';
 import { AnnotationList } from './annotation-list';
 
 /**
@@ -267,6 +267,20 @@ export default async function PirepDetail({
     approachAnalysis?.stabilizationScorePercent,
     approachAnalysis?.glideslopeQualityPercent,
   );
+
+  // Track 5 #4 — Suggestions computed from already-fetched metrics. Pure
+  // function, no extra DB call.
+  const suggestions = computeSuggestions({
+    landingAnalysis,
+    approachAnalysis,
+    routeAverages,
+    pirep: {
+      fuelUsedKg: pirep.fuelUsedKg,
+      flightTimeMin: pirep.flightTimeMin,
+      landingRateFpm: pirep.landingRateFpm,
+    },
+    smoothnessScore,
+  });
 
   // Flugzeit formatieren
   const hours = Math.floor((pirep.flightTimeMin ?? 0) / 60);
@@ -698,6 +712,37 @@ export default async function PirepDetail({
             </div>
           )}
         </section>
+
+        {/* Track 5 #4 — Auto-Improvement-Suggestions. Regelbasierte hints
+            aus ACARS-Metriken. Nur rendern wenn mind. 1 suggestion vorhanden.
+            warnings zuerst (rot), dann infos (blau). */}
+        {suggestions.length > 0 && (
+          <section className="bg-white dark:bg-gray-900 border border-blue-200 dark:border-blue-800/40 rounded-lg p-6 mb-8">
+            <div className="flex items-baseline justify-between mb-4 flex-wrap gap-2">
+              <h2 className="text-sm uppercase tracking-wider text-blue-700 dark:text-blue-400 font-semibold">
+                💡 Verbesserungshinweise
+              </h2>
+              <p className="text-xs text-gray-400">{suggestions.length} {suggestions.length === 1 ? 'Hinweis' : 'Hinweise'}</p>
+            </div>
+            <ul className="space-y-3">
+              {suggestions.map((s, i) => (
+                <li key={i} className={`flex gap-3 px-4 py-3 rounded-lg border ${s.severity === 'warning' ? 'bg-amber-50 dark:bg-amber-900/15 border-amber-200 dark:border-amber-700/40' : 'bg-blue-50 dark:bg-blue-900/10 border-blue-200 dark:border-blue-800/30'}`}>
+                  <span className="shrink-0 text-base leading-5 mt-0.5" aria-hidden="true">
+                    {s.severity === 'warning' ? '⚠️' : 'ℹ️'}
+                  </span>
+                  <div>
+                    <p className={`text-sm font-medium ${s.severity === 'warning' ? 'text-amber-800 dark:text-amber-200' : 'text-blue-800 dark:text-blue-200'}`}>
+                      {s.title}
+                    </p>
+                    {s.detail && (
+                      <p className="text-xs mt-0.5 text-gray-600 dark:text-gray-400">{s.detail}</p>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
 
         {/* Track 4 #2 (Phase-Breakdown-Bar): horizontal stacked-bar das
             zeigt wieviel zeit in jeder phase verbracht wurde. Pure visual
