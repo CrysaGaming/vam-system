@@ -1008,6 +1008,49 @@ model User {
   // wird, verschwinden alle seine follow-edges in beide richtungen.
   following Follow[] @relation("FollowFollower")
   followers Follow[] @relation("FollowFollowee")
+
+  // Track 5 #24 (Section E): Web Push subscriptions. Ein user kann mehrere
+  // devices/browsers haben (laptop chrome, mobile safari, tablet edge),
+  // daher ist die relation 1:N. Bei user-löschung cascade-delete alle
+  // subscriptions (sonst zeigen orphan-endpoints auf nicht-existente user).
+  pushSubscriptions PushSubscription[]
+}
+
+// Track 5 #24 (Section E) — Web Push Subscription
+//
+// Eine row pro browser-installation eines users. Browser generiert beim
+// PushManager.subscribe() ein endpoint (URL zum push-service: FCM für
+// chrome/edge, Mozilla Autopush für firefox, Apple's APN für safari) plus
+// ein keypair (p256dh public key + auth secret) für ECE-encryption der
+// payload.
+//
+// # Endpoint als unique key
+//
+// Der endpoint-URL ist global eindeutig pro browser-installation, daher
+// @unique. Re-subscribe vom selben browser (z.B. nach permission-revoke
+// und neuem opt-in) gibt manchmal das selbe endpoint zurück — dann
+// upsert statt insert. Wenn der user permission widerruft, sollte der
+// next push-attempt einen 410 Gone zurückkriegen → cleanup-job löscht
+// die row (siehe sendPushToUser im push helper module).
+//
+// # userAgent
+//
+// Optional debug-info beim subscribe-zeitpunkt. Hilft dem user später in
+// einer "deine devices"-UI seine eigenen subscriptions zu identifizieren
+// ("MacBook Chrome 130", "iPhone Safari"). Truncate auf 500 chars damit
+// keine pathologisch-langen UAs die row sprengen.
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint  String   @unique @db.Text
+  p256dh    String   @db.Text
+  auth      String   @db.Text
+  userAgent String?  @db.VarChar(500)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
 }
 
 model LiveSession {

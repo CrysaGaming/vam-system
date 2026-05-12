@@ -251,3 +251,10 @@ export * from "./routes/index.js";
 // arrival-ICAO. Bounding-box-prefilter in SQL, exact distance in JS.
 // Konsumiert von /bookings/[id] alternate-picker section.
 export * from "./airports/index.js";
+
+// Track 5 #24 (Section E): Web Push subscriptions — Persistence-layer
+// für browser-device-subscriptions. CRUD-helpers (upsert/remove/list/
+// cleanup/count). Die actual notification-fan-out (web-push library +
+// VAPID-signing + 410-cleanup) lebt in apps/web/lib/push/vapid.ts
+// damit die @vam/db lib bundle-frei bleibt.
+export * from "./push/index.js";

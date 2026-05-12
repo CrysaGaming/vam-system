@@ -55,7 +55,8 @@
 // CACHE_VERSION bump-history:
 //   v1 — Initial release (Track 5 #22)
 //   v2 — Add /offline precache for navigation-fallback (Track 5 #23)
-const CACHE_VERSION = 'vam-sw-v2';
+//   v3 — Add push + notificationclick event-handlers (Track 5 #24)
+const CACHE_VERSION = 'vam-sw-v3';
 
 // Routes die beim install-event aktiv geholt + gecached werden (statt
 // on-demand). Aktuell nur /offline damit der navigation-fallback in
@@ -310,3 +311,139 @@ async function networkFirst(request) {
     throw err;
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────
+// Push notifications (Track 5 #24)
+//
+// Empfängt eine push-payload vom push-service und zeigt eine system-
+// notification an. Der payload kommt vom server (apps/web/lib/push/vapid.ts)
+// als JSON.stringify-output der PushPayload-shape:
+//
+//   { title: string, body: string, url?: string, tag?: string }
+//
+// Wir packen das in self.registration.showNotification() — der OS-native
+// notification-handler zeigt's an und der user kann drauf klicken (siehe
+// notificationclick-handler unten).
+//
+// # Robuste payload-handhabung
+//
+// Wenn der payload kein JSON ist (theoretisch möglich bei wrong-server-
+// code oder beim push-service-spam), zeigen wir trotzdem eine generische
+// notification statt zu crashen — eine SW exception würde dem push-service
+// einen 5xx-equivalent signalisieren und der nächste push würde retry-en,
+// was eine notification-flood produzieren kann.
+//
+// # userVisibleOnly compliance
+//
+// Wir haben beim PushManager.subscribe() userVisibleOnly:true gesetzt.
+// Das BEDEUTET: jeder push MUSS in einer sichtbaren notification enden,
+// sonst dropt der browser zukünftige pushes komplett (und der user kriegt
+// keinen visuellen indikator dass push-permission revoked ist). Deshalb
+// zeigen wir bei JEDEM push-event eine notification, auch bei kaputtem
+// payload.
+// ─────────────────────────────────────────────────────────────────────
+
+self.addEventListener('push', (event) => {
+  // Default-payload falls server-payload nicht parsbar — siehe userVisibleOnly-
+  // kommentar oben. Bewusst generisch damit der user weiß dass was kam aber
+  // ohne falsche/erratenen content anzuzeigen.
+  let payload = {
+    title: 'VAM System',
+    body: 'Neue Benachrichtigung',
+    url: '/',
+    tag: undefined,
+  };
+
+  if (event.data) {
+    try {
+      const parsed = event.data.json();
+      // Defensive copy — wir nehmen nur die felder die wir kennen, damit ein
+      // payload mit zusätzlichen unerwarteten fields nicht ungewollt
+      // forwarded wird (XSS-vermeidung in notification-options).
+      payload = {
+        title:
+          typeof parsed.title === 'string' && parsed.title.length > 0
+            ? parsed.title
+            : 'VAM System',
+        body:
+          typeof parsed.body === 'string' && parsed.body.length > 0
+            ? parsed.body
+            : 'Neue Benachrichtigung',
+        url: typeof parsed.url === 'string' ? parsed.url : '/',
+        tag: typeof parsed.tag === 'string' ? parsed.tag : undefined,
+      };
+    } catch {
+      // JSON parse fail — fall through with default payload.
+    }
+  }
+
+  const notificationOptions = {
+    body: payload.body,
+    icon: '/icon.svg',
+    badge: '/icon.svg',
+    tag: payload.tag, // Coalescing: gleicher tag ersetzt frühere notif
+    data: { url: payload.url },
+    // requireInteraction: false (default) damit notifications auto-dismissen
+    // nach ein paar sekunden — wir wollen nicht den notification-tray
+    // dauerhaft mit VAM-zeug fluten.
+  };
+
+  event.waitUntil(
+    self.registration.showNotification(payload.title, notificationOptions),
+  );
+});
+
+/**
+ * Notification-click handler. Wenn der user auf eine notification klickt:
+ *
+ *   1. Notification schließen (default browser-verhalten, aber explizit machen)
+ *   2. Schauen ob ein VAM-tab schon offen ist
+ *      → ja: focus + navigate zum url
+ *      → nein: neuen tab/window öffnen mit dem url
+ *
+ * Der url kommt aus dem data.url der notification (gesetzt im push-handler).
+ * Default '/' wenn kein url gesetzt.
+ *
+ * # Why clients.matchAll vor openWindow?
+ *
+ * Wenn der user die app schon offen hat (typischer fall — PWA installiert,
+ * tab im hintergrund), wollen wir keinen DUPLIKAT-tab öffnen sondern den
+ * existing focus-en. Nur wenn KEIN VAM-tab offen ist, öffnen wir einen
+ * neuen. Das ist das selbe pattern wie z.B. Discord oder Slack web-apps.
+ */
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+
+  const targetUrl = event.notification.data?.url || '/';
+
+  event.waitUntil(
+    (async () => {
+      const allClients = await self.clients.matchAll({
+        type: 'window',
+        includeUncontrolled: true,
+      });
+
+      // Suche nach einem existing VAM-tab. Same-origin filter weil clients
+      // outside unserer origin (sollte nicht passieren bei type:'window',
+      // aber defensive) nicht von uns gesteuert werden können.
+      for (const client of allClients) {
+        if (new URL(client.url).origin !== self.location.origin) continue;
+        // Existing tab gefunden → navigieren + focus.
+        // client.navigate() ist die korrekte API (postMessage wäre nur
+        // für arbitrary-data-passing, navigate ist für URL-changes).
+        if ('navigate' in client) {
+          try {
+            await client.navigate(targetUrl);
+          } catch {
+            // navigate kann throw werden wenn die ziel-URL cross-origin
+            // ist oder andere edge-cases — fallback ist nur focus.
+          }
+        }
+        return client.focus();
+      }
+
+      // Kein existing tab → neuen öffnen.
+      return self.clients.openWindow(targetUrl);
+    })(),
+  );
+});

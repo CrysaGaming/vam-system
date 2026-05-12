@@ -7,6 +7,7 @@ import { Card } from '@/components/ui/card';
 
 import { parsePrefs } from '@/lib/notification-prefs';
 import { NotificationsCard } from './notifications-card';
+import { PushSubscriptionCard } from './push-subscription-card';
 
 /**
  * Track 4 #81 (Section P) — Notification-Preferences-Page.
@@ -50,6 +51,13 @@ export default async function NotificationsPage() {
 
   const prefs = parsePrefs(user.notificationPrefs);
 
+  // Track 5 #24: VAPID public-key wird ins client-bundle exposed via
+  // NEXT_PUBLIC_VAPID_PUBLIC_KEY (next.js convention für public env-vars).
+  // Wenn unset → die PushSubscriptionCard rendert ihren 'unconfigured'-state.
+  // Wir lesen das hier server-side statt im client damit die page eine
+  // klare gate-decision macht ohne flicker beim mount.
+  const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? null;
+
   return (
     <main className="mx-auto flex w-full max-w-4xl flex-col gap-6 p-6">
       <header className="flex flex-col gap-1">
@@ -75,6 +83,19 @@ export default async function NotificationsPage() {
 
       <Card className="gap-0 overflow-hidden p-0">
         <NotificationsCard initialPrefs={prefs} />
+      </Card>
+
+      {/* Track 5 #24 (Section E): Push-Subscription Card. Sitzt UNTER der
+          existing channel-grid-card weil's ein SEPARATES feature ist —
+          device-level subscribe statt per-category-channel-toggle. V2
+          könnte push als channel in den channel-grid integrieren wenn
+          die per-category-feinheit nötig wird; V1 hier ist global an/aus
+          pro device.
+
+          Eigene Card-wrapper damit der visuelle bruch klar ist (zwei
+          unabhängige settings-sektionen statt einer mega-card).  */}
+      <Card className="gap-0 overflow-hidden p-0">
+        <PushSubscriptionCard vapidPublicKey={vapidPublicKey} />
       </Card>
 
       <aside className="rounded-lg border border-border bg-muted/30 p-4 text-xs leading-relaxed text-muted-foreground">
