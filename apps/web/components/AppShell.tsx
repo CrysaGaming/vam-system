@@ -11,6 +11,7 @@ import { CommandPalette } from './command-palette';
 import { RecentlyViewedBlock } from './recently-viewed-block';
 import { PwaInstallPrompt } from './PwaInstallPrompt';
 import { IosInstallHint } from './IosInstallHint';
+import { ServiceWorkerRegistrar } from './ServiceWorkerRegistrar';
 import { MobileBottomNav } from './MobileBottomNav';
 import { PullToRefresh } from './PullToRefresh';
 import { OfflineBanner } from './OfflineBanner';
@@ -175,6 +176,16 @@ export function AppShell({ user, children }: Props) {
           Render-gate: nur iOS Safari (kein Chrome-iOS/Firefox-iOS), nicht
           already standalone, nicht im cooldown. */}
       <IosInstallHint />
+
+      {/* Track 5 #22 (Section E): Service Worker Registrar. Pure side-
+          effect mount — registriert /sw.js beim browser nach window.load
+          (damit critical-path nicht blockiert wird). NUR aktiv im prod-
+          build (NODE_ENV-gate) damit dev-mode + cloudflared-tunnel nicht
+          durch SW-cache verseucht werden. Der SW selbst (apps/web/public/
+          sw.js) routet GET-requests durch cache-first (static), SWR
+          (images), oder network-first (navigation/RSC); /api, server-
+          actions und ?ofp_id callbacks werden bypassed. */}
+      <ServiceWorkerRegistrar />
 
       {/* Track 4 #78 (Section O): Pull-to-Refresh. Touch-gesture handler
           der pull-down vom top der scroll-area (#main-content) in einen
