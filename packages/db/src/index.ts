@@ -95,6 +95,9 @@ export type { ScheduleTemplate, ScheduledFlight } from "@prisma/client";
 // RosterAssignment includen. Helpers separat via ./roster barrel unten.
 export { RosterAssignmentStatus } from "@prisma/client";
 export type { RosterAssignment } from "@prisma/client";
+// Track 5 #29: RosterSwapRequest enum + model type für UI-konsumenten.
+export { RosterSwapRequestStatus } from "@prisma/client";
+export type { RosterSwapRequest } from "@prisma/client";
 // Welle 9: ACARS Phase 2-5. Simulator + AcarsEventType enums für die
 // settings-UI (sim-picker) und die heartbeat/event-API endpoints.
 // Type-exports für die pairing-helpers + auto-PIREP-trigger.

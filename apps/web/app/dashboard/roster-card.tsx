@@ -1,6 +1,7 @@
 import {
   listAssignmentsForPilot,
   countActiveAssignmentsForPilot,
+  countPendingIncomingForPilot,
   RosterAssignmentStatus,
 } from '@vam/db';
 import Link from 'next/link';
@@ -34,13 +35,19 @@ import Link from 'next/link';
  */
 export async function DashboardRosterCard({ pilotId }: { pilotId: string }) {
   // Limit auf 6 damit wir 5 anzeigen + "more"-indicator wenn ≥6.
-  const assignments = await listAssignmentsForPilot({
-    pilotId,
-    includeFinished: false,
-    limit: 6,
-  });
+  const [assignments, pendingSwaps] = await Promise.all([
+    listAssignmentsForPilot({
+      pilotId,
+      includeFinished: false,
+      limit: 6,
+    }),
+    // Track 5 #29: zeige badge wenn pilot eingehende swap-anfragen hat
+    countPendingIncomingForPilot(pilotId),
+  ]);
 
-  if (assignments.length === 0) return null;
+  // Wenn der pilot KEINE assignments hat aber pending swaps eingehend:
+  // trotzdem rendern um den swap-inbox-link zu zeigen.
+  if (assignments.length === 0 && pendingSwaps === 0) return null;
 
   const totalActive = await countActiveAssignmentsForPilot(pilotId);
   const showMoreLink = totalActive > 5;
@@ -52,18 +59,37 @@ export async function DashboardRosterCard({ pilotId }: { pilotId: string }) {
         <h2 className="text-sm uppercase tracking-wider text-gray-500">
           📋 Deine zugewiesenen Flüge
         </h2>
-        <span className="text-xs text-gray-500 dark:text-gray-500">
-          {totalActive} {totalActive === 1 ? 'flight' : 'flights'}
-        </span>
+        <div className="flex items-center gap-3">
+          <Link
+            href="/roster/swaps"
+            className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1"
+          >
+            🔄 Swaps
+            {pendingSwaps > 0 && (
+              <span className="inline-flex items-center justify-center min-w-[1.25rem] px-1.5 py-0.5 rounded-full text-[10px] bg-indigo-600 text-white font-bold">
+                {pendingSwaps}
+              </span>
+            )}
+          </Link>
+          <span className="text-xs text-gray-500 dark:text-gray-500">
+            {totalActive} {totalActive === 1 ? 'flight' : 'flights'}
+          </span>
+        </div>
       </div>
 
-      <ul className="divide-y divide-gray-200 dark:divide-gray-800 -mx-2">
-        {displayAssignments.map((a) => (
-          <li key={a.id} className="px-2 py-3">
-            <AssignmentRowCompact assignment={a} />
-          </li>
-        ))}
-      </ul>
+      {assignments.length === 0 ? (
+        <p className="text-xs text-muted-foreground italic py-3">
+          Du hast keine eigenen Flüge, aber {pendingSwaps} eingehende Swap-Anfrage{pendingSwaps === 1 ? '' : 'n'}.
+        </p>
+      ) : (
+        <ul className="divide-y divide-gray-200 dark:divide-gray-800 -mx-2">
+          {displayAssignments.map((a) => (
+            <li key={a.id} className="px-2 py-3">
+              <AssignmentRowCompact assignment={a} />
+            </li>
+          ))}
+        </ul>
+      )}
 
       {showMoreLink && (
         <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-800">
@@ -110,6 +136,8 @@ function AssignmentRowCompact({
   // "ah, samstag".
   const weekday = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'][dt.getUTCDay()];
   const dateStr = `${weekday} ${pad(dt.getUTCDate())}.${pad(dt.getUTCMonth() + 1)} ${pad(dt.getUTCHours())}:${pad(dt.getUTCMinutes())}Z`;
+  // Track 5 #29: swap-link nur für swap-fähige statuses
+  const canSwap = assignment.status === 'ASSIGNED' || assignment.status === 'ACCEPTED';
 
   return (
     <div className="flex items-center gap-3 text-sm">
@@ -133,6 +161,15 @@ function AssignmentRowCompact({
         <span className="font-mono text-xs text-muted-foreground shrink-0">
           {assignment.assignedAircraft.registration}
         </span>
+      )}
+      {canSwap && (
+        <Link
+          href={`/roster/swaps/new?assignmentId=${assignment.id}`}
+          className="shrink-0 text-xs text-indigo-600 dark:text-indigo-400 hover:underline"
+          title="Swap anfragen"
+        >
+          🔄
+        </Link>
       )}
     </div>
   );

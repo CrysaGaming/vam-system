@@ -566,6 +566,10 @@ model Airline {
   // delete via RosterAssignment.airline — wenn die airline weg ist, sind
   // alle assignments orphans und sollten mit weg.
   rosterAssignments RosterAssignment[]
+
+  // Track 5 #29: swap-requests gehören zur airline (für admin-overview
+  // und cascade-cleanup wenn airline gelöscht wird).
+  rosterSwapRequests RosterSwapRequest[]
 }
 
 model User {
@@ -1028,6 +1032,13 @@ model User {
   // wird; die assignment selbst ist ja immer noch valid).
   rosterAssignments         RosterAssignment[] @relation("RosterAssignmentPilot")
   rosterAssignmentsAssigned RosterAssignment[] @relation("RosterAssignmentAssignedBy")
+
+  // Track 5 #29: swap-request back-relations für die zwei pilot-roles
+  // (requester = ich schicke einen swap raus, target = jemand will mit
+  // mir tauschen). Cascade-delete: wenn der user gelöscht wird, sind
+  // seine swap-requests irrelevant.
+  swapRequestsSent     RosterSwapRequest[] @relation("SwapRequestRequester")
+  swapRequestsReceived RosterSwapRequest[] @relation("SwapRequestTarget")
 }
 
 // Track 5 #24 (Section E) — Web Push Subscription
@@ -1176,6 +1187,117 @@ model RosterAssignment {
   @@index([pilotId, status])
   @@index([scheduledFlightId])
   @@index([airlineId, createdAt])
+
+  /// Track 5 #29: swap-request back-relations.
+  swapRequestsAsRequester RosterSwapRequest[] @relation("SwapRequestRequesterAssignment")
+  swapRequestsAsTarget    RosterSwapRequest[] @relation("SwapRequestTargetAssignment")
+}
+
+/// Track 5 #29 (Section F) — Swap-Request Lifecycle
+///
+/// Ein RosterSwapRequest repräsentiert "Pilot A will assignment X von
+/// Pilot B übernehmen, im austausch für seine eigene assignment Y".
+/// Default-direction: requester gibt SEINE assignment ab, kriegt die
+/// TARGET-assignment. Klassisches gegenseitiges-tauschen.
+///
+/// Status-lifecycle:
+///   PENDING ──pilot-B-akzeptiert──► ACCEPTED
+///       │                             │
+///       │                             └─(in DB-tx: beide RosterAssignment.pilotId getauscht)
+///       │
+///       ├──pilot-B-lehnt-ab──► REJECTED
+///       ├──requester-cancelt──► CANCELLED
+///       └──expiresAt-abgelaufen──► EXPIRED  (set durch periodic-job oder lazy bei read)
+///
+/// # Warum nicht eine "transaction"-table mit pirep-style status-history?
+///
+/// Wir hätten ein RosterSwapRequestEvent-table für jede status-transition
+/// machen können — gibt schöne audit-trails. Aber für #29 ist das overkill:
+/// die transitionen sind enum-werte mit timestamps (createdAt/respondedAt),
+/// die admin-history kann jeder request einzeln zeigen. Falls später
+/// reporting "wer rejected wie oft" gebraucht wird, mit @vam/db audit-log
+/// nachrüsten (analog #28 source='swap-accept').
+///
+/// # Doppelte pending-swaps verhindern
+///
+/// Es darf nicht zwei PENDING swaps für die selbe assignment geben (sonst
+/// race-condition wenn beide accepted werden). Wir erzwingen das NICHT
+/// per @@unique constraint (das wäre auf [requesterAssignmentId, status]
+/// = composite-partial, prisma unterstützt das nicht clean). Stattdessen
+/// checkt der createSwapRequest-helper bei jedem create ob für die selbe
+/// requesterAssignment schon ein PENDING swap existiert und wirft.
+model RosterSwapRequest {
+  id        String  @id @default(cuid())
+  airlineId String
+  airline   Airline @relation(fields: [airlineId], references: [id], onDelete: Cascade)
+
+  /// Die assignment die der requester abgeben will. Cascade-delete:
+  /// wenn die assignment selbst gelöscht wird (z.B. weil flight cancelled),
+  /// wird der swap-request auch obsolet.
+  requesterAssignmentId String
+  requesterAssignment   RosterAssignment @relation("SwapRequestRequesterAssignment", fields: [requesterAssignmentId], references: [id], onDelete: Cascade)
+
+  /// Die assignment die der requester gerne hätte. Auch Cascade-delete.
+  targetAssignmentId String
+  targetAssignment   RosterAssignment @relation("SwapRequestTargetAssignment", fields: [targetAssignmentId], references: [id], onDelete: Cascade)
+
+  /// Denormalisierter pilotId des requesters — vermeidet join über
+  /// requesterAssignment.pilotId für inbox-queries.
+  requesterId String
+  requester   User   @relation("SwapRequestRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+
+  /// Denormalisierter pilotId des targets — vermeidet join über
+  /// targetAssignment.pilotId für inbox-queries.
+  targetPilotId String
+  targetPilot   User   @relation("SwapRequestTarget", fields: [targetPilotId], references: [id], onDelete: Cascade)
+
+  status RosterSwapRequestStatus @default(PENDING)
+
+  /// Optional message vom requester an den target ("kann diesen flug nicht,
+  /// muss zum kind"). 500 chars cap.
+  message String? @db.VarChar(500)
+
+  /// Optional response vom target ("klar, alles gut") oder reject-grund
+  /// ("nö, hab schon plans"). 500 chars cap.
+  responseMessage String? @db.VarChar(500)
+
+  /// Wann der target geantwortet hat (ACCEPTED oder REJECTED gesetzt). NULL
+  /// für PENDING/CANCELLED/EXPIRED.
+  respondedAt DateTime?
+
+  /// Wann der swap-request automatisch expired. Default = jetzt + 48h.
+  /// Bei PENDING-requests deren expiresAt < jetzt, treat-as-expired in den
+  /// list-helpers. Eine separate cleanup-job sollte sie auf EXPIRED setzen
+  /// — wir lassen das aber lazy, kein cron im MVP.
+  expiresAt DateTime
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// Häufige queries:
+  /// - "meine eingehenden swap-anfragen" (pilot inbox, PENDING)
+  /// - "meine ausgehenden swap-anfragen" (pilot outbox, all statuses)
+  /// - "alle swap-anfragen meiner airline" (admin overview)
+  @@index([targetPilotId, status])
+  @@index([requesterId, status])
+  @@index([airlineId, status])
+  @@index([airlineId, createdAt])
+}
+
+enum RosterSwapRequestStatus {
+  /// Vom requester erstellt, target hat noch nicht reagiert.
+  PENDING
+  /// Target hat zugestimmt — beide RosterAssignment.pilotId wurden in
+  /// einer transaction getauscht, beide assignments stehen jetzt auf
+  /// status=SWAPPED.
+  ACCEPTED
+  /// Target hat abgelehnt. Beide assignments bleiben unverändert.
+  REJECTED
+  /// Requester hat den swap zurückgezogen bevor target geantwortet hat.
+  CANCELLED
+  /// 48h-window verstrichen ohne response. Lazy-set wenn jemand die
+  /// inbox liest, oder durch cleanup-job. Behandelt wie REJECTED für UX.
+  EXPIRED
 }
 
 model LiveSession {
