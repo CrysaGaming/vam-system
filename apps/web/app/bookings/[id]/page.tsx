@@ -15,6 +15,7 @@ import { OfpSummary } from '@/components/OfpSummary';
 import { CancelBookingDialog } from './CancelBookingDialog';
 import { RoutePreviewMap } from './route-preview-map';
 import { WeatherBriefing } from './weather-briefing';
+import { AlternatePicker } from './alternate-picker';
 import { RecentItemTracker } from '@/components/recent-item-tracker';
 
 function stateStyle(state: BookingState): { className: string; label: string } {
@@ -387,6 +388,17 @@ export default async function BookingDetail({
         <WeatherBriefing
           departureIcao={booking.route.departure.icao}
           arrivalIcao={booking.route.arrival.icao}
+        />
+
+        {/* Track 5 #18 (Section D) — Alternate-Picker. Zeigt nächste
+            6 commercially-served airports im 30-200nm radius um arrival,
+            mit METAR-badges pro alternate. Pure geo-aggregator über
+            Airport-tabelle (Haversine + bounding-box). DEP wird
+            ausgeschlossen (trivial-circular alternate). Hidden wenn
+            keine alternates in range gefunden. */}
+        <AlternatePicker
+          arrivalIcao={booking.route.arrival.icao}
+          departureIcao={booking.route.departure.icao}
         />
 
         {/* Tour-Progress (option #17). Only rendered for multi-leg bookings

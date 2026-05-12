@@ -244,3 +244,10 @@ export * from "./photos/index.js";
 // (Welle 4) + Aircraft.currentLocationIcao + pilot's PIREP-history.
 // Pure aggregator, kein neues schema. Konsumiert von /bookings/new.
 export * from "./routes/index.js";
+
+// Track 5 #18 (Section D): Alternate-Picker. Pure geo-aggregator über
+// Airport-tabelle mit Haversine-distance. Liefert nächste N
+// commercially-served airports innerhalb [30nm, 200nm] um einen
+// arrival-ICAO. Bounding-box-prefilter in SQL, exact distance in JS.
+// Konsumiert von /bookings/[id] alternate-picker section.
+export * from "./airports/index.js";
