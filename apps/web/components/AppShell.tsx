@@ -10,6 +10,7 @@ import { KeyboardShortcutsManager } from './keyboard-shortcuts-manager';
 import { CommandPalette } from './command-palette';
 import { RecentlyViewedBlock } from './recently-viewed-block';
 import { PwaInstallPrompt } from './PwaInstallPrompt';
+import { IosInstallHint } from './IosInstallHint';
 import { MobileBottomNav } from './MobileBottomNav';
 import { PullToRefresh } from './PullToRefresh';
 import { OfflineBanner } from './OfflineBanner';
@@ -165,6 +166,15 @@ export function AppShell({ user, children }: Props) {
           noch nicht installed/dismissed hat. Self-contained — kein
           prop-drilling, eigener localStorage-state. */}
       <PwaInstallPrompt />
+
+      {/* Track 5 #21 (Section E): iOS Install-Hint. Pendant zu PwaInstall-
+          Prompt für iOS Safari — Apple unterstützt beforeinstallprompt
+          NIE, also brauchen iOS-user manuelle "Teilen → Zum Home-Bildschirm"
+          instructions. Eigener localStorage-key (vam:ios-install-hint-state)
+          getrennt vom chromium-prompt; 30-tage cooldown nach dismiss.
+          Render-gate: nur iOS Safari (kein Chrome-iOS/Firefox-iOS), nicht
+          already standalone, nicht im cooldown. */}
+      <IosInstallHint />
 
       {/* Track 4 #78 (Section O): Pull-to-Refresh. Touch-gesture handler
           der pull-down vom top der scroll-area (#main-content) in einen
