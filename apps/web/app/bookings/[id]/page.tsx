@@ -17,6 +17,7 @@ import { RoutePreviewMap } from './route-preview-map';
 import { WeatherBriefing } from './weather-briefing';
 import { AlternatePicker } from './alternate-picker';
 import { AirportBriefingCard } from './airport-briefing';
+import { FuelEstimateCard } from './fuel-estimate';
 import { RecentItemTracker } from '@/components/recent-item-tracker';
 
 function stateStyle(state: BookingState): { className: string; label: string } {
@@ -411,6 +412,20 @@ export default async function BookingDetail({
         <AirportBriefingCard
           departureIcao={booking.route.departure.icao}
           arrivalIcao={booking.route.arrival.icao}
+        />
+
+        {/* Track 5 #20 (Section D) — Fuel-Estimate. Block-fuel-breakdown
+            (trip + alternate + reserve + contingency + taxi) basierend
+            auf AircraftType.cruiseSpeedKt + fuelBurnKgH + rangeNm aus
+            dem AircraftType-catalog, joinst via Aircraft.type. Reuse
+            getAlternates() für nearest-alternate-distance. Range-utilization
+            warning (green/yellow/red pill). Hidden wenn Aircraft.type
+            null oder kein AircraftType-row im catalog. */}
+        <FuelEstimateCard
+          aircraftIcaoType={booking.route.aircraft?.type ?? null}
+          tripDistanceNm={booking.route.distanceNm}
+          arrivalIcao={booking.route.arrival.icao}
+          departureIcao={booking.route.departure.icao}
         />
 
         {/* Tour-Progress (option #17). Only rendered for multi-leg bookings
