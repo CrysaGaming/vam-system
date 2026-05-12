@@ -104,6 +104,12 @@ export default async function AdminErrorsPage({
             <h1 className="text-3xl font-bold">🐛 Client-Error-Log</h1>
             <div className="flex gap-2 flex-wrap">
               <Link
+                href="/admin/integrity"
+                className="px-3 py-2 bg-gray-200 hover:bg-gray-300 dark:bg-gray-800 dark:hover:bg-gray-700 rounded text-sm transition"
+              >
+                🔍 Integrity
+              </Link>
+              <Link
                 href="/admin/perf"
                 className="px-3 py-2 bg-gray-200 hover:bg-gray-300 dark:bg-gray-800 dark:hover:bg-gray-700 rounded text-sm transition"
               >

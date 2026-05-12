@@ -186,6 +186,13 @@ export * from "./perf/index.js";
 export type { ClientErrorLog } from "@prisma/client";
 export * from "./errors/index.js";
 
+// Track 4 #104 (Section T): Data-Integrity-Check helpers. runIntegrityChecks()
+// läuft eine batch von 10 read-only invariant-queries (orphan-rows,
+// counter-drift, state-machine-inconsistencies, negative-values, stale-state)
+// und returnt einen report mit severity-bewertung pro check. Konsumiert
+// von der /admin/integrity-page.
+export * from "./integrity/index.js";
+
 // Track 1 #5 (Replay-Mode, 9.2.7): PIREP-replay queries. Findet die
 // LiveSession + LiveSessionPosition[] zu einem given PIREP — entweder
 // via AcarsEvent.triggeredPirepId (sauberer pfad für ACARS-PIREPs) oder

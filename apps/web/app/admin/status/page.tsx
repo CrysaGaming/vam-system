@@ -296,7 +296,11 @@ export default async function AdminStatusPage() {
             <Link href="/admin/errors" className="text-indigo-600 dark:text-indigo-400 hover:underline">
               🐛 Client-Errors
             </Link>{' '}
-            zeigt JS-errors aus dem browser.
+            zeigt JS-errors aus dem browser.{' '}
+            <Link href="/admin/integrity" className="text-indigo-600 dark:text-indigo-400 hover:underline">
+              🔍 Data-Integrity
+            </Link>{' '}
+            prüft konsistenz-invariants in der DB.
           </p>
           <p>
             <strong className="text-gray-700 dark:text-gray-300">
