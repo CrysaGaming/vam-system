@@ -31,8 +31,14 @@
 
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { getPublicProfile, PublicProfileNotFoundError } from '@vam/db';
+import {
+  getPublicProfile,
+  PublicProfileNotFoundError,
+  getFollowCounts,
+  getFollowState,
+} from '@vam/db';
 import { auth } from '@/auth';
+import { FollowButton } from './follow-button';
 import type { Metadata } from 'next';
 
 export async function generateMetadata({
@@ -82,7 +88,17 @@ export default async function PublicProfilePage({
   // anzuzeigen. Auth ist optional auf dieser page — nicht-logged-in
   // viewers sehen die profile ganz normal, nur ohne den edit-link.
   const session = await auth();
-  const isOwner = session?.user?.id === profile.id;
+  const viewerId = session?.user?.id ?? null;
+  const isOwner = viewerId === profile.id;
+
+  // Track 5 #13: Follow-counts + viewer's follow-state parallel.
+  // Counts immer laden (public auf jedem profile sichtbar). Follow-state
+  // ist viewer-spezifisch — bei logged-out viewer returnt der helper
+  // einfach false für alles.
+  const [followCounts, followState] = await Promise.all([
+    getFollowCounts(profile.id),
+    getFollowState(viewerId, profile.id),
+  ]);
 
   return (
     <main className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-white p-4 sm:p-6 lg:p-8">
@@ -143,15 +159,50 @@ export default async function PublicProfilePage({
               </p>
             </div>
 
-            {/* Owner-only edit link */}
-            {isOwner && (
+            {/* Owner: edit-link; non-owner: follow-button. Self-view
+                (isOwner) und non-self share den selben slot — beide
+                klein und rechts oben im header. */}
+            {isOwner ? (
               <Link
                 href="/settings#profile"
                 className="text-xs px-3 py-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 rounded text-gray-700 dark:text-gray-300 transition"
               >
                 ✏️ Bearbeiten
               </Link>
+            ) : (
+              <FollowButton
+                targetId={profile.id}
+                viewerId={viewerId}
+                initialIsFollowing={followState.isFollowing}
+                isFollowedByTarget={followState.isFollowedBy}
+              />
             )}
+          </div>
+
+          {/* Follow-counts row — public, immer angezeigt. Klick auf
+              counts navigiert zu den list-pages /p/[id]/followers + 
+              /following. */}
+          <div className="mt-5 pt-5 border-t border-gray-100 dark:border-gray-800 flex items-center gap-6">
+            <Link
+              href={`/p/${profile.id}/followers`}
+              className="text-sm hover:underline"
+            >
+              <span className="font-bold tabular-nums">
+                {followCounts.followers.toLocaleString('de-DE')}
+              </span>{' '}
+              <span className="text-gray-500">
+                {followCounts.followers === 1 ? 'Follower' : 'Follower'}
+              </span>
+            </Link>
+            <Link
+              href={`/p/${profile.id}/following`}
+              className="text-sm hover:underline"
+            >
+              <span className="font-bold tabular-nums">
+                {followCounts.following.toLocaleString('de-DE')}
+              </span>{' '}
+              <span className="text-gray-500">folgt</span>
+            </Link>
           </div>
 
           {/* Bio */}

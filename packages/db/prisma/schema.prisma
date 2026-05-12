@@ -991,6 +991,14 @@ model User {
   // — bei user-löschung verschwinden die goals mit. Pro user max 1 goal
   // pro kind (via @@unique constraint in PilotGoal).
   pilotGoals PilotGoal[]
+
+  // Track 5 #13 (Section C): Follow-system. Asymmetric (twitter-style):
+  // following = wem DIESER user folgt (outgoing edges, follower=self),
+  // followers = wer DIESEM user folgt (incoming edges, followee=self).
+  // Cascade-delete via Follow.follower/followee — wenn ein user gelöscht
+  // wird, verschwinden alle seine follow-edges in beide richtungen.
+  following Follow[] @relation("FollowFollower")
+  followers Follow[] @relation("FollowFollowee")
 }
 
 model LiveSession {
@@ -3987,4 +3995,57 @@ enum PilotGoalKind {
   WeeklyHours
   MonthlyFlights
   MonthlyHours
+}
+
+/// Track 5 #13 (Section C): Follow-System.
+///
+/// Asymmetric follows (twitter-style). Ein user kann beliebige andere
+/// user folgen, kein consent vom followee nötig. Privacy-gate: nur
+/// users mit isProfilePublic=true können gefolgt werden (enforced
+/// server-action-side, nicht im schema — additive migration would
+/// erfordern null-checks bei JEDEM follow, was teurer ist als ein
+/// `findUnique({where: {id, isProfilePublic: true}})` im action).
+///
+/// # Edges
+///
+///   - followerId = der user der folgt (outgoing)
+///   - followeeId = der user dem gefolgt wird (incoming)
+///
+/// Beide via cascade-delete auf User → wenn ein user gelöscht wird,
+/// verschwinden alle seine in-/outgoing follow-edges.
+///
+/// # Self-follow
+///
+/// @@unique([followerId, followeeId]) verhindert nicht self-follow
+/// (technisch wäre (X, X) ja unique). Self-follow-block ist in der
+/// server-action (followUser throw'n bei follower===followee). Wenn
+/// jemand den check umgeht und einen self-follow erstellt, ist das
+/// harmlos — es leakt nichts, es passt nur nicht in das mentale model
+/// und würde die follower-count um 1 zu hoch zeigen.
+///
+/// # Mutual follow detection
+///
+/// Zwei separate edges: User A → B + User B → A. Mutual-follow ist
+/// dann eine boolean (existiert beide). Nicht im schema modelliert,
+/// computed im helper.
+///
+/// # Indizes
+///
+///   - @@unique([followerId, followeeId]) — fast idempotent-follow + lookup
+///     "folgt A dem B?"
+///   - @@index([followeeId, createdAt(desc)]) — "wer folgt user X, neueste
+///     zuerst" für die /p/[id]/followers liste
+///   - @@index([followerId, createdAt(desc)]) — "wem folgt user X, neueste
+///     zuerst" für die /p/[id]/following liste
+model Follow {
+  id         String   @id @default(cuid())
+  followerId String
+  follower   User     @relation("FollowFollower", fields: [followerId], references: [id], onDelete: Cascade)
+  followeeId String
+  followee   User     @relation("FollowFollowee", fields: [followeeId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@unique([followerId, followeeId])
+  @@index([followeeId, createdAt(sort: Desc)])
+  @@index([followerId, createdAt(sort: Desc)])
 }

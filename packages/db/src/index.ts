@@ -218,3 +218,9 @@ export * from "./users/index.js";
 // UserAward grants + PirepKudos in eine timeline der letzten 14 tage
 // (oder custom-window). Konsumiert von /feed.
 export * from "./activity/index.js";
+
+// Track 5 #13 (Section C): Follow-System. Asymmetric (twitter-style),
+// follow-button auf /p/[id]. Helpers für followUser/unfollowUser,
+// getFollowState/Counts, listFollowers/Following. Schema: Follow model
+// mit @@unique + zwei descending-indizes für list-queries.
+export * from "./follows/index.js";
