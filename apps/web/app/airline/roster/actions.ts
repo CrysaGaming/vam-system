@@ -67,6 +67,14 @@ const BulkCreateInputSchema = z.object({
   allowWarnings: z.boolean().optional().default(false),
   /** Wenn true, push-notification fan-out via #24. Default ON. */
   sendPushNotification: z.boolean().optional().default(true),
+  /**
+   * Audit-log source-tag. Default 'manual' — Track 5 #27 admin-form.
+   * Track 5 #28 auto-rostering commit setzt 'auto' damit man später
+   * abfragen kann "wieviele assignments wurden manuell vs automatisch
+   * erstellt?". Wird in der audit-metadata gespeichert, NICHT in der
+   * RosterAssignment selbst — das schema bleibt clean.
+   */
+  source: z.enum(['manual', 'auto']).optional().default('manual'),
 });
 
 export type CreateRosterAssignmentsInput = z.input<typeof BulkCreateInputSchema>;
@@ -172,7 +180,7 @@ export async function createRosterAssignments(
           allowWarnings: parsed.allowWarnings,
           warningCount: eligibility.warnings.length,
           warningCodes: eligibility.warnings.map((w) => w.code),
-          source: 'manual',
+          source: parsed.source,
         },
       });
     } catch (err) {
@@ -239,5 +247,132 @@ export async function createRosterAssignments(
     created,
     skipped,
     pushNotificationSent: pushSent,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Track 5 #28 (Section F) — Auto-Rostering server-actions
+// ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Wraps `generateAutoRosterPreview` mit auth-gate. Reine read-only —
+ * berechnet die roster-vorschläge anhand fairness + eligibility, ohne
+ * irgendwas in die DB zu schreiben. Admin reviewt das ergebnis im
+ * preview-UI und triggert dann `commitAutoRosterAssignments` für den
+ * actual create.
+ *
+ * Performance-warnung: bei großen flight×pilot-mengen kann das ein paar
+ * sekunden dauern (jeder pilot × flight kombo macht eligibility-DB-
+ * calls). Daher das frontend in pending-state setzen während des calls.
+ */
+const PreviewInputSchema = z.object({
+  fromDate: z.string().min(1),
+  toDate: z.string().min(1),
+  pilotIdsWhitelist: z.array(z.string()).optional(),
+  pilotIdsBlacklist: z.array(z.string()).optional(),
+  maxFlightsPerPilot: z.number().int().positive().optional(),
+});
+
+export type PreviewAutoRosterInput = z.input<typeof PreviewInputSchema>;
+
+export async function previewAutoRoster(input: PreviewAutoRosterInput) {
+  const { airlineId } = await requireAirlineManagerWithAirline();
+  const parsed = PreviewInputSchema.parse(input);
+
+  // Import dynamisch um zu vermeiden dass die generateAutoRosterPreview-
+  // funktion (heavy DB-imports) zum bundle des "use server"-modules
+  // gerechnet wird ohne dass sie wirklich genutzt wird. Server-actions
+  // werden bei build-zeit statisch analysiert, dynamic import hält die
+  // dep-graph clean.
+  const { generateAutoRosterPreview } = await import(
+    '@/lib/roster/auto-roster'
+  );
+
+  return generateAutoRosterPreview({
+    airlineId,
+    fromDate: parsed.fromDate,
+    toDate: parsed.toDate,
+    pilotIdsWhitelist: parsed.pilotIdsWhitelist,
+    pilotIdsBlacklist: parsed.pilotIdsBlacklist,
+    maxFlightsPerPilot: parsed.maxFlightsPerPilot,
+  });
+}
+
+/**
+ * Commits auto-roster proposals via bulk-create-pattern. Gruppiert die
+ * proposals nach pilotId (weil `createRosterAssignments` 1 pilot × N
+ * flights akzeptiert), dann ruft pro gruppe einmal die create-action
+ * auf — mit `source: 'auto'` für audit-trail.
+ *
+ * Returns aggregat: total created/skipped + push-pilots-count. Wir
+ * detail-listen nicht jede einzelne assignment (das wäre redundant zu
+ * preview-table), nur summary-zahlen.
+ */
+const CommitAutoInputSchema = z.object({
+  /** Format: { pilotId: [scheduledFlightId, ...] }. */
+  assignmentsByPilot: z.record(z.string(), z.array(z.string().min(1))),
+  /** Wenn true, alle pilots kriegen single summary-push. Default ON. */
+  sendPushNotifications: z.boolean().optional().default(true),
+});
+
+export type CommitAutoRosterInput = z.input<typeof CommitAutoInputSchema>;
+
+export type CommitAutoRosterResult = {
+  totalCreated: number;
+  totalSkipped: number;
+  pilotsNotified: number;
+  perPilotBreakdown: Array<{
+    pilotId: string;
+    created: number;
+    skipped: number;
+    pushSent: boolean;
+  }>;
+};
+
+export async function commitAutoRosterAssignments(
+  input: CommitAutoRosterInput,
+): Promise<CommitAutoRosterResult> {
+  // Gate-check via requireAirlineManagerWithAirline läuft schon in
+  // createRosterAssignments selbst. Kein separater check hier nötig.
+  const parsed = CommitAutoInputSchema.parse(input);
+
+  let totalCreated = 0;
+  let totalSkipped = 0;
+  let pilotsNotified = 0;
+  const perPilotBreakdown: CommitAutoRosterResult['perPilotBreakdown'] = [];
+
+  for (const [pilotId, flightIds] of Object.entries(parsed.assignmentsByPilot)) {
+    if (flightIds.length === 0) continue;
+
+    const result = await createRosterAssignments({
+      pilotId,
+      scheduledFlightIds: flightIds,
+      allowWarnings: false, // Auto-modus filtert schon vorher; warnings sollten hier eh nicht vorkommen
+      sendPushNotification: parsed.sendPushNotifications,
+      source: 'auto',
+    });
+
+    totalCreated += result.created.length;
+    totalSkipped += result.skipped.length;
+    if (result.pushNotificationSent) pilotsNotified += 1;
+
+    perPilotBreakdown.push({
+      pilotId,
+      created: result.created.length,
+      skipped: result.skipped.length,
+      pushSent: result.pushNotificationSent,
+    });
+  }
+
+  // revalidatePath happens innerhalb createRosterAssignments pro call.
+  // Hier extra-revalidate auf die auto-page falls die admin nochmal
+  // generieren will mit den jetzt-committed assignments im hintergrund.
+  revalidatePath('/airline/roster/auto');
+
+  return {
+    totalCreated,
+    totalSkipped,
+    pilotsNotified,
+    perPilotBreakdown,
   };
 }

@@ -108,17 +108,26 @@ export default async function AirlineRosterPage({
           </div>
           <h1 className="text-2xl font-bold tracking-tight">📋 Roster</h1>
           <p className="text-sm text-muted-foreground">
-            Übersicht aller zugewiesenen Flüge. Manuelle Zuweisung über
-            den Button rechts; Auto-Rostering kommt in #28.
+            Übersicht aller zugewiesenen Flüge. Manuelle Zuweisung oder
+            Auto-Rostering mit Fairness-Rotation über die Buttons rechts.
           </p>
         </div>
-        <Link
-          href="/airline/roster/new"
-          className="inline-flex shrink-0 items-center gap-2 px-4 py-2 rounded-md bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium transition"
-        >
-          <span aria-hidden="true">✏️</span>
-          Neue Zuweisung
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          <Link
+            href="/airline/roster/auto"
+            className="inline-flex shrink-0 items-center gap-2 px-4 py-2 rounded-md bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium transition"
+          >
+            <span aria-hidden="true">🤖</span>
+            Auto-Rostering
+          </Link>
+          <Link
+            href="/airline/roster/new"
+            className="inline-flex shrink-0 items-center gap-2 px-4 py-2 rounded-md bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium transition"
+          >
+            <span aria-hidden="true">✏️</span>
+            Neue Zuweisung
+          </Link>
+        </div>
       </header>
 
       <FilterTabs current={params.status} counts={counts} />
