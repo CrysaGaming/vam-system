@@ -12,6 +12,7 @@ import Map, {
 } from 'react-map-gl/mapbox';
 import type { LineLayerSpecification } from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
+import { toastSuccess, toastError } from '@/lib/toast';
 
 /**
  * Track 1 #5 (Replay-Mode, 9.2.7) — Client-side replay-map mit
@@ -100,7 +101,40 @@ type ApiResult = ReplayDataAvailable | ReplayDataMissing;
 // ─────────────────────────────────────────────────────────────────────
 
 const FRAME_INTERVAL_MS = 100; // 10fps base
-const SPEED_OPTIONS = [0.5, 1, 2, 4, 8] as const;
+const SPEED_OPTIONS = [0.25, 0.5, 1, 2, 4, 8] as const;
+
+/**
+ * Track 5 #2 — Bookmarks im replay.
+ *
+ * User-defined markers an interessanten frames (z.B. "TOC", "Top of Descent",
+ * "FAF", "Bad bounce"). Lebt in localStorage pro pirepId — kein DB-schema-
+ * change, kein cross-device-sync. Wenn ein user die comparison auf einem
+ * anderen browser öffnet, sind seine bookmarks dort nicht da. Akzeptable
+ * limitation für V1 weil bookmarks im personal-debrief-context bleiben.
+ *
+ * Storage-key: vam:replay-bookmarks:<pirepId>. JSON-array von Bookmark-objs.
+ * Bei parse-fail/missing → leer-state, kein crash.
+ *
+ * # Share-link integration
+ *
+ * Bookmarks sind privat (localStorage), aber die share-button kopiert die
+ * URL mit ?t=<sec> wo <sec> = elapsed-seconds vom start. So kann der user
+ * einem buddy einen direkten deep-link zu einem moment schicken (z.B.
+ * "hier ist der landing-bounce"), ohne dass der buddy seine eigenen
+ * bookmarks dafür braucht.
+ */
+type Bookmark = {
+  /** Stable id für react keys + remove-by-id. crypto.randomUUID(). */
+  id: string;
+  /** User-provided label, max 40 chars. */
+  label: string;
+  /** Index in positions-array, NICHT time-ms — recordedAt-timestamps können
+   *  ungleichmäßig sein, frame-index ist stabil über die playback-länge. */
+  frameIndex: number;
+};
+
+const BOOKMARK_STORAGE_PREFIX = 'vam:replay-bookmarks:';
+const MAX_BOOKMARKS_PER_PIREP = 20; // hard cap gegen localstorage-bloat
 
 // ─────────────────────────────────────────────────────────────────────
 // Helper: trail GeoJSON für die Source
@@ -211,6 +245,17 @@ export function ReplayMap({
   const [speed, setSpeed] = useState<number>(1);
   const [follow, setFollow] = useState(false);
 
+  // ─── Track 5 #2: Bookmarks + share-link ─────────────────────────
+  // bookmarks state lebt parallel zu localStorage. saveBookmarks
+  // schreibt BEIDE — react-state für den re-render, localStorage für
+  // persistence über page-reloads.
+  //
+  // initialUrlSeekApplied: flag damit der ?t-param nur EINMAL bei
+  // data-load angewendet wird. Sonst würde jeder play-tick den frame
+  // zurücksetzen.
+  const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
+  const [initialUrlSeekApplied, setInitialUrlSeekApplied] = useState(false);
+
   const mapRef = useRef<MapRef>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -287,6 +332,178 @@ export function ReplayMap({
       duration: 200,
     });
   }, [follow, currentPosition]);
+
+  // ─── Track 5 #2: Bookmark localStorage load ─────────────────────
+  // On-mount load. typeof-window-check für SSR-safety; auch wenn diese
+  // component 'use client' ist, läuft sie bei initial render auch im
+  // SSR-render-pass (server-component-parent rendert sie als
+  // dehydrated-payload).
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const raw = localStorage.getItem(BOOKMARK_STORAGE_PREFIX + pirepId);
+      if (!raw) return;
+      const parsed: unknown = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return;
+      // Defensive shape-filter — alte format-versions oder corrupted
+      // entries werden silent gedroppt statt die ganze list zu nuken.
+      const valid = parsed.filter(
+        (b): b is Bookmark =>
+          b != null &&
+          typeof b === 'object' &&
+          typeof (b as Bookmark).id === 'string' &&
+          typeof (b as Bookmark).label === 'string' &&
+          typeof (b as Bookmark).frameIndex === 'number' &&
+          (b as Bookmark).frameIndex >= 0,
+      );
+      setBookmarks(valid);
+    } catch {
+      /* corrupted JSON → leer-state, kein crash */
+    }
+  }, [pirepId]);
+
+  // ─── Track 5 #2: ?t URL-param → initial seek ────────────────────
+  // Bei page-load mit ?t=120 springen wir zu sekunde 120 nach session-
+  // start. Macht share-links direkt deep-linkbar zu einem moment.
+  //
+  // applied-flag verhindert dass spätere data-refetches (z.B. wenn
+  // react-query refetch-on-focus triggert) den frame wieder
+  // zurücksetzen würden. Nur der ALLERERSTE data-load triggert seek.
+  useEffect(() => {
+    if (!data || !data.available || initialUrlSeekApplied) return;
+    if (typeof window === 'undefined') {
+      setInitialUrlSeekApplied(true);
+      return;
+    }
+    const tParam = new URLSearchParams(window.location.search).get('t');
+    if (!tParam) {
+      setInitialUrlSeekApplied(true);
+      return;
+    }
+    const targetSec = parseInt(tParam, 10);
+    if (!Number.isFinite(targetSec) || targetSec < 0) {
+      setInitialUrlSeekApplied(true);
+      return;
+    }
+    // Closest frame zu (startMs + targetSec*1000). Linear scan; n ist
+    // small enough dass das ms-cost ist.
+    const positions = data.positions;
+    const startMsLocal = new Date(positions[0].recordedAt).getTime();
+    const targetMs = startMsLocal + targetSec * 1000;
+    let bestIdx = 0;
+    let bestDiff = Infinity;
+    for (let i = 0; i < positions.length; i++) {
+      const ms = new Date(positions[i].recordedAt).getTime();
+      const diff = Math.abs(ms - targetMs);
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        bestIdx = i;
+      } else if (ms > targetMs) {
+        break;
+      }
+    }
+    setFrameIndex(bestIdx);
+    setInitialUrlSeekApplied(true);
+  }, [data, initialUrlSeekApplied]);
+
+  // ─── Track 5 #2: Bookmark-handlers ──────────────────────────────
+  /** Persist bookmarks to both state + localStorage. Sorts by frameIndex
+   *  damit die chip-row chronological bleibt. */
+  const saveBookmarks = useCallback(
+    (next: Bookmark[]) => {
+      const sorted = [...next].sort((a, b) => a.frameIndex - b.frameIndex);
+      setBookmarks(sorted);
+      try {
+        localStorage.setItem(
+          BOOKMARK_STORAGE_PREFIX + pirepId,
+          JSON.stringify(sorted),
+        );
+      } catch (err) {
+        // localStorage kann full sein oder safari-private-mode. Wir
+        // loggen still und behalten den in-memory state; nach reload
+        // sind die bookmarks dann weg, aber zur session noch da.
+        console.warn('[replay] bookmark save failed', err);
+      }
+    },
+    [pirepId],
+  );
+
+  /** Adds a bookmark at the current frame. Prompt-driven label-input
+   *  (V1 — kein modal). Trimmt + cuts auf 40 chars. Empty/cancelled
+   *  prompts werden silent ignoriert. */
+  const addBookmark = useCallback(() => {
+    if (!data || !data.available) return;
+    if (bookmarks.length >= MAX_BOOKMARKS_PER_PIREP) {
+      toastError(`Maximal ${MAX_BOOKMARKS_PER_PIREP} Bookmarks pro Flug.`);
+      return;
+    }
+    const label = window.prompt(
+      'Bookmark-Label (z.B. "TOC", "Top of Descent", "Bad bounce"):',
+    );
+    if (!label || !label.trim()) return;
+    const trimmed = label.trim().slice(0, 40);
+    const newBookmark: Bookmark = {
+      id:
+        typeof crypto !== 'undefined' && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `bk-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      label: trimmed,
+      frameIndex,
+    };
+    saveBookmarks([...bookmarks, newBookmark]);
+    toastSuccess(`Bookmark "${trimmed}" gesetzt.`);
+  }, [data, bookmarks, frameIndex, saveBookmarks]);
+
+  /** Remove bookmark by id. No confirm-prompt — user can re-add
+   *  schnell wenn versehentlich gelöscht. */
+  const removeBookmark = useCallback(
+    (id: string) => {
+      saveBookmarks(bookmarks.filter((b) => b.id !== id));
+    },
+    [bookmarks, saveBookmarks],
+  );
+
+  /** Jump to a bookmark's frame (analog to jumpToPhase). */
+  const jumpToBookmark = useCallback((bookmark: Bookmark) => {
+    setFrameIndex(bookmark.frameIndex);
+    setPlaying(false);
+  }, []);
+
+  /** Copy share-link with current ?t=<sec> to clipboard. Toast on success/
+   *  failure. Falls clipboard-API nicht verfügbar (z.B. http auf old
+   *  browsers), fällt der catch zurück und zeigt error-toast.
+   *
+   *  Wir nutzen ?t=<sec> statt frame-index damit der link auch nach
+   *  hypothetical resampling der ACARS-positions weiterhin auf die
+   *  richtige zeit zeigt — frame-index ist an die positions-array-länge
+   *  gebunden, time-sec ist absolut. */
+  const onShare = useCallback(() => {
+    if (!data || !data.available || !currentPosition) return;
+    if (typeof window === 'undefined') return;
+    try {
+      const startMsLocal = new Date(data.positions[0].recordedAt).getTime();
+      const currentMsLocal = new Date(currentPosition.recordedAt).getTime();
+      const offsetSec = Math.round((currentMsLocal - startMsLocal) / 1000);
+      const url = new URL(window.location.href);
+      url.searchParams.set('t', String(offsetSec));
+      // navigator.clipboard kann auf non-https oder ohne user-gesture
+      // unter manchen browsers null sein. Defensive check.
+      if (navigator.clipboard?.writeText) {
+        navigator.clipboard
+          .writeText(url.toString())
+          .then(() => {
+            toastSuccess(`Link kopiert (@ ${offsetSec}s)`);
+          })
+          .catch(() => {
+            toastError('Kopieren fehlgeschlagen — Link manuell aus URL.');
+          });
+      } else {
+        toastError('Clipboard nicht verfügbar — Link manuell aus URL.');
+      }
+    } catch (err) {
+      toastError(err);
+    }
+  }, [data, currentPosition]);
 
   // ─── Trail GeoJSON memo ─────────────────────────────────────────
   const trailGeoJson = useMemo(() => {
@@ -608,6 +825,53 @@ export function ReplayMap({
       {/* Bottom controls bar */}
       <div className="absolute bottom-0 left-0 right-0 bg-white/95 dark:bg-gray-900/95 backdrop-blur border-t border-gray-200 dark:border-gray-800 p-4">
         <div className="max-w-5xl mx-auto space-y-2">
+          {/* Track 5 #2: Bookmark-chip-row. Pink-themed chips analog zu
+              den phase-chips drunter. Klick = jump-to-frame. Hover zeigt
+              ein × zum löschen (group/peer-pattern statt JS-handler).
+              Empty-state (keine bookmarks) → row gar nicht rendern. */}
+          {bookmarks.length > 0 && (
+            <div className="flex items-center gap-1.5 flex-wrap text-xs">
+              <span className="text-gray-500 dark:text-gray-400 font-medium mr-1">
+                Bookmarks:
+              </span>
+              {bookmarks.map((b) => {
+                // Aktive bookmark = current frame ist genau auf der
+                // bookmark-frame. Nicht ±range weil bookmarks präzise
+                // sind (user hat genau diesen frame markiert).
+                const isActive = frameIndex === b.frameIndex;
+                return (
+                  <span
+                    key={b.id}
+                    className={[
+                      'group inline-flex items-center rounded transition',
+                      isActive
+                        ? 'bg-pink-500 text-white shadow'
+                        : 'bg-pink-100 dark:bg-pink-900/30 text-pink-700 dark:text-pink-300 hover:bg-pink-200 dark:hover:bg-pink-900/50',
+                    ].join(' ')}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => jumpToBookmark(b)}
+                      className="pl-2 pr-1 py-0.5 font-medium"
+                      title={`Frame ${b.frameIndex + 1} · ${formatTime(data.positions[b.frameIndex].recordedAt)}`}
+                    >
+                      🔖 {b.label}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => removeBookmark(b.id)}
+                      className="px-1.5 py-0.5 opacity-50 hover:opacity-100 transition"
+                      aria-label={`Bookmark "${b.label}" löschen`}
+                      title="Bookmark löschen"
+                    >
+                      ×
+                    </button>
+                  </span>
+                );
+              })}
+            </div>
+          )}
+
           {/* Track 4 #20: Phase-jump chips. Nur rendern wenn die positions
               überhaupt phase-werte haben (sonst leere row mit nur dem
               shortcut-hint, was hässlich ist). Aktive phase
@@ -660,6 +924,29 @@ export function ReplayMap({
             className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-sm font-medium transition shrink-0"
           >
             {playing ? '❚❚ Pause' : '▶ Play'}
+          </button>
+
+          {/* Track 5 #2: Bookmark + Share buttons. Bookmark setzt am
+              current frame; Share kopiert URL mit ?t=<sec>. Beide
+              compact mit emoji+label statt nur emoji damit klar ist
+              was sie tun. */}
+          <button
+            type="button"
+            onClick={addBookmark}
+            className="px-3 py-2 bg-pink-600 hover:bg-pink-700 text-white rounded text-sm font-medium transition shrink-0 flex items-center gap-1.5"
+            title="Bookmark am aktuellen frame setzen"
+          >
+            <span aria-hidden="true">🔖</span>
+            <span className="hidden sm:inline">Bookmark</span>
+          </button>
+          <button
+            type="button"
+            onClick={onShare}
+            className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-sm font-medium transition shrink-0 flex items-center gap-1.5"
+            title="Link zum aktuellen frame kopieren"
+          >
+            <span aria-hidden="true">🔗</span>
+            <span className="hidden sm:inline">Teilen</span>
           </button>
 
           <div className="flex-1 min-w-[200px]">
