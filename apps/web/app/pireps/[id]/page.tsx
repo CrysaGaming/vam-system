@@ -21,6 +21,7 @@ import { RecentItemTracker } from '@/components/recent-item-tracker';
 import { computeSmoothnessScore, computeSuggestions } from '@/lib/pirep-metrics';
 import { AnnotationList } from './annotation-list';
 import { CommentsSection } from './comments-section';
+import { PhotoGallery } from './photo-gallery';
 
 /**
  * Track 4 #2 (Phase-Breakdown-Bar): bg-color pro flight-phase.
@@ -1712,6 +1713,21 @@ export default async function PirepDetail({
           }
           hasReplay={hasReplay}
           isApprover={isApprover && sameAirline}
+        />
+
+        {/* Track 5 #15 — PIREP Photo Posts. URL-based gallery (kein
+            file-upload V1). Jeder authentifizierte airline-member kann
+            ein photo posten, max 12 pro PIREP. canDeleteAny: admin/
+            airline-admin in derselben airline kann fremde photos
+            moderieren (selber pattern wie AnnotationList). */}
+        <PhotoGallery
+          pirepId={pirep.id}
+          currentUserId={currentUser.id}
+          canDeleteAny={
+            (currentUser.role?.name === 'admin' ||
+              currentUser.role?.name === 'airline-admin') &&
+            sameAirline
+          }
         />
 
         {/* Track 5 #14 — PIREP Discussion Comments. Free-form thread

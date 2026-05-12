@@ -991,6 +991,10 @@ model User {
   // sinnlos sobald der author weg ist (selber pattern wie annotations).
   pirepCommentsAuthored PirepComment[] @relation("PirepCommentAuthor")
 
+  // Track 5 #15 (Section C): PIREP-Photos posted by this user.
+  // Cascade-delete via PirepPhoto.author — wenn user weg, photos weg.
+  pirepPhotosAuthored PirepPhoto[] @relation("PirepPhotoAuthor")
+
   // Track 5 #10 (Flight Streaks & Goals): Selbst gesetzte ziele des pilots
   // (weekly flights, monthly hours, etc.). Cascade-delete via PilotGoal.user
   // — bei user-löschung verschwinden die goals mit. Pro user max 1 goal
@@ -1605,6 +1609,12 @@ model Pirep {
   // pilot kann kommentieren, body ist plaintext, kein frame-binding.
   // Cascade-delete via PirepComment.pirep.
   comments PirepComment[]
+
+  // Track 5 #15 (Section C): Photo-posts an einem PIREP. URL-based
+  // (kein file-upload V1) — author pastet einen image-link von einem
+  // externen host (imgur/discord-cdn/etc) plus optional caption.
+  // Cascade-delete via PirepPhoto.pirep.
+  photos PirepPhoto[]
 
   @@index([userId, submittedAt])
   @@index([airlineId, status])
@@ -4111,6 +4121,65 @@ model PirepComment {
   body      String    @db.Text
   createdAt DateTime  @default(now())
   editedAt  DateTime?
+
+  @@index([pirepId, createdAt])
+  @@index([authorId, createdAt])
+}
+
+/// Track 5 #15 (Section C): PIREP Photo Posts.
+///
+/// URL-based photo attachments an PIREPs. V1 ist intentionally simple:
+/// kein file-upload, kein S3/R2, kein image-validation. Author pastet
+/// einen direct-image-URL (typischerweise von imgur, discord-cdn,
+/// pasteboard, dropbox-direct-link) und das System rendert das als
+/// <img> tag in der gallery-section.
+///
+/// # Why URL-based statt file-upload?
+///
+/// File-upload würde S3/R2-bucket-setup, signed-uploads, image-
+/// validation (magic-bytes), thumbnail-generation, CDN-edge-caching,
+/// virus-scan etc. erfordern → mehrere stunden engineering. URL-based
+/// nimmt 20 LOC und liefert 80% des wertes. Der trade-off:
+///   - User muss image woanders hosten (acceptable für aviation-fans
+///     die eh diskord/imgur nutzen)
+///   - Falls der external host die URL killt, image kaputt
+///   - Kein content-moderation auf bild-level
+///
+/// V2 könnte beide modi unterstützen (URL ODER upload via R2). Aber
+/// der schema-trick: das URL-feld ist agnostisch. V2 würde ein neues
+/// optional uploadedFile-feld dazu nehmen, OHNE die bestehenden URL-
+/// records zu brechen.
+///
+/// # Constraints (server-side enforced)
+///
+///   - URL: max 1000 chars, MUST start with https://
+///   - Caption: max 500 chars (optional), plaintext sanitized
+///   - Max 12 photos pro PIREP (V1 hard-cap, V2 könnte erhöht werden)
+///
+/// # Permissions
+///
+///   - Post: jeder logged-in user der den PIREP sehen kann
+///   - Delete: owner kann eigene löschen jederzeit, airline-admin/admin
+///     können alle in eigener airline löschen (moderation)
+///
+/// # Cascade-delete
+///
+///   - PirepPhoto.pirep CASCADE — PIREP weg → photos weg
+///   - PirepPhoto.author CASCADE — author weg → seine photos weg
+///
+/// # Indizes
+///
+///   - @@index([pirepId, createdAt]) — primary gallery-query, älteste
+///     zuerst (chrono-order)
+model PirepPhoto {
+  id        String   @id @default(cuid())
+  pirepId   String
+  pirep     Pirep    @relation(fields: [pirepId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User     @relation("PirepPhotoAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  url       String
+  caption   String?
+  createdAt DateTime @default(now())
 
   @@index([pirepId, createdAt])
   @@index([authorId, createdAt])

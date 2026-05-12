@@ -231,3 +231,10 @@ export * from "./follows/index.js";
 // list/create/update/delete + 15-min edit-window enforcement.
 // Konsumiert von der PIREP-detail-page comments-section.
 export * from "./comments/index.js";
+
+// Track 5 #15 (Section C): PIREP Photo Posts. URL-based (kein file-
+// upload V1) — author pastet image-link plus optional caption.
+// Schema: PirepPhoto model mit @@index([pirepId, createdAt]) +
+// @@index([authorId, createdAt]). Hard-cap 12 photos pro PIREP.
+// Konsumiert von der PIREP-detail-page photo-gallery section.
+export * from "./photos/index.js";
