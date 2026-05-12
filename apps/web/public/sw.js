@@ -56,7 +56,8 @@
 //   v1 — Initial release (Track 5 #22)
 //   v2 — Add /offline precache for navigation-fallback (Track 5 #23)
 //   v3 — Add push + notificationclick event-handlers (Track 5 #24)
-const CACHE_VERSION = 'vam-sw-v3';
+//   v4 — Add sync event-handler for IDB-drained drafts (Track 5 #25)
+const CACHE_VERSION = 'vam-sw-v4';
 
 // Routes die beim install-event aktiv geholt + gecached werden (statt
 // on-demand). Aktuell nur /offline damit der navigation-fallback in
@@ -447,3 +448,154 @@ self.addEventListener('notificationclick', (event) => {
     })(),
   );
 });
+
+// ─────────────────────────────────────────────────────────────────────
+// Background Sync (Track 5 #25)
+//
+// Wenn der user offline drafts ins IDB-queue tut (apps/web/lib/sync/
+// draft-queue.ts), registriert der client einen sync-task mit tag
+// 'vam-drafts-drain'. Wenn der browser detected dass connectivity zurück
+// ist, feuert ein sync-event im SW — wir reagieren mit einem batched
+// POST an /api/sync/drain, und löschen die successful-drafts aus IDB.
+//
+// # Browser-support
+//
+// Background Sync API: chrome/edge YES, firefox/safari NO.
+// Firefox/Safari user kriegen den selben effect via window.online-event
+// im BackgroundSyncManager (apps/web/components/BackgroundSyncManager.tsx)
+// — beide pfade hitten die selbe /api/sync/drain route + sind idempotent.
+//
+// # IDB-schema (geteilt mit draft-queue.ts!)
+//
+// MUSS identisch zu den constants in draft-queue.ts sein. Wenn dort was
+// ändert, MUSS hier auch ändern (oder der SW liest die alte DB-version
+// die ein anderes schema hat → broken state).
+// ─────────────────────────────────────────────────────────────────────
+
+const DRAFT_DB_NAME = 'vam-drafts-v1';
+const DRAFT_STORE = 'drafts';
+const DRAFT_DB_VERSION = 1;
+const DRAFT_SYNC_TAG = 'vam-drafts-drain';
+
+/**
+ * Open the draft-queue DB read-write. Identical schema zur client-side
+ * draft-queue.ts. Wenn die DB noch nicht existiert (z.B. SW läuft auf
+ * einem device wo der user nie offline-drafts hatte), wird sie hier
+ * created (upgrade-event) — onupgradeneeded mirrored damit der state
+ * konsistent ist.
+ */
+function openDraftDb() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DRAFT_DB_NAME, DRAFT_DB_VERSION);
+    req.onerror = () => reject(req.error || new Error('IDB open failed'));
+    req.onsuccess = () => resolve(req.result);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(DRAFT_STORE)) {
+        const store = db.createObjectStore(DRAFT_STORE, {
+          keyPath: 'id',
+          autoIncrement: true,
+        });
+        store.createIndex('kind', 'kind', { unique: false });
+        store.createIndex('createdAt', 'createdAt', { unique: false });
+      }
+    };
+  });
+}
+
+/** Read all drafts from IDB. */
+function readAllDrafts(db) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(DRAFT_STORE, 'readonly');
+    const store = tx.objectStore(DRAFT_STORE);
+    const req = store.getAll();
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error || new Error('getAll failed'));
+  });
+}
+
+/** Delete one draft by id. */
+function deleteDraftById(db, id) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(DRAFT_STORE, 'readwrite');
+    const store = tx.objectStore(DRAFT_STORE);
+    const req = store.delete(id);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error || new Error('delete failed'));
+  });
+}
+
+/** Increment retryCount on a draft (für failed/skipped ids). */
+function bumpRetryCount(db, id) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(DRAFT_STORE, 'readwrite');
+    const store = tx.objectStore(DRAFT_STORE);
+    const getReq = store.get(id);
+    getReq.onsuccess = () => {
+      const record = getReq.result;
+      if (!record) return resolve();
+      record.retryCount = (record.retryCount || 0) + 1;
+      const putReq = store.put(record);
+      putReq.onsuccess = () => resolve();
+      putReq.onerror = () => reject(putReq.error || new Error('put failed'));
+    };
+    getReq.onerror = () => reject(getReq.error || new Error('get failed'));
+  });
+}
+
+/**
+ * Drain all drafts: read from IDB, POST batched zu /api/sync/drain,
+ * apply server's per-draft verdict (processed → delete, failed/skipped →
+ * bump retryCount).
+ *
+ * Throws bei network-error damit der SW-sync-manager retry-en kann
+ * (sync.register mit dem selben tag macht das automatisch).
+ */
+async function drainDrafts() {
+  const db = await openDraftDb();
+  const drafts = await readAllDrafts(db);
+  if (drafts.length === 0) return; // nothing to do
+
+  // Batched POST. credentials werden vom SW-fetch automatisch mitgeschickt
+  // (cookies inkl. session-cookie sind same-origin).
+  const response = await fetch('/api/sync/drain', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ drafts }),
+  });
+
+  if (!response.ok) {
+    // 401/403/5xx → throw, SW retries. retryCount NICHT gebumped weil
+    // wir gar nicht zu per-draft verdicts gekommen sind — der ganze
+    // batch ist transiently failed.
+    throw new Error(`drain failed: ${response.status}`);
+  }
+
+  const result = await response.json();
+  const processedIds = new Set(result.processedIds || []);
+  const failedIds = new Set([
+    ...(result.failedIds || []),
+    ...(result.skippedIds || []),
+  ]);
+
+  // Apply per-draft verdicts. processed → DB-delete, failed/skipped →
+  // retryCount-bump. Promise.allSettled damit eine DB-write-failure (rare,
+  // quota etc.) nicht den ganzen rest blockt.
+  await Promise.allSettled([
+    ...[...processedIds].map((id) => deleteDraftById(db, id)),
+    ...[...failedIds].map((id) => bumpRetryCount(db, id)),
+  ]);
+}
+
+self.addEventListener('sync', (event) => {
+  if (event.tag !== DRAFT_SYNC_TAG) return;
+  event.waitUntil(
+    drainDrafts().catch((err) => {
+      // Throw zurück, damit der SW-sync-manager weiß dass wir nicht
+      // erfolgreich waren und einen retry scheduled. Browser exponential-
+      // backoff handhabt das (typisch: 5min, 30min, 1h, 5h, ...).
+      throw err;
+    }),
+  );
+});
+

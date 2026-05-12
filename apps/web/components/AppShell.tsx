@@ -12,6 +12,7 @@ import { RecentlyViewedBlock } from './recently-viewed-block';
 import { PwaInstallPrompt } from './PwaInstallPrompt';
 import { IosInstallHint } from './IosInstallHint';
 import { ServiceWorkerRegistrar } from './ServiceWorkerRegistrar';
+import { BackgroundSyncManager } from './BackgroundSyncManager';
 import { MobileBottomNav } from './MobileBottomNav';
 import { PullToRefresh } from './PullToRefresh';
 import { OfflineBanner } from './OfflineBanner';
@@ -192,6 +193,15 @@ export function AppShell({ user, children }: Props) {
           (images), oder network-first (navigation/RSC); /api, server-
           actions und ?ofp_id callbacks werden bypassed. */}
       <ServiceWorkerRegistrar />
+
+      {/* Track 5 #25 (Section E): Background-Sync-Manager. Reagiert auf
+          window.online events + drained automatisch das IndexedDB-queue
+          via /api/sync/drain wenn der user wieder online geht. Auch
+          bei mount-zeitpunkt (catch-up nach refresh). Pure side-effect,
+          renders null. Ist der fallback für Firefox/Safari die KEINE
+          Background Sync API haben — Chrome/Edge nutzen zusätzlich den
+          SW sync-event-handler, beide pfade laufen parallel + idempotent. */}
+      <BackgroundSyncManager />
 
       {/* Track 4 #78 (Section O): Pull-to-Refresh. Touch-gesture handler
           der pull-down vom top der scroll-area (#main-content) in einen
