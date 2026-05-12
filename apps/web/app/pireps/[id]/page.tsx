@@ -19,6 +19,7 @@ import { AircraftPerformanceChart } from './aircraft-performance-chart';
 import { isApproverRole } from '@/lib/roles';
 import { RecentItemTracker } from '@/components/recent-item-tracker';
 import { computeSmoothnessScore } from '@/lib/pirep-metrics';
+import { AnnotationList } from './annotation-list';
 
 /**
  * Track 4 #2 (Phase-Breakdown-Bar): bg-color pro flight-phase.
@@ -183,6 +184,7 @@ export default async function PirepDetail({
     kudosCount,
     ownKudos,
     compareCandidates,
+    annotations,
   ] = await Promise.all([
     prisma.flightSchoolEnrollment.findFirst({
       where: { practicalExamPirepId: pirep.id },
@@ -239,6 +241,20 @@ export default async function PirepDetail({
       },
       orderBy: { submittedAt: 'desc' },
       take: 8,
+    }),
+    // Track 5 #3 — Annotations fetch. Sortiert nach frameIndex damit
+    // die list chronologisch dem trail folgt.
+    prisma.pirepAnnotation.findMany({
+      where: { pirepId: pirep.id },
+      select: {
+        id: true,
+        frameIndex: true,
+        body: true,
+        createdAt: true,
+        updatedAt: true,
+        author: { select: { id: true, name: true } },
+      },
+      orderBy: { frameIndex: 'asc' },
     }),
   ]);
 
@@ -1604,6 +1620,31 @@ export default async function PirepDetail({
             </p>
           </section>
         )}
+
+        {/* Track 5 #3 — PIREP-Annotations. Instructor-feedback an
+            konkreten frames. Read-only für pilots, read+write für
+            approver in der gleichen airline. Replay-link öffnet den
+            trail damit der instructor annotations direkt setzen kann.
+
+            canDeleteAll: admins/airline-admins dürfen alle annotations
+            löschen (nicht nur eigene) — für moderation. Instructors
+            dürfen nur eigene. */}
+        <AnnotationList
+          pirepId={pirep.id}
+          annotations={annotations.map((a) => ({
+            ...a,
+            createdAt: a.createdAt.toISOString(),
+            updatedAt: a.updatedAt.toISOString(),
+          }))}
+          currentUserId={currentUser.id}
+          canDeleteAll={
+            (currentUser.role?.name === 'admin' ||
+              currentUser.role?.name === 'airline-admin') &&
+            sameAirline
+          }
+          hasReplay={hasReplay}
+          isApprover={isApprover && sameAirline}
+        />
       </div>
     </main>
   );

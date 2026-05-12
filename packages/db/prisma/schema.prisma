@@ -959,6 +959,14 @@ model User {
   // delete via BookingTemplate.user — pilot-löschung räumt seine vorlagen
   // mit auf. Siehe BookingTemplate-docstring für scope/limits.
   bookingTemplates BookingTemplate[]
+
+  // Track 5 #3 (PIREP-Annotations): Annotations die DIESER user (als
+  // approver) an PIREPs anderer piloten geschrieben hat. Cascade-delete
+  // via PirepAnnotation.author — wenn der approver-user gelöscht wird,
+  // verschwinden seine annotations (statt orphan mit author=NULL — eine
+  // anonymous annotation ist semantisch sinnlos in einem instructor-
+  // feedback-context).
+  pirepAnnotationsAuthored PirepAnnotation[] @relation("PirepAnnotationAuthor")
 }
 
 model LiveSession {
@@ -1547,6 +1555,12 @@ model Pirep {
   // gehen die kudos mit. Unique-constraint auf (pirepId, userId) verhindert
   // doppel-kudos vom gleichen user.
   kudos PirepKudos[]
+
+  // Track 5 #3 (PIREP-Annotations): timeline-comments von approvers
+  // (instructor/airline-admin/admin) an konkreten frames im replay-trail.
+  // Cascade-delete via PirepAnnotation.pirep — orphan-annotations sind
+  // sinnlos sobald der PIREP weg ist.
+  annotations PirepAnnotation[]
 
   @@index([userId, submittedAt])
   @@index([airlineId, status])
@@ -3717,10 +3731,78 @@ model PirepKudos {
 
   @@unique([pirepId, userId])
   // Häufigste queries:
-  //   - \"hat user X diesem PIREP einen kudo gegeben?\" → unique-index reicht
-  //   - \"wieviele kudos hat dieser PIREP?\" → covered by unique-prefix index
-  //   - \"alle kudos die user X vergeben hat\" (profile/activity-feed)
+  //   - "hat user X diesem PIREP einen kudo gegeben?" → unique-index reicht
+  //   - "wieviele kudos hat dieser PIREP?" → covered by unique-prefix index
+  //   - "alle kudos die user X vergeben hat" (profile/activity-feed)
   @@index([userId, createdAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Track 5 #3 — PIREP-Annotations
+// ─────────────────────────────────────────────────────────────────────────
+
+/// PirepAnnotation — instructor/admin-feedback an konkreten frames im
+/// replay-trail eines PIREPs.
+///
+/// Use-case: Ein instructor schaut einen PIREP an, navigiert zum landing-
+/// frame im replay, und schreibt einen comment "hier zu hohe sinkrate,
+/// flare zu spät begonnen". Der pilot sieht den comment in der PIREP-
+/// detail-page und kann im replay direkt zu dem frame springen.
+///
+/// # Wer darf was
+///
+/// - **Write**: nur approver-roles (admin/airline-admin/instructor) in der
+///   gleichen airline wie der PIREP. Pilot selber kann KEINE annotations
+///   schreiben — sonst würde der feedback-loop verwässert ("ich kommentiere
+///   meinen eigenen flug" macht in einer instructor-feedback-feature
+///   keinen sinn).
+///
+/// - **Edit/Delete**: nur der author OR admin der airline. Andere
+///   instructors können nicht den feedback eines kollegen verändern.
+///
+/// - **Read**: alle die den PIREP sehen können (eigen + approver same-
+///   airline).
+///
+/// # Schema-design
+///
+/// `frameIndex` (Int): position im LiveSessionPosition-array. NICHT eine
+/// FK zu LiveSessionPosition.id weil:
+///   1. Position-rows haben kein stabiles "frame-index"-feld am DB-level —
+///      es ist nur die order-by-recordedAt-position im fetch-result.
+///   2. Bei manchen sessions können positions nachträglich resampled werden
+///      (z.B. wenn ACARS-rate sich ändert), und eine FK würde dangling.
+/// Stattdessen speichern wir den frame-index als plain int. Bei display
+/// resolved der client den frame zur entsprechenden position.
+///
+/// `body` (String): annotation-text. App-layer-enforced max 1000 chars
+/// (kein DB-constraint weil Prisma keine string-length-constraints am
+/// schema-level kennt — über server-action validiert).
+///
+/// Soft-delete vs hard-delete: hard-delete. Annotations sind feedback-
+/// notes, kein audit-record. Wenn der instructor sich vertan hat und
+/// löscht, soll's weg sein. Audit-log (Track 4 #101) erfasst die
+/// löschung separat.
+///
+/// # Indices
+///
+/// - `(pirepId, frameIndex)`: häufigste query — "alle annotations für
+///   diesen PIREP, sortiert nach timeline-position". Direkt covered.
+/// - `(authorId, createdAt)`: "alle annotations die instructor X
+///   geschrieben hat" für profile/instructor-activity-feed (nicht V1
+///   aber forward-compat).
+model PirepAnnotation {
+  id         String   @id @default(cuid())
+  pirepId    String
+  pirep      Pirep    @relation(fields: [pirepId], references: [id], onDelete: Cascade)
+  authorId   String
+  author     User     @relation("PirepAnnotationAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  frameIndex Int
+  body       String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([pirepId, frameIndex])
+  @@index([authorId, createdAt])
 }
 
 // ─────────────────────────────────────────────────────────────────────────

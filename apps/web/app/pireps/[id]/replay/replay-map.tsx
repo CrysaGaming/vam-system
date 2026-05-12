@@ -203,9 +203,17 @@ function formatTime(iso: string): string {
 export function ReplayMap({
   pirepId,
   mapboxToken,
+  annotations = [],
 }: {
   pirepId: string;
   mapboxToken: string;
+  /** Track 5 #3 — instructor annotations to show as timeline markers. */
+  annotations?: Array<{
+    id: string;
+    frameIndex: number;
+    body: string;
+    author: { name: string | null };
+  }>;
 }) {
   // ─── Track 3 #11.2.3 vNext: TanStack Query demo ──────────────────
   // Vorher: useState<ApiResult>(null) + useState(true) + useState(null)
@@ -825,6 +833,65 @@ export function ReplayMap({
       {/* Bottom controls bar */}
       <div className="absolute bottom-0 left-0 right-0 bg-white/95 dark:bg-gray-900/95 backdrop-blur border-t border-gray-200 dark:border-gray-800 p-4">
         <div className="max-w-5xl mx-auto space-y-2">
+          {/* Track 5 #3 — Annotation-chips. Orange-themed, server-fetched
+              (nicht localStorage wie bookmarks). Klick = jump-to-frame
+              + popup zeigt author + body. Bei leerem array → row hidden.
+              Kein close-button — annotations können nur über die
+              detail-page gelöscht werden (server-action). */}
+          {annotations.length > 0 && (() => {
+            // Annotation nearest to current frame (≤2 frame tolerance)
+            // für den popup-state — zeigen wir inline wenn der user
+            // auf exakt dem frame ist. Kein state nötig — pure computed
+            // aus frameIndex.
+            const nearbyAnnotation = annotations.find(
+              (a) => Math.abs(a.frameIndex - frameIndex) <= 1,
+            );
+            return (
+              <div className="space-y-1">
+                <div className="flex items-center gap-1.5 flex-wrap text-xs">
+                  <span className="text-orange-600 dark:text-orange-400 font-medium mr-1">
+                    Annotationen:
+                  </span>
+                  {annotations.map((a) => {
+                    const isActive = Math.abs(a.frameIndex - frameIndex) <= 1;
+                    return (
+                      <button
+                        key={a.id}
+                        type="button"
+                        onClick={() => {
+                          setFrameIndex(a.frameIndex);
+                          setPlaying(false);
+                        }}
+                        className={[
+                          'px-2 py-0.5 rounded transition flex items-center gap-1',
+                          isActive
+                            ? 'bg-orange-500 text-white shadow'
+                            : 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 hover:bg-orange-200 dark:hover:bg-orange-900/50',
+                        ].join(' ')}
+                        title={`${a.author.name ?? 'Instructor'}: ${a.body}`}
+                      >
+                        <span aria-hidden="true">📝</span>
+                        <span className="font-mono">
+                          F{a.frameIndex + 1}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+                {nearbyAnnotation && (
+                  <div className="px-3 py-2 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-700/40 rounded text-xs">
+                    <span className="font-semibold text-orange-800 dark:text-orange-300">
+                      {nearbyAnnotation.author.name ?? 'Instructor'}:
+                    </span>{' '}
+                    <span className="text-orange-900 dark:text-orange-200">
+                      {nearbyAnnotation.body}
+                    </span>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
           {/* Track 5 #2: Bookmark-chip-row. Pink-themed chips analog zu
               den phase-chips drunter. Klick = jump-to-frame. Hover zeigt
               ein × zum löschen (group/peer-pattern statt JS-handler).

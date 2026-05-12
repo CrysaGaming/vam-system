@@ -8,15 +8,16 @@ import { ReplayMap } from './replay-map';
 /**
  * Track 1 #5 (Replay-Mode, 9.2.7) — Replay-page.
  *
- * Server-component das den PIREP-context lädt + admin-checks + die
- * existence-prüfung für replay-data macht. Das eigentliche fetching
- * der trail-positions passiert im client-component (ReplayMap) via
- * /api/pireps/[id]/replay damit der initial-page-render nicht durch
- * eine ggf. mehrere-tausend-positions-große response blockiert wird.
+ * Track 5 #3 (PIREP-Annotations): Annotations werden hier server-side
+ * geladen und als prop an ReplayMap übergeben. Die map rendert sie als
+ * farbige marker auf dem time-slider + als popup-bubble wenn der user
+ * auf frame eines annotated-moments springt.
  *
- * Layout: full-width map (analog /live), header oben mit pirep-info
- * + zurück-link, controls (slider/play/pause) als overlay auf der
- * map oder als bottom-bar.
+ * Server-component lädt PIREP-context + admin-checks + existence-prüfung
+ * für replay-data. Das eigentliche fetching der trail-positions passiert
+ * im client-component (ReplayMap) via /api/pireps/[id]/replay damit der
+ * initial-page-render nicht durch eine ggf. mehrere-tausend-positions-
+ * große response blockiert wird.
  */
 export default async function PirepReplayPage({
   params,
@@ -53,14 +54,24 @@ export default async function PirepReplayPage({
     redirect('/pireps');
   }
 
-  // Cheap existence-check. Wenn keine replay-data, redirecten wir
-  // zurück zur detail-page (statt eine leere page mit "no data"-state
-  // zu rendern — bei direct-link-klicks soll der user nicht in einer
-  // sackgasse landen wenn er das überhaupt nicht aufrufen sollte).
   const hasReplay = await hasReplayDataForPirep(id);
   if (!hasReplay) {
     redirect(`/pireps/${id}`);
   }
+
+  // Track 5 #3: annotations fetch parallel mit rest.
+  // frameIndex gibt die position auf dem time-slider,
+  // author.name wird im popup angezeigt.
+  const annotations = await prisma.pirepAnnotation.findMany({
+    where: { pirepId: id },
+    select: {
+      id: true,
+      frameIndex: true,
+      body: true,
+      author: { select: { name: true } },
+    },
+    orderBy: { frameIndex: 'asc' },
+  });
 
   const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
   if (!mapboxToken) {
@@ -89,6 +100,12 @@ export default async function PirepReplayPage({
               ? pirep.user.name
               : 'Replay'}
           </span>
+          {annotations.length > 0 && (
+            <span className="text-xs bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 px-2 py-0.5 rounded-full">
+              📝 {annotations.length}{' '}
+              {annotations.length === 1 ? 'Annotation' : 'Annotationen'}
+            </span>
+          )}
         </div>
         <Link
           href={`/pireps/${pirep.id}`}
@@ -98,7 +115,11 @@ export default async function PirepReplayPage({
         </Link>
       </header>
       <div className="flex-1 relative">
-        <ReplayMap pirepId={pirep.id} mapboxToken={mapboxToken} />
+        <ReplayMap
+          pirepId={pirep.id}
+          mapboxToken={mapboxToken}
+          annotations={annotations}
+        />
       </div>
     </main>
   );
