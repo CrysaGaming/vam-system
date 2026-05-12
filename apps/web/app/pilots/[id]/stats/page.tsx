@@ -34,7 +34,12 @@
 
 import { auth } from '@/auth';
 import { redirect, notFound } from 'next/navigation';
-import { prisma, getPilotCareerStats } from '@vam/db';
+import {
+  prisma,
+  getPilotCareerStats,
+  getPilotPersonalBests,
+  type PersonalBestRecord,
+} from '@vam/db';
 import Link from 'next/link';
 import { MonthlyTrendChart } from './monthly-trend-chart';
 
@@ -68,7 +73,13 @@ export default async function PilotStatsPage({
   const sameAirline = pilot.airlineId === currentUser.airlineId;
   if (!isAdmin && !sameAirline) redirect('/pilots');
 
-  const stats = await getPilotCareerStats(pilot.id);
+  // Track 5 #6 + #8: career-stats + personal-bests parallel — beide
+  // sind unabhängige aggregations über dasselbe set von approved PIREPs,
+  // also kein grund sie sequentiell zu fetchen.
+  const [stats, bests] = await Promise.all([
+    getPilotCareerStats(pilot.id),
+    getPilotPersonalBests(pilot.id),
+  ]);
 
   const totalNetworkPireps =
     stats.networkSplit.VATSIM +
@@ -249,6 +260,81 @@ export default async function PilotStatsPage({
           </div>
         </section>
 
+        {/* ── Personal Bests (Track 5 #8) ── */}
+        {(() => {
+          // Helper: at least one record set?
+          const anyBest =
+            bests.smoothestLanding ||
+            bests.hardestLanding ||
+            bests.longestFlight ||
+            bests.longestDuration ||
+            bests.mostPassengers ||
+            bests.mostFuel ||
+            bests.earliestFlight ||
+            bests.latestFlight;
+          if (!anyBest) return null;
+          return (
+            <section className="mb-8">
+              <h2 className="text-sm uppercase tracking-wider text-gray-500 font-semibold mb-3 flex items-center gap-2">
+                Personal Bests 🥇
+                <span className="text-xs normal-case tracking-normal font-normal text-gray-400">
+                  — extremste Werte aus deiner Karriere
+                </span>
+              </h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                <RecordCard
+                  label="Sanfteste Landung"
+                  emoji="🪶"
+                  record={bests.smoothestLanding}
+                  tone="good"
+                />
+                <RecordCard
+                  label="Härteste Landung"
+                  emoji="💥"
+                  record={bests.hardestLanding}
+                  tone="warning"
+                />
+                <RecordCard
+                  label="Längster Flug"
+                  emoji="🗺️"
+                  record={bests.longestFlight}
+                  tone="neutral"
+                />
+                <RecordCard
+                  label="Längste Dauer"
+                  emoji="⏱️"
+                  record={bests.longestDuration}
+                  tone="neutral"
+                />
+                <RecordCard
+                  label="Meiste Passagiere"
+                  emoji="👥"
+                  record={bests.mostPassengers}
+                  tone="neutral"
+                />
+                <RecordCard
+                  label="Meiste Treibstoff"
+                  emoji="⛽"
+                  record={bests.mostFuel}
+                  tone="neutral"
+                />
+                <RecordCard
+                  label="Erster Flug"
+                  emoji="🚀"
+                  record={bests.earliestFlight}
+                  tone="neutral"
+                />
+                <RecordCard
+                  label="Letzter Flug"
+                  emoji="🕐"
+                  record={bests.latestFlight}
+                  tone="neutral"
+                />
+              </div>
+            </section>
+          );
+        })()}
+
         {/* ── Network split ── */}
         {totalNetworkPireps > 0 && (
           <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-6">
@@ -416,5 +502,72 @@ function NetworkCell({
         />
       </div>
     </div>
+  );
+}
+
+/**
+ * Track 5 #8 — Personal-Best record card.
+ *
+ * Eine card pro record-typ. Tone steuert die border-farbe (good=grün,
+ * warning=amber, neutral=grau). Wenn record null ist, rendern wir die
+ * card trotzdem aber mit dimmed placeholder — visual-consistency in
+ * der grid wichtiger als "card fehlt komplett".
+ *
+ * Klickbar wenn record gesetzt → links zur PIREP-detail-page.
+ */
+function RecordCard({
+  label,
+  emoji,
+  record,
+  tone,
+}: {
+  label: string;
+  emoji: string;
+  record: PersonalBestRecord | null;
+  tone: 'good' | 'warning' | 'neutral';
+}) {
+  const toneClass =
+    tone === 'good'
+      ? 'border-emerald-500/30 dark:border-emerald-500/30'
+      : tone === 'warning'
+        ? 'border-amber-500/30 dark:border-amber-500/30'
+        : 'border-gray-200 dark:border-gray-800';
+
+  if (!record) {
+    return (
+      <div
+        className={`bg-white dark:bg-gray-900 border ${toneClass} rounded-lg p-4 opacity-60`}
+      >
+        <p className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
+          {emoji} {label}
+        </p>
+        <p className="text-xl font-bold mt-2 text-gray-300 dark:text-gray-700 tabular-nums">
+          —
+        </p>
+        <p className="text-[10px] text-gray-400 mt-1">noch keine daten</p>
+      </div>
+    );
+  }
+
+  return (
+    <Link
+      href={`/pireps/${record.pirep.id}`}
+      className={`block bg-white dark:bg-gray-900 border ${toneClass} hover:border-indigo-400 dark:hover:border-indigo-600 rounded-lg p-4 transition`}
+    >
+      <p className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
+        {emoji} {label}
+      </p>
+      <p className="text-xl font-bold mt-2 leading-tight tabular-nums">
+        {record.displayValue}
+      </p>
+      <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-2 font-mono">
+        {record.pirep.flightNumber ?? 'PIREP'} ·{' '}
+        {record.pirep.departureIcao} → {record.pirep.arrivalIcao}
+      </p>
+      <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">
+        {record.pirep.submittedAt.toLocaleDateString('de-DE')}
+        {record.pirep.aircraftType && ` · ${record.pirep.aircraftType}`}
+      </p>
+    </Link>
   );
 }
