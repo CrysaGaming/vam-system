@@ -1,7 +1,7 @@
 'use server';
 
 import { auth } from '@/auth';
-import { prisma, Prisma, processFlightEconomy, InsufficientFundsError, runAutoGrantForUser } from '@vam/db';
+import { prisma, Prisma, processFlightEconomy, InsufficientFundsError, runAutoGrantForUser, evaluatePilotGoals } from '@vam/db';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { emitPirepApproved, emitPirepRejected, emitPirepSubmitted } from '@/lib/bot-events';
@@ -269,6 +269,24 @@ export async function approvePirep(pirepId: string) {
     }
   } catch (err) {
     console.error('[approvePirep] auto-grant evaluation failed:', err);
+  }
+
+  // Track 5 #10 — Evaluate pilot-goals nach approval. Idempotent
+  // (skipt periods that already incremented). Fire-and-forget mit
+  // try/catch — goal-eval-fehlschlag darf approval nicht blockieren.
+  // Period-keys werden in UTC berechnet (V1), pilots in unterschiedlichen
+  // tz könnten leicht abweichende period-boundaries erleben aber das ist
+  // ok für streak-counts in der grössenordnung von wochen/monaten.
+  try {
+    const goalResults = await evaluatePilotGoals(pirep.userId);
+    const incremented = goalResults.filter((r) => r.incrementedThisCall);
+    if (incremented.length > 0) {
+      console.info(
+        `[approvePirep] pilot-goal streak incremented for user ${pirep.userId}: ${incremented.map((r) => `${r.kind}=${r.newStreak}`).join(', ')}`,
+      );
+    }
+  } catch (err) {
+    console.error('[approvePirep] pilot-goal evaluation failed:', err);
   }
 
   // Caches invalidieren

@@ -967,6 +967,12 @@ model User {
   // anonymous annotation ist semantisch sinnlos in einem instructor-
   // feedback-context).
   pirepAnnotationsAuthored PirepAnnotation[] @relation("PirepAnnotationAuthor")
+
+  // Track 5 #10 (Flight Streaks & Goals): Selbst gesetzte ziele des pilots
+  // (weekly flights, monthly hours, etc.). Cascade-delete via PilotGoal.user
+  // — bei user-löschung verschwinden die goals mit. Pro user max 1 goal
+  // pro kind (via @@unique constraint in PilotGoal).
+  pilotGoals PilotGoal[]
 }
 
 model LiveSession {
@@ -3875,4 +3881,92 @@ model BookingTemplate {
   //   - \"alle templates dieser airline\" (admin/debug, ggf. später)
   @@index([userId, createdAt])
   @@index([airlineId])
+}
+
+/// Track 5 #10 (Section B): Flight Streaks & Goals.
+///
+/// Pilot kann sich selbst ziele setzen (z.B. "5 Flüge pro Woche" oder
+/// "20 Stunden pro Monat") und das system trackt streak-counts für
+/// aufeinanderfolgende perioden in denen das ziel erfüllt war.
+///
+/// # Streak-Mechanik
+///
+/// Nach jeder PIREP-approval läuft evaluatePilotGoals(userId):
+///   1. Check pro goal: wieviele PIREPs/stunden hat der pilot in der
+///      AKTUELLEN periode (z.B. diese kalender-woche oder dieser monat)?
+///   2. Wenn target erreicht und periode != lastEvaluatedPeriod:
+///      currentStreak += 1, bestStreak = max(bestStreak, currentStreak)
+///   3. Wenn eine periode komplett versäumt wurde (z.B. user war 2
+///      wochen weg und kommt zurück): currentStreak = 0
+///
+/// Period-boundaries:
+///   - Weekly: ISO week (Mo-So), UTC-basiert
+///   - Monthly: kalender-monat 1.-letzter, UTC
+///
+/// V1 ist UTC-only. V2 könnte user.timezone berücksichtigen damit
+/// pilots in Asien nicht 8h früher als Europäer in eine neue periode
+/// rutschen.
+///
+/// # Kind enum
+///
+/// Verschiedene ziel-arten ähnlich zum criteria-DSL von #7, aber
+/// period-scoped statt lifetime-cumulative:
+///   - WeeklyFlights / MonthlyFlights: count von approved PIREPs
+///   - WeeklyHours / MonthlyHours: sum(flightTimeMin) / 60
+///
+/// V1 ist diese 4 kinds. Erweiterbar: WeeklyDistance, MonthlyDistance,
+/// etc. — additive zukünftig ohne migration weil enum-add ist additive.
+///
+/// # Unique constraint
+///
+/// Ein user darf pro kind nur EIN goal haben. Verhindert dass ein pilot
+/// zwei "5 Flüge/Woche"-goals anlegt die beide getrackt würden. Wenn er
+/// den target ändern will: edit das existing goal (server-action).
+model PilotGoal {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  kind   PilotGoalKind
+  target Int
+
+  /// Aktueller streak-counter. Wird inkrementiert wenn die aktuelle
+  /// periode das target erreicht hat UND die periode neu ist seit dem
+  /// letzten increment. Reset auf 0 wenn eine periode komplett versäumt
+  /// wurde (kein PIREP submitted in der periode, target nicht erreicht).
+  currentStreak Int @default(0)
+
+  /// Höchster streak den dieser pilot je auf diesem goal hatte.
+  /// Monoton steigend — nie heruntergesetzt. Für "deine beste serie war
+  /// 8 wochen am stück"-anzeige.
+  bestStreak Int @default(0)
+
+  /// Identifier der periode in der zuletzt evaluiert wurde, in form
+  /// "2026-W19" (weekly) oder "2026-05" (monthly). Wird beim erfolg-
+  /// reichen increment auf die current-period gesetzt. Verhindert
+  /// double-increment innerhalb derselben periode (z.B. wenn der pilot
+  /// 7 PIREPs in einer woche fliegt bei target=5 → streak += 1 EINMAL,
+  /// nicht 3x).
+  lastIncrementedPeriod String?
+
+  /// Letzter evaluator-lauf (zum debug/audit). Wird bei jedem
+  /// evaluatePilotGoals-call refreshed, unabhängig von success/streak-
+  /// change.
+  lastEvaluatedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Ein user kann pro kind nur ein goal setzen.
+  @@unique([userId, kind])
+
+  // "Alle goals von user X" ist der einzige relevante query-pfad.
+  @@index([userId])
+}
+
+enum PilotGoalKind {
+  WeeklyFlights
+  WeeklyHours
+  MonthlyFlights
+  MonthlyHours
 }

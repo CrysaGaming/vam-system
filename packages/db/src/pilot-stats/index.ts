@@ -27,3 +27,26 @@ export {
   type LeaderboardPilotSummary,
   type LeaderboardKind,
 } from "./leaderboards.js";
+
+// Track 5 #10 — Flight Streaks & Goals. Pilot kann ziele setzen
+// (WeeklyFlights/Hours, MonthlyFlights/Hours). System trackt streak-
+// counts für aufeinanderfolgende perioden in denen target erfüllt war.
+// evaluator läuft nach PIREP-approval, fire-and-forget.
+export {
+  listPilotGoals,
+  createPilotGoal,
+  updatePilotGoal,
+  deletePilotGoal,
+  evaluatePilotGoals,
+  getWeekKey,
+  getMonthKey,
+  getPeriodKey,
+  getPeriodRange,
+  getPreviousPeriodKey,
+  type PilotGoalWithProgress,
+  type GoalEvaluationResult,
+} from "./goals.js";
+
+// Re-export Prisma-Generated types — UI consumed via @vam/db.
+export { PilotGoalKind } from "@prisma/client";
+export type { PilotGoal } from "@prisma/client";
