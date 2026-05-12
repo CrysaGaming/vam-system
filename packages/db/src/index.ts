@@ -199,3 +199,9 @@ export * from "./integrity/index.js";
 // heuristisch via userId + departure/arrival + zeitfenster (für
 // VATSIM/IVAO/manuelle PIREPs). Read-only, keine actions.
 export * from "./replay/index.js";
+
+// Track 5 #6 (Section B): Pilot-Career-Stats. Pure aggregation helper
+// über approved PIREPs eines pilots — totals, recent-windows, landing-
+// stats, aircraft/route breakdowns, network split, 12-month-trend.
+// Konsumiert von /pilots/[id]/stats. Kein neues schema, nur queries.
+export * from "./pilot-stats/index.js";

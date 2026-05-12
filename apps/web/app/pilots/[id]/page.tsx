@@ -242,6 +242,20 @@ export default async function PilotProfile({
           >
             ← Alle Piloten
           </Link>
+          {/* Track 5 #6 (Section B): Career-Stats-Link. Sichtbar für alle
+              viewer der die page sehen dürfen (auth-check oben hat das
+              bereits gemacht — same-airline OR admin). Indigo damit es
+              optisch vom "← Alle Piloten"-zurück-button unterscheidbar
+              ist. Mobile: über die Year-in-Review verschoben, beide
+              flex-wrap-tauglich. */}
+          <Link
+            href={`/pilots/${pilot.id}/stats`}
+            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-sm font-medium transition flex items-center gap-1.5"
+            title="Career-Stats: Totals, Trends, Aircraft- und Routen-Breakdown"
+          >
+            <span aria-hidden="true">📊</span>
+            Stats
+          </Link>
           {isMe && (
             <Link
               href="/me/year-in-review"
