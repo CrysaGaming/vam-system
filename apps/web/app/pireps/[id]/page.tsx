@@ -372,6 +372,28 @@ export default async function PirepDetail({
                 Play Flight
               </Link>
             )}
+            {/* Track 5 #5 (PIREP-Logbook PDF): "Download Logbook"-button.
+                Direkter <a>-link auf die API-route — kein client-state nötig,
+                der browser handled den download via Content-Disposition.
+                target=_blank verhindert dass die aktuelle PIREP-page durch
+                ein potentielles error-JSON ersetzt wird wenn der server
+                den PDF-render fehlschlägt.
+
+                Conditional: nur bei status !== 'Draft' rendern. Draft-PIREPs
+                sind noch unfertig — kein sinnvolles logbook bevor der
+                pilot submitted. */}
+            {pirep.status !== 'Draft' && (
+              <a
+                href={`/api/pireps/${pirep.id}/logbook`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-sm font-medium transition flex items-center gap-1.5"
+                title="Single-page A4 PDF mit allen Flight-Metriken"
+              >
+                <span aria-hidden="true">📄</span>
+                Logbook PDF
+              </a>
+            )}
             {/* Track 5 #1 (PIREP-Comparison-Mode): "Compare with..."-picker.
                 Native <details>+<summary> als zero-JS-dropdown. Bei click
                 expandiert eine list mit max 8 sibling-PIREPs (selbe user,
