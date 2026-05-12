@@ -205,3 +205,10 @@ export * from "./replay/index.js";
 // stats, aircraft/route breakdowns, network split, 12-month-trend.
 // Konsumiert von /pilots/[id]/stats. Kein neues schema, nur queries.
 export * from "./pilot-stats/index.js";
+
+// Track 5 #11 (Section C): Public-Profile helpers. getPublicProfile()
+// returnt scrubbed-public view auf einen pilot (id, name, image, bio,
+// tagline, rank, airline, total flights/hours, recent 5 flights, top-3
+// aircraft). Throws PublicProfileNotFoundError wenn user nicht existiert
+// ODER sein isProfilePublic-flag false ist. Konsumiert von /p/[id].
+export * from "./users/index.js";

@@ -729,3 +729,36 @@ export async function setUserBio(rawBio: string | null) {
 
   return { success: true, bio: normalized };
 }
+
+/**
+ * Track 5 #11 (Section C): Public-profile visibility toggle.
+ *
+ * Setzt User.isProfilePublic. Default false (privacy-first opt-in).
+ * Wenn enabled, ist /p/[userId] öffentlich zugänglich ohne login und
+ * zeigt scrubbed-public-view (name, image, bio, rank, airline, totals,
+ * recent 5 PIREPs). Wenn disabled, returnt die page 404.
+ *
+ * Side-effects:
+ *   - Enable: nichts wird vor-berechnet/gecached. Erster page-hit
+ *     macht die queries.
+ *   - Disable: existing externe links auf die public-page brechen
+ *     (404). Das ist by design — kein "delayed deactivation" oder
+ *     "kept for 24h" — privacy-toggle muss sofort wirken.
+ *
+ * Revalidates /settings (für die toggle-card) + /p/[userId] (damit
+ * der ISR-cache eines vorherigen public-view weg ist).
+ */
+export async function setProfileVisibility(isPublic: boolean) {
+  const session = await auth();
+  if (!session?.user) throw new Error('Unauthorized');
+
+  await prisma.user.update({
+    where: { id: session.user.id },
+    data: { isProfilePublic: isPublic },
+  });
+
+  revalidatePath('/settings');
+  revalidatePath(`/p/${session.user.id}`);
+
+  return { success: true, isProfilePublic: isPublic };
+}

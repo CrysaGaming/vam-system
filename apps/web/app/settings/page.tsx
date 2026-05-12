@@ -30,6 +30,7 @@ import { getAcarsStatus } from './acars-actions';
 import { EconomyCard } from './economy-card';
 import { CareerCard } from './career-card';
 import { BioCard } from './bio-card';
+import { ProfileVisibilityCard } from './profile-visibility-card';
 
 /**
  * Settings page — refactored from a long single-column layout into 4
@@ -77,6 +78,9 @@ export default async function SettingsPage({
       simBriefUsername: true,
       // Track 4 #61 (Section L): bio-feld für BioCard im Profil-tab.
       bio: true,
+      // Track 5 #11 (Section C): isProfilePublic für ProfileVisibilityCard.
+      // Default false (privacy-first). User wählt opt-in für public /p/[id].
+      isProfilePublic: true,
       // Welle 13D-1: economy-flag + airline-flag für die <EconomyCard>
       // im Profil-tab. user.economyEnabled ist der toggle-state, die
       // airline-flag dient für den hint-text wenn beide voneinander
@@ -206,6 +210,19 @@ export default async function SettingsPage({
           als optionaler additiv. */}
       <div className="mt-6">
         <BioCard initialBio={user.bio} />
+      </div>
+
+      {/* Track 5 #11 (Section C): Public-Profile-Toggle. Privacy-first
+          opt-in (default false). Wenn enabled, ist /p/[userId] öffentlich
+          ohne login zugänglich. Foundation für #13 follow-system —
+          ein user kann nur followed werden wenn er ein public profile hat.
+          id="profile" anchor erlaubt deep-links via /settings#profile
+          (zb. vom owner-only "Bearbeiten"-link auf der /p/[id]-page). */}
+      <div className="mt-6">
+        <ProfileVisibilityCard
+          userId={user.id}
+          initialIsPublic={user.isProfilePublic}
+        />
       </div>
     </>
   );

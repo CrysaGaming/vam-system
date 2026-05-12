@@ -701,6 +701,24 @@ model User {
   birthday        DateTime? @db.Date
   birthdayPublic  Boolean   @default(false)
 
+  // Track 5 #11 (Section C): Public-Profile opt-in.
+  //
+  // Wenn true: Profile-page /p/[id] ist öffentlich zugänglich (kein
+  // login nötig) und zeigt einen scrubbed-public-view (name, image,
+  // bio, tagline, rank-name, airline-icao, total-flights/hours,
+  // letzte 5 approved PIREPs). KEINE economy-daten, KEINE booking-
+  // history, KEINE email, KEINE notification-prefs.
+  //
+  // Wenn false (default): /p/[id] returnt 404. Die internal-page
+  // /pilots/[id] (same-airline OR admin) bleibt unverändert.
+  //
+  // Opt-in (default false) statt opt-out: privacy-first. Pilot
+  // muss aktiv entscheiden seine carrier mit anderen zu teilen.
+  //
+  // V2 könnte custom-slug einführen (`/p/captain-yoda` statt
+  // `/p/clx123abc`), ist aber V1 nicht nötig.
+  isProfilePublic Boolean   @default(false)
+
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
