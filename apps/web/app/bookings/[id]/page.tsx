@@ -16,6 +16,7 @@ import { CancelBookingDialog } from './CancelBookingDialog';
 import { RoutePreviewMap } from './route-preview-map';
 import { WeatherBriefing } from './weather-briefing';
 import { AlternatePicker } from './alternate-picker';
+import { AirportBriefingCard } from './airport-briefing';
 import { RecentItemTracker } from '@/components/recent-item-tracker';
 
 function stateStyle(state: BookingState): { className: string; label: string } {
@@ -399,6 +400,17 @@ export default async function BookingDetail({
         <AlternatePicker
           arrivalIcao={booking.route.arrival.icao}
           departureIcao={booking.route.departure.icao}
+        />
+
+        {/* Track 5 #19 (Section D) — Airport-Briefing. 2-spalten card
+            mit RWYs, ATC-frequencies und ILS-approach-aids für beide
+            airports. Pure aggregator über Runway + AirportFrequency +
+            Navaid tables (alle aus OurAirports-bulk-import). Komplett
+            hidden wenn beide briefings null. Statische daten, keine
+            NOTAMs — Disclaimer in der card. */}
+        <AirportBriefingCard
+          departureIcao={booking.route.departure.icao}
+          arrivalIcao={booking.route.arrival.icao}
         />
 
         {/* Tour-Progress (option #17). Only rendered for multi-leg bookings
