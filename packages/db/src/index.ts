@@ -212,3 +212,9 @@ export * from "./pilot-stats/index.js";
 // aircraft). Throws PublicProfileNotFoundError wenn user nicht existiert
 // ODER sein isProfilePublic-flag false ist. Konsumiert von /p/[id].
 export * from "./users/index.js";
+
+// Track 5 #12 (Section C): Airline Activity Feed. Pure-aggregator über
+// existierende tables (kein schema-change). Mergt approved PIREPs +
+// UserAward grants + PirepKudos in eine timeline der letzten 14 tage
+// (oder custom-window). Konsumiert von /feed.
+export * from "./activity/index.js";
