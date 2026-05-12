@@ -89,6 +89,12 @@ export { EmploymentStatus } from "@prisma/client";
 // arbeiten können.
 export { ScheduledFlightStatus } from "@prisma/client";
 export type { ScheduleTemplate, ScheduledFlight } from "@prisma/client";
+
+// Track 5 #26 (Section F): Roster-Assignment enum + type. Status-enum
+// fürs UI (badge-colors, filter-tabs), Type-export für queries die
+// RosterAssignment includen. Helpers separat via ./roster barrel unten.
+export { RosterAssignmentStatus } from "@prisma/client";
+export type { RosterAssignment } from "@prisma/client";
 // Welle 9: ACARS Phase 2-5. Simulator + AcarsEventType enums für die
 // settings-UI (sim-picker) und die heartbeat/event-API endpoints.
 // Type-exports für die pairing-helpers + auto-PIREP-trigger.
@@ -258,3 +264,10 @@ export * from "./airports/index.js";
 // VAPID-signing + 410-cleanup) lebt in apps/web/lib/push/vapid.ts
 // damit die @vam/db lib bundle-frei bleibt.
 export * from "./push/index.js";
+
+// Track 5 #26 (Section F): Roster-Assignment CRUD layer. Airline weist
+// pilots zu scheduled-flights zu (separates konzept vom Booking, das
+// pilot-self-service ist). Business-logic (eligibility-check,
+// auto-rotation, swap-flow, no-show-detection) lebt in apps/web/lib/roster/
+// — hier nur pure persistence.
+export * from "./roster/index.js";

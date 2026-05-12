@@ -561,6 +561,11 @@ model Airline {
   // Track 4 #67 (Section M): Booking-templates dieser airline (alle pilots
   // dieser airline). Cascade-delete via BookingTemplate.airline.
   bookingTemplates BookingTemplate[]
+
+  // Track 5 #26 (Section F): Roster-assignments dieser airline. Cascade-
+  // delete via RosterAssignment.airline — wenn die airline weg ist, sind
+  // alle assignments orphans und sollten mit weg.
+  rosterAssignments RosterAssignment[]
 }
 
 model User {
@@ -1014,6 +1019,15 @@ model User {
   // daher ist die relation 1:N. Bei user-löschung cascade-delete alle
   // subscriptions (sonst zeigen orphan-endpoints auf nicht-existente user).
   pushSubscriptions PushSubscription[]
+
+  // Track 5 #26 (Section F): Roster-assignments. Zwei separate relations
+  // weil ein user sowohl assignee (pilot) ALS auch assigner (admin) sein
+  // kann — wir wollen beide tracken. RosterAssignment.pilot = wem ist's
+  // zugewiesen (cascade-delete), RosterAssignment.assignedBy = wer hat's
+  // erstellt (SetNull damit assignments überleben wenn der admin gelöscht
+  // wird; die assignment selbst ist ja immer noch valid).
+  rosterAssignments         RosterAssignment[] @relation("RosterAssignmentPilot")
+  rosterAssignmentsAssigned RosterAssignment[] @relation("RosterAssignmentAssignedBy")
 }
 
 // Track 5 #24 (Section E) — Web Push Subscription
@@ -1051,6 +1065,117 @@ model PushSubscription {
   updatedAt DateTime @updatedAt
 
   @@index([userId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Track 5 #26 (Section F) — Roster / Schedule Assignments
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Lifecycle einer roster-assignment. Bewusst SCREAMING_SNAKE_CASE wie auch
+/// ScheduledFlightStatus (existing convention im schema, anders als manche
+/// Track-4-enums die PascalCase nutzen — wir matchen den nachbarn).
+///
+/// State transitions:
+///
+///   ASSIGNED ──pilot-ack──► ACCEPTED ──pirep-approved──► COMPLETED
+///       │                       │
+///       │                       └──pilot-no-pirep-by-deadline──► NO_SHOW
+///       │
+///       ├──admin-cancel──► CANCELLED
+///       └──pilot-swap──► SWAPPED (sister-assignment created for other pilot)
+///
+/// COMPLETED setzt der approve-PIREP-flow automatisch (PIREP.rosterAssignment
+/// back-relation). NO_SHOW wird durch einen cron-job oder check-on-load
+/// gesetzt (#30). Andere transitions sind manuell vom user oder admin.
+enum RosterAssignmentStatus {
+  ASSIGNED
+  ACCEPTED
+  COMPLETED
+  SWAPPED
+  CANCELLED
+  NO_SHOW
+}
+
+/// Roster-assignment: airline weist einen pilot einer scheduled-flight zu.
+/// Unterscheidet sich vom Booking-model (existing): Booking = pilot-self-
+/// service-pick, RosterAssignment = airline-pushes-to-pilot. NO_SHOW-
+/// tracking + swap-flow + auto-rotation gibt's nur für rostered flights,
+/// nicht für voluntary bookings.
+///
+/// # Lifecycle relations zu Pirep
+///
+/// Der pilot fliegt die assignment normal (creates Pirep). Beim PIREP-
+/// approve setzt der flow `pirepId` hier auf den approved PIREP und
+/// transitions status → COMPLETED. Das gibt uns auch das umgekehrte
+/// statement: "wenn ein PIREP eine rosterAssignment hat → war rostered".
+///
+/// # @@unique([pilotId, scheduledFlightId])
+///
+/// Ein pilot kann nur EINE assignment per scheduled-flight haben. Verhindert
+/// doppelt-roster bei admin-fehlern + macht das "swap"-pattern sauber
+/// (alte assignment status=SWAPPED, neue assignment für anderen pilot).
+/// Auch verhindert dass dieselbe pilot+flight-kombo zweimal in der queue
+/// vom auto-rostering landet (#28).
+model RosterAssignment {
+  id        String  @id @default(cuid())
+  airlineId String
+  airline   Airline @relation(fields: [airlineId], references: [id], onDelete: Cascade)
+
+  pilotId String
+  pilot   User   @relation("RosterAssignmentPilot", fields: [pilotId], references: [id], onDelete: Cascade)
+
+  scheduledFlightId String
+  scheduledFlight   ScheduledFlight @relation(fields: [scheduledFlightId], references: [id], onDelete: Cascade)
+
+  status RosterAssignmentStatus @default(ASSIGNED)
+
+  /// Optional override des ScheduledFlight.preferredAircraft. Wenn der
+  /// admin will dass der pilot ein spezifisches airframe fliegt (z.B.
+  /// weil das training-aircraft den senior-captains zugewiesen ist),
+  /// kann er das hier festschreiben. NULL = pilot wählt selbst.
+  assignedAircraftId String?
+  assignedAircraft   Aircraft? @relation("RosterAssignmentAssignedAircraft", fields: [assignedAircraftId], references: [id], onDelete: SetNull)
+
+  /// Wer hat die assignment erstellt (admin, instructor, oder auto-roster-
+  /// job=NULL). SetNull-cascade damit assignments überleben wenn der admin
+  /// gelöscht wird (would-be-orphan ist nicht das problem der assignment).
+  assignedById String?
+  assignedBy   User?   @relation("RosterAssignmentAssignedBy", fields: [assignedById], references: [id], onDelete: SetNull)
+
+  /// Optional admin-notiz (warum diese assignment, special-instructions).
+  /// 500 chars cap — wenn länger nötig, geht's ins notification-system.
+  note String? @db.VarChar(500)
+
+  /// 1:0..1 zur PIREP. Set wenn pilot die assignment erfüllt + PIREP approved.
+  /// Triggers status→COMPLETED. SetNull damit assignment überlebt wenn der
+  /// PIREP nachträglich gelöscht wird (rare, aber soll keine FK-violation
+  /// machen).
+  pirepId String? @unique
+  pirep   Pirep?  @relation(fields: [pirepId], references: [id], onDelete: SetNull)
+
+  /// Wann pilot accepted hat (NULL bis transition ASSIGNED→ACCEPTED).
+  acceptedAt DateTime?
+
+  /// Wann die assignment COMPLETED wurde (PIREP-approve-zeitpunkt). NULL
+  /// für non-completed assignments.
+  completedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// Pilot kann nicht zwei-mal zur selben scheduled-flight gerostert sein
+  /// (siehe model-docstring).
+  @@unique([pilotId, scheduledFlightId])
+
+  /// Häufige queries:
+  /// - "alle aktiven assignments meiner airline" (admin overview)
+  /// - "meine assignments als pilot" (dashboard widget)
+  /// - "alle assignments für diesen flight" (admin flight-detail)
+  /// - "wann wurde das geroster" (audit-log + recency sortierung)
+  @@index([airlineId, status])
+  @@index([pilotId, status])
+  @@index([scheduledFlightId])
+  @@index([airlineId, createdAt])
 }
 
 model LiveSession {
@@ -1337,6 +1462,12 @@ model Aircraft {
   // preferredAircraftId-FK haben (informational, keine hard-block in 7A).
   scheduleTemplatePreferences ScheduleTemplate[] @relation("ScheduleTemplatePreferredAircraft")
   scheduledFlightPreferences  ScheduledFlight[]  @relation("ScheduledFlightPreferredAircraft")
+
+  // Track 5 #26 (Section F): Roster-assignments mit explizit zugewiesenem
+  // airframe (override des ScheduledFlight.preferredAircraft). SetNull-
+  // cascade damit assignment überlebt wenn das aircraft gelöscht wird —
+  // admin kann dann ein neues airframe nachreichen.
+  rosterAssignmentsAircraft RosterAssignment[] @relation("RosterAssignmentAssignedAircraft")
 
   // Welle 5: Indexes für die /airline/aircraft filter-UI.
   // - (airlineId, status): "alle aktiven aircraft meiner airline" (häufigster query)
@@ -1658,6 +1789,14 @@ model Pirep {
   // externen host (imgur/discord-cdn/etc) plus optional caption.
   // Cascade-delete via PirepPhoto.pirep.
   photos PirepPhoto[]
+
+  // Track 5 #26 (Section F): Wenn dieser PIREP eine roster-assignment
+  // erfüllt, link back damit beim PIREP-approve die assignment auf
+  // COMPLETED gesetzt werden kann. 1:0..1 (genau eine assignment pro
+  // PIREP — falls der pilot freiwillig zusätzlich was geflogen ist,
+  // ist's einfach NULL). Optionale relation; SetNull damit der PIREP
+  // überlebt wenn die assignment gelöscht wird.
+  rosterAssignment RosterAssignment?
 
   @@index([userId, submittedAt])
   @@index([airlineId, status])
@@ -2460,6 +2599,14 @@ model ScheduledFlight {
   @@index([routeId, departureTime])
   @@index([preferredAircraftId, departureTime])
   @@index([departureTime])
+
+  // Track 5 #26 (Section F): Roster-assignments für diesen scheduled-flight.
+  // 1:N weil theoretisch ein flight an mehrere pilots geroster-werden kann
+  // (z.B. captain + first-officer roster-trennung). Erst-version unterstützt
+  // das aber NICHT als feature — siehe @@unique constraint im RosterAssignment
+  // model. Cascade-delete via RosterAssignment.scheduledFlight damit cleanup
+  // sauber ist wenn ein flight cancelled wird.
+  rosterAssignments RosterAssignment[]
 }
 
 // ─────────────────────────────────────────────────────────────────────────

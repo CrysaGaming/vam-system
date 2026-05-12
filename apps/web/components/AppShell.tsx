@@ -925,6 +925,12 @@ function Sidebar({ user, pathname }: SidebarProps) {
             <NavLink href="/airline/pilots" pathname={pathname} icon="👥" label="Personal" />
             <NavLink href="/airline/routes" pathname={pathname} icon="🛣️" label="Routen-Verwaltung" />
             <NavLink href="/airline/schedule" pathname={pathname} icon="🕒" label="Schedule" />
+            {/* Track 5 #26 (Section F): Roster-overview-link für admin-side.
+                Sitzt unter Schedule weil das die conceptual-progression ist:
+                Schedule = wann/was fliegt (templates + instances), Roster =
+                wer fliegt das (pilot↔scheduled-flight assignments). Filter-
+                tabs in der page selbst (Anstehend/Probleme/Abgeschlossen). */}
+            <NavLink href="/airline/roster" pathname={pathname} icon="📋" label="Roster" />
           </NavSection>
         )}
 

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { WalletCard } from "./wallet-card";
 import { CurrencyCard } from "./currency-card";
 import { GoalCard } from "./goal-card";
+import { DashboardRosterCard } from "./roster-card";
 
 export default async function Dashboard() {
   const session = await auth();
@@ -415,6 +416,19 @@ export default async function Dashboard() {
             dayOfYear={dayOfYear}
             daysInYear={daysInYear}
           />
+        )}
+
+        {/* Track 5 #26 (Section F): Roster-card mit den nächsten roster-
+            assignments. Server-component die selbst 0-state handhabt (renders
+            null wenn keine assignments). Gated auf user.airline weil ohne
+            airline-mitgliedschaft keine assignments existieren — das spart
+            eine DB-round-trip im "kein airline"-fall. Sitzt zwischen GoalCard
+            (forward-looking ziel) und Letzte Flüge (backward-looking history)
+            damit der "what's next" gedanken-flow konsistent läuft. */}
+        {user.airline && (
+          <div className="mt-6">
+            <DashboardRosterCard pilotId={user.id} />
+          </div>
         )}
 
         {/* Letzte PIREPs + Top-3-Leaderboard */}
