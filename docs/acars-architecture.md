@@ -4,11 +4,62 @@
 > Klammer um den SimConnect-Datenkatalog (was wir lesen) und die Pirep-Analyse-Page
 > (was wir damit anzeigen). Beschreibt das **Wie** zwischen Sim und Web.
 
-**Stand:** April 2026  
+**Stand:** April 2026 (initiale architektur-vision) · **Aktualisiert:** 13. Mai 2026 mit status-realität
 **Voraussetzungen:**
 - [`simconnect-data-catalog.md`](./simconnect-data-catalog.md) — Welche Daten verfügbar sind
 - [`pirep-analysis-page.md`](./pirep-analysis-page.md) — Was am Ende angezeigt wird
 - [`todo-obs-overlay-system.md`](./todo-obs-overlay-system.md) — Phase 8 dieser Roadmap
+
+---
+
+## 🔵 STATUS-UPDATE (13. Mai 2026) — Was tatsächlich gebaut wurde
+
+> Dieses dokument ist die **architektur-vision** von April 2026. Die echte implementation hat seitdem stattgefunden und in **manchen punkten andere wege genommen** als hier ursprünglich skizziert. Dieser status-block fasst die wichtigsten abweichungen zusammen — der rest des dokuments ist für context erhalten.
+
+### Tech-Stack-Realität (vs. Section 13 weiter unten)
+
+**Hier in Section 13 steht:** Electron + React + TypeScript + node-simconnect
+**Realität:** WPF + .NET 10 + Microsoft SimConnect.dll (managed wrapper)
+**Repo:** [github.com/CrysaGaming/vam-acars-client](https://github.com/CrysaGaming/vam-acars-client), branch `master`
+
+Warum der wechsel: node-simconnect ist community-maintained mit single-point-of-failure bei MSFS-updates. Microsoft SimConnect-managed-wrapper ist offiziell und survives sim-updates direkter. Plus: .NET self-contained binary ist 50% kleiner als electron-äquivalent (~70 MB vs ~140 MB).
+
+### Implementations-Phasen-Status
+
+| Phase aus Section 8 (Migrations-Plan) | Plan | Realität |
+|---|---|---|
+| Phase 0 (DB-Vorbereitung) | ~30 min | ✅ DONE — NetworkType, DataSource, preferredNetwork alle migriert |
+| Phase 1 (ACARS-Backend ~3 tage) | 6 endpoints | ✅ DONE — pairing/redeem, heartbeat, event, disconnect, status alle live unter `apps/web/app/api/acars/` |
+| Phase 2 (ACARS-Client ~5-7 tage) | Electron-stack | ✅ DONE — als WPF/.NET (M1-M4 in github-repo, ~90 commits) |
+| Phase 3 (Auto-PIREP ~2-3 tage) | Block-On detection + auto-generation | ✅ DONE — `apps/web/lib/acars/auto-pirep.ts` + `generate-pirep.ts` mit Draft-flow (option #19) |
+| Phase 4 (Pirep-Detail-Page) | MVP-page | ⏳ Partial — basic page existiert, premium features (3D-globe, weather-compare, ATC-sessions) noch offen |
+
+### Erweiterungen aus Section 11 — Status
+
+| Erweiterung | Section 11 hier | Realität |
+|---|---|---|
+| Wettervergleich (Sim vs Real METAR) | Vorgeschlagen, ~2-3 tage | ❌ Noch offen — siehe [`acars-client-roadmap.md`](./vision/acars-client-roadmap.md) Welle B1 |
+| ATC-Integration (COM-Freq matching) | Vorgeschlagen, ~3-4 tage | ❌ Noch offen — Welle B2 |
+| Heatmap aller pilots | Vorgeschlagen, ~2-3 tage | ❌ Noch offen — Welle E5 |
+
+### Open Questions aus Section 14 — Status
+
+| Frage | Resolved? |
+|---|---|
+| Token-storage: OS-Keychain vs File | ✅ DPAPI (windows-native, ähnlich keychain) |
+| PIREP-Auto-Submit vs User-Review | ✅ User-Review (Draft seit option #19) |
+| Multi-Device-Support | ❌ noch offen — Welle D2 |
+| Code-Signing-Cert | ❌ noch offen — Welle D4 |
+| Demo-Mode ohne pairing | ❌ noch offen — Welle D5 |
+| White-Label per VA | ❌ noch offen — Welle D3 |
+| Aircraft-Substitution-Reject vs Warning | ❌ noch offen — Welle B4 (warning-with-flag empfohlen) |
+| Crashed-Sim-Resume-Window | ✅ done (option #13 crash-recovery mit session-marker) |
+
+### Single source of truth für post-MVP
+
+→ **Für was als nächstes gemacht wird, siehe: [`docs/vision/acars-client-roadmap.md`](./vision/acars-client-roadmap.md)**
+
+Diese architektur-doc (acars-architecture.md) bleibt erhalten als **system-design-reference** — die kapitel 3 (Schema), 4 (Datenfluss), 5 (API-Endpoints), 6 (Auth-Flow), 9 (Edge-Cases), 10 (Performance) sind weiter gültig und beschreiben das implementierte system korrekt. Nur Section 13 (Tech-Stack) ist superseded durch die WPF-realität.
 
 ---
 

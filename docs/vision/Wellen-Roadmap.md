@@ -1,8 +1,9 @@
 # VAM-System — Wellen-Roadmap
 
 > **Dokument-Typ**: Operative Wellen-Roadmap (Was-jetzt-vs-Was-als-nächstes)
-> **Stand**: 2026-05-03 (Tag 6, Sonntag)
-> **Status**: 187 commits gepusht, 90 in den letzten 4 tagen
+> **Stand**: 2026-05-13 (status-update für ACARS — see Welle 9 + neue [`acars-client-roadmap.md`](./acars-client-roadmap.md))
+> **Original**: 2026-05-03 (Tag 6, Sonntag)
+> **Status**: 187+ commits gepusht. ACARS-client (extern repo) hat ~30 commits seit 0.1.0 mit M1-M6 alle done. vam-system Track 5 (30 PIREP/social/PWA/roster features) komplett abgeschlossen auf cc-experiment branch.
 > **Live**: vam.kevindrack.de
 >
 > **Zweck**:
@@ -16,7 +17,8 @@
 > - `2026-05-01-airline-ops-roadmap.md` — Detaillierte airline-ops 11-Phasen-Roadmap (in Wellen-Mapping unten referenziert)
 > - `Economy-Karriere.md` — Maximal-Vision für economy + career (Wellen 12-19 entsprechen dort)
 > - `twitch-to-sim-integration.md` — Twitch-deep-integration (Welle 11 + spätere)
-> - `acars-architecture.md` — ACARS-roadmap (Welle 9)
+> - `acars-architecture.md` — ACARS-system-design (mit 13. Mai status-update header)
+> - **`acars-client-roadmap.md` — NEU: post-MVP ACARS-client roadmap (Wellen A-E)**
 
 ---
 
@@ -641,28 +643,39 @@ enum JumpseatReason {
 
 ---
 
-## Welle 9: ACARS Phase 2-5 — 🔵 LATER
+## Welle 9: ACARS Phase 2-5 — ✅ KERN DONE (post-MVP siehe acars-client-roadmap.md)
 
 **Scope:** Pairing-Code-System + Heartbeat-API + Eigener ACARS-Client + Premium-Features
 
-**Why this welle:** ACARS ist die foundation für realistic flight-tracking. Aber: aufwand ist substantial (eigener client builden), pioneer-territory.
+**Status update (13. Mai 2026):** Kern-funktionalität ist abgeschlossen. Alle ursprünglichen Phase 2-3 (Pairing-System + ACARS-Client + Auto-PIREP) sind live. Tech-stack-entscheidung: WPF + .NET 10 statt Electron + node-simconnect (siehe [`acars-architecture.md`](../acars-architecture.md) Status-Update-Block).
 
-**Risk:** 🟠 hoch — eigener client ist substantial work
+**Was done ist:**
+- Phase 2: Pairing-code-system mit DPAPI-token-storage (M1, commit `715e409`)
+- Phase 3: Heartbeat-API + replay-queue (M2-M3, commits `86ab693`, `f23701c`, plus M3.5-M3.8)
+- Phase 4: Eigener ACARS-client als WPF tray-app (M4, commits `0406014`, `ee96422`, `81c8163`, `fa2dafa`) + CLI-companion + Velopack auto-update (M5, commits `4afbf2c`, `31e2d74`, `2f246a3`)
+- Auto-PIREP (BLOCK_ON → Draft-PIREP): `apps/web/lib/acars/auto-pirep.ts` + `generate-pirep.ts`, plus client-side BLOCK_ON event emission (commit `3da5cca`)
+- Plus options #3-#14: Re-pair button, live phase-time, audio cue, pre-flight checklist, aircraft auto-detect, OFP-import, crash-recovery, multi-sim-detection
+- Latest: in-app pairing dialog (caee3ee)
+- Released versions 0.1.0 + 0.1.1 via Velopack-packages
+- GitHub auto-release CI on tag push (commit `c448bfb`)
 
-### Features
-- Phase 2: Pairing-code-system (link sim-client to user-account)
-- Phase 3: Heartbeat-API endpoint (sim sends position every 30s)
-- Phase 4: Eigener ACARS-client (rust/python wrapper für SimConnect)
-- Phase 5: Premium-features (wetter-vergleich, ATC-recordings)
+**Was OFFEN ist (post-MVP):** Diese sind jetzt eigenständige roadmap in [`acars-client-roadmap.md`](./acars-client-roadmap.md):
+
+- **Welle A — Polish & Hardening** (🟢, 1-2 wochen): Telemetry-tab, network-loss UX, token-rotate, changelog-viewer, error-reporting → 0.2.0 release
+- **Welle B — PIREP-Enrichment** (🟡, 3-5 wochen): Wettervergleich (sim vs real METAR), ATC-frequenz-tracking, replay-export, aircraft-substitution-flow, route-suggestions
+- **Welle C — Anti-Cheat & Reliability** (🟡, 2-3 wochen): Time-acceleration-detection, position-jump-detection, admin-review-queue, pairing-smoketest-CI
+- **Welle D — Plattform-Expansion** (🟠, 2-3 monate): X-Plane support, multi-device, white-label, code-signing-cert, demo-mode
+- **Welle E — Advanced Features** (🔴, 2-4 monate): Live-streaming sidecar, voice-commands, mobile-companion, multi-pilot-cockpit, heatmap
+
+**Originale Phase-5-vision (Premium-features mit ATC + Wetter) ist also nicht "weg" sondern in die neue ACARS-client-roadmap migriert wo sie als Welle B/E granular spezifiziert sind.**
 
 ### Dependencies
-- ✅ Welle 0 (DataSource-enum schon da)
-
-### Effort-Band: Wochen-monate (pioneer-territory, siehe `acars-architecture.md`)
+- ✅ Welle 0 (DataSource-enum) — done
 
 ### Cross-References
-- `acars-architecture.md` (1441 zeilen)
-- `simconnect-data-catalog.md` (717 zeilen)
+- [`acars-architecture.md`](../acars-architecture.md) — System-design (with status-update header for current state)
+- [`acars-client-roadmap.md`](./acars-client-roadmap.md) — **Single source of truth für ACARS-client post-MVP-roadmap**
+- [`simconnect-data-catalog.md`](../simconnect-data-catalog.md)
 
 ---
 
