@@ -499,6 +499,35 @@ export default async function PirepDetail({
                 Logbook PDF
               </a>
             )}
+            {/* Welle B — B3 (Replay-Export): "Download .vam-replay"-button.
+                Direct <a>-link auf die API-route — same pattern as Logbook
+                PDF above. Browser handles the download via Content-
+                Disposition. target=_blank protects against potential JSON-
+                error responses replacing the current page.
+
+                Conditional: shown for ALL non-Draft PIREPs. Manual PIREPs
+                without a matching session still produce a metadata-only
+                envelope (available=false in `session`, empty positions/
+                events/atcSessions arrays) — useful for archival even
+                when there's no trail. Draft is hidden because the
+                replay-data hasn't stabilized yet and the export would
+                be incomplete.
+
+                Color: slate (neutral archival action), distinct from
+                emerald Logbook PDF (formal logbook), indigo Play Flight
+                (interactive replay), purple Compare (analysis). */}
+            {pirep.status !== 'Draft' && (
+              <a
+                href={`/api/pireps/${pirep.id}/replay-export`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-4 py-2 bg-slate-600 hover:bg-slate-700 text-white rounded text-sm font-medium transition flex items-center gap-1.5"
+                title=".vam-replay file mit positions + events + ATC + weather"
+              >
+                <span aria-hidden="true">📦</span>
+                Replay-Export
+              </a>
+            )}
             {/* Track 5 #1 (PIREP-Comparison-Mode): "Compare with..."-picker.
                 Native <details>+<summary> als zero-JS-dropdown. Bei click
                 expandiert eine list mit max 8 sibling-PIREPs (selbe user,
