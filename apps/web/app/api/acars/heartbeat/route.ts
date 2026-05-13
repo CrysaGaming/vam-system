@@ -201,6 +201,53 @@ const HeartbeatSchema = z.object({
     })
     .optional(),
 
+  // Welle B — B4 phase 1. Aircraft-substitution disposition from the
+  // pre-flight checklist. Sent ONCE at session-start by the ACARS
+  // client (typically on the first heartbeat after the user confirmed
+  // the dialog) and persisted on LiveSession.aircraftSubstitution.
+  //
+  // intent semantics:
+  //   - "intentional"  : pilot deliberately flying a different aircraft
+  //                      than booked (livery issue, mood, training).
+  //                      Optional `reason` lets them explain in free
+  //                      text — UI shows the reason on the PIREP for
+  //                      admin context without escalation.
+  //   - "wrongBooking" : pilot believes the booking aircraft is wrong
+  //                      and wants admin to reconcile. UI raises an
+  //                      admin-flag on the PIREP. No reason field
+  //                      because the disposition itself is the signal.
+  //
+  // The "wrongLoaded — sim schließen" path doesn't reach the server:
+  // the client aborts the connect-flow before any heartbeat is sent.
+  // We don't need a third value here.
+  //
+  // bookedAircraftType / flownAircraftType: captured client-side at
+  // dialog-confirm-time. We persist the snapshot so admin review later
+  // sees exactly what the pilot was looking at when they made the
+  // choice. The server could re-derive these from booking + telemetry
+  // but a snapshot is more honest about "this is what the pilot saw".
+  //
+  // ICAO designator length: ICAO aircraft type codes are 2-4 chars
+  // (A20N, B738, C172, DC10, P28A, etc.). Wider window (1-8) to tolerate
+  // edge cases like manufacturer-specific variants without rejecting
+  // the payload — the field is documentary, not used for matching.
+  //
+  // Reason length: 200 chars — same range used elsewhere in this file
+  // for short user-supplied free text (cf. flightRemarks).
+  //
+  // Optional at the block level: most heartbeats don't carry this
+  // (only the first one of a session, and only when the dialog was
+  // shown). Subsequent heartbeats with this block absent leave the
+  // existing LiveSession.aircraftSubstitution row unchanged.
+  aircraftSubstitution: z
+    .object({
+      intent: z.enum(['intentional', 'wrongBooking']),
+      bookedAircraftType: z.string().min(1).max(8),
+      flownAircraftType: z.string().min(1).max(8),
+      reason: z.string().max(200).nullable().optional(),
+    })
+    .optional(),
+
   forces: z
     .object({
       gForce: z.number().optional(),
@@ -480,6 +527,32 @@ export async function POST(req: NextRequest) {
     isActive: true,
   };
 
+  // Welle B — B4 phase 1. Aircraft-substitution disposition is one-shot
+  // (sent on the heartbeat right after the pre-flight dialog confirms)
+  // and MUST NOT be overwritten on subsequent heartbeats that don't
+  // include the block. We can't just stick `aircraftSubstitution: null`
+  // into sessionFields above — that would clobber the row's existing
+  // value on every heartbeat after the dialog. Solution: build a
+  // separate optional field object that we only populate when the
+  // client actually sent the block, then spread it conditionally into
+  // the create/update payloads below. When the block is absent the
+  // spread is a no-op and Prisma leaves the existing column value
+  // untouched.
+  //
+  // Json cast: Prisma's typed field for Json columns is
+  // `Prisma.InputJsonValue`. The zod-validated `data.aircraftSubstitution`
+  // is a structurally-compatible object, but TS doesn't know that
+  // without the cast. `as unknown as Prisma.InputJsonValue` is the
+  // canonical pattern across this codebase for narrow JSON inserts
+  // (see the buildBlockEventPayload spreads further down).
+  const extraSessionFields: {
+    aircraftSubstitution?: Prisma.InputJsonValue;
+  } = {};
+  if (data.aircraftSubstitution) {
+    extraSessionFields.aircraftSubstitution =
+      data.aircraftSubstitution as unknown as Prisma.InputJsonValue;
+  }
+
   // Position-row to append. Same telemetry-subset that LiveSessionPosition
   // can hold — denormalized so we don't have to join LiveSession to
   // visualize a trail.
@@ -606,7 +679,7 @@ export async function POST(req: NextRequest) {
     const operations: Prisma.PrismaPromise<unknown>[] = [
       prisma.liveSession.update({
         where: { id: existing.id },
-        data: sessionFields,
+        data: { ...sessionFields, ...extraSessionFields },
       }),
       prisma.liveSessionPosition.create({
         data: { ...positionFields, sessionId: existing.id },
@@ -677,6 +750,7 @@ export async function POST(req: NextRequest) {
           externalId: externalIdPlaceholder,
           connectedAt: now,
           ...sessionFields,
+          ...extraSessionFields,
         },
         select: { id: true },
       });

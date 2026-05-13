@@ -1378,6 +1378,42 @@ model LiveSession {
   com1StandbyMhz Float?
   nav1ActiveMhz  Float?
 
+  // Welle B — B4 phase 1. Aircraft-substitution disposition recorded by
+  // the pre-flight checklist when the booking-aircraft and the sim-loaded
+  // aircraft disagree (e.g. pilot books A320 but loads B737 because of
+  // livery issues). The ACARS-client's pre-connect dialog asks the pilot
+  // which of three intents applies, and the choice is persisted here so
+  // it travels through to the PIREP for admin review.
+  //
+  // Shape (when not null):
+  //   {
+  //     "intent": "intentional" | "wrongBooking",
+  //     "bookedAircraftType": "A20N",    // ICAO from Booking.route.aircraft
+  //     "flownAircraftType":  "B738",    // ICAO resolved by M3.8 resolver
+  //     "reason": "livery not loaded"    // optional, only for "intentional"
+  //   }
+  //
+  // We deliberately do NOT track the "wrongLoaded — sim schließen und
+  // neu starten" option here because in that path the pilot aborts
+  // before any heartbeat is sent. The dialog terminates the connect-
+  // flow client-side; no session exists for this user yet, so there's
+  // nothing to persist.
+  //
+  // Json over a dedicated table because: (a) one-shot per-session
+  // disposition with no need for history, (b) two enum values + two
+  // strings + optional reason is small enough that a relational table
+  // would just be ceremony, (c) admin review reads it once via
+  // PIREP-page join and doesn't need indexed queries on the fields.
+  //
+  // Why on LiveSession rather than Pirep: the choice is made BEFORE
+  // any PIREP exists (pre-flight, before BLOCK_OFF). It rides on
+  // LiveSession through the flight and the auto-PIREP path can read
+  // it at PIREP-creation time to decide whether to flag the row.
+  // If we attached it to Pirep directly, we'd need to either delay
+  // the decision until BLOCK_ON or buffer it somewhere else in the
+  // interim — extra moving parts for no benefit.
+  aircraftSubstitution Json?
+
   currentPhase  String? // 'PreFlight'|'Pushback'|'Taxi'|'Takeoff'|'Climb'|'Cruise'|'Descent'|'Approach'|'Landing'|'TaxiIn'|'BlockOn'
   // Welle 9 Phase 5 (server-side phase-detection): timestamp when we entered
   // currentPhase. Used for hysteresis (must hold a phase ≥3s before transition,
