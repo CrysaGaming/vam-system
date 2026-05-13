@@ -11,6 +11,12 @@ import {
 } from '@vam/db';
 import Link from 'next/link';
 import { OfpSummary } from '@/components/OfpSummary';
+import {
+  WeatherComparisonCard,
+  type WeatherComparisonSimData,
+  type WeatherComparisonRealData,
+} from '@/components/weather-comparison-card';
+import { fetchSingleMetar } from '@/lib/metars/fetch-from-bot';
 import { ApprovalActions } from './approval-actions';
 import { DraftActions } from './draft-actions';
 import { KudosButton } from './kudos-button';
@@ -124,6 +130,13 @@ export default async function PirepDetail({
       // the PIREP was filed standalone (no matching active booking) or
       // when the matched booking had no SimBrief plan generated.
       flightPlanCache: true,
+      // Welle B — B1 phase 3. Pull the BLOCK_ON event that triggered
+      // this PIREP so we can walk to LiveSession.environment for the
+      // Weather Comparison card. Null for manual / non-ACARS PIREPs —
+      // those skip the weather section entirely.
+      triggeringEvent: {
+        select: { sessionId: true },
+      },
     },
   });
 
@@ -259,6 +272,77 @@ export default async function PirepDetail({
       orderBy: { frameIndex: 'asc' },
     }),
   ]);
+
+  // Welle B — B1 phase 3. Weather Comparison data fetch. Runs as a
+  // parallel pair (LiveSession + arrival METAR) AFTER the main Promise.all
+  // rather than inside it, because the tuple-typing in the main block
+  // would get noisy and the weather fetch is cheap enough that an extra
+  // microsecond of sequential wait doesn't matter. Both arms are wrapped
+  // in null-safe conditionals:
+  //
+  //   - liveSession is null when this PIREP wasn't ACARS-triggered
+  //     (no triggeringEvent → no sessionId → can't walk to LiveSession).
+  //     The weather card just doesn't render in that case.
+  //   - arrivalMetar is null when the bot's METAR cache has nothing for
+  //     this airport (cold cache, unknown ICAO, VATSIM datafeed gap).
+  //     The card renders sim-only with an explanatory note.
+  //
+  // The Promise.all keeps the two fetches concurrent — saves one full
+  // round-trip vs serial. fetchSingleMetar is server-side cached
+  // (next: { revalidate: 60 }) so multiple PIREP-detail visits to the
+  // same airport within 60s share one bot request.
+  const [liveSession, arrivalMetar] = await Promise.all([
+    pirep.triggeringEvent?.sessionId
+      ? prisma.liveSession.findUnique({
+          where: { id: pirep.triggeringEvent.sessionId },
+          select: {
+            windSpeedKts: true,
+            windDirection: true,
+            oatCelsius: true,
+            ambientPressureMb: true,
+          },
+        })
+      : Promise.resolve(null),
+    fetchSingleMetar(pirep.arrival.icao),
+  ]);
+
+  // Build the shapes WeatherComparisonCard wants. simData is null when
+  // we don't have a LiveSession to read from (manual PIREP, pre-B1
+  // session); the section is skipped entirely below in that case.
+  // simHasAnyData also covers the edge case where LiveSession exists
+  // but every environment field is null (very brief session that died
+  // before any environment-block heartbeat landed).
+  const simData: WeatherComparisonSimData | null = liveSession
+    ? {
+        windSpeedKts: liveSession.windSpeedKts,
+        windDirection: liveSession.windDirection,
+        oatCelsius: liveSession.oatCelsius,
+        ambientPressureMb: liveSession.ambientPressureMb,
+      }
+    : null;
+  const simHasAnyData =
+    simData !== null &&
+    (simData.windSpeedKts !== null ||
+      simData.windDirection !== null ||
+      simData.oatCelsius !== null ||
+      simData.ambientPressureMb !== null);
+
+  // realData is null when no METAR is cached. We still render the card
+  // (with sim values only and a note) IF we have sim data — pilots
+  // benefit from seeing "what the sim said" even without a real-world
+  // baseline. The component handles the null gracefully.
+  const realData: WeatherComparisonRealData | null =
+    arrivalMetar?.decoded
+      ? {
+          windSpeedKts: arrivalMetar.decoded.wind?.speed ?? null,
+          windDirection: arrivalMetar.decoded.wind?.direction ?? null,
+          windGustKts: arrivalMetar.decoded.wind?.gust ?? null,
+          oatCelsius: arrivalMetar.decoded.temperature ?? null,
+          ambientPressureMb: arrivalMetar.decoded.pressure?.qnhHpa ?? null,
+          observedAt: arrivalMetar.decoded.observedAt,
+          raw: arrivalMetar.raw,
+        }
+      : null;
 
   // Track 4 #7 — Smoothness-Score wird inline aus den oben gefetchten
   // metrics berechnet. Kein zusätzlicher DB-roundtrip, einfach pure-
@@ -1001,6 +1085,29 @@ export default async function PirepDetail({
               </div>
             </section>
           )}
+
+        {/* Welle B — B1 phase 3 (Weather Comparison): sim-side environment
+            snapshot at flight-end vs. real-world METAR for the arrival
+            airport. Renders between Approach-Analysis and Landing-
+            Analysis because weather conditions at the runway directly
+            inform both: a strong crosswind explains an off-centerline
+            touchdown; a high QNH delta hints at sim-altimeter-config
+            problems that surface in the approach data.
+
+            Conditional gate: simHasAnyData is null/false for manual
+            PIREPs (no ACARS triggeringEvent → no LiveSession to read
+            from) and for pre-B1 sessions (sim data never sent). We
+            still render the card when REAL data is missing — pilots
+            benefit from seeing their sim's reading even without a
+            real-world baseline, and the component handles that case
+            with a muted note. */}
+        {simHasAnyData && simData && (
+          <WeatherComparisonCard
+            arrivalIcao={pirep.arrival.icao}
+            sim={simData}
+            real={realData}
+          />
+        )}
 
         {/* Track 4 #6 (Landing-Analysis): Touchdown-metrics aus dem
             TOUCHDOWN AcarsEvent payload. Conditional auf
