@@ -4,6 +4,7 @@ import {
   RosterAssignmentStatus,
   type RosterAssignmentWithRelations,
 } from '@vam/db';
+import { countNoShowCandidates } from '@/lib/roster/no-show-detection';
 import Link from 'next/link';
 
 /**
@@ -81,6 +82,13 @@ export default async function AirlineRosterPage({
       })
     : assignments;
 
+  // Track 5 #30: no-show candidate count für review-queue-link.
+  // Lazy-computed beim page-load, kein cron-job nötig.
+  const noShowCandidateCount = await countNoShowCandidates({
+    airlineId: user.airlineId,
+    graceHours: 4,
+  });
+
   const counts = {
     upcoming: allAssignments.filter((a) =>
       STATUS_GROUPS.upcoming.includes(a.status),
@@ -113,6 +121,18 @@ export default async function AirlineRosterPage({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {noShowCandidateCount > 0 && (
+            <Link
+              href="/airline/roster/no-shows"
+              className="inline-flex shrink-0 items-center gap-2 px-4 py-2 rounded-md bg-red-600 hover:bg-red-700 text-white text-sm font-medium transition"
+            >
+              <span aria-hidden="true">⚠️</span>
+              No-Shows
+              <span className="inline-flex items-center justify-center min-w-[1.5rem] px-1.5 py-0.5 rounded-full text-xs bg-white/20 text-white font-bold">
+                {noShowCandidateCount}
+              </span>
+            </Link>
+          )}
           <Link
             href="/airline/roster/auto"
             className="inline-flex shrink-0 items-center gap-2 px-4 py-2 rounded-md bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium transition"
