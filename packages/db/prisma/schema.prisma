@@ -1347,6 +1347,13 @@ model LiveSession {
   windSpeedKts  Int?
   windDirection Int?
   oatCelsius    Int?
+  // Welle B — B1. Sea-level QNH from sim's BAROMETER PRESSURE simvar
+  // (already in mb, no conversion needed). Float to preserve 1-decimal
+  // precision (sim reports 1013.2, METAR's Q-group same) — Int would
+  // round to 1013 and hide meaningful 0.8 mb deltas in the PIREP
+  // weather-comparison UI. Nullable for pre-B1 sessions and for
+  // heartbeats from clients that haven't shipped phase 1 yet.
+  ambientPressureMb Float?
   currentPhase  String? // 'PreFlight'|'Pushback'|'Taxi'|'Takeoff'|'Climb'|'Cruise'|'Descent'|'Approach'|'Landing'|'TaxiIn'|'BlockOn'
   // Welle 9 Phase 5 (server-side phase-detection): timestamp when we entered
   // currentPhase. Used for hysteresis (must hold a phase ≥3s before transition,

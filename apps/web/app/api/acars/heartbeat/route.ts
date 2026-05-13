@@ -155,6 +155,16 @@ const HeartbeatSchema = z.object({
       windSpeedKts: z.number().int().nonnegative().optional(),
       windDirection: z.number().int().min(0).max(360).optional(),
       oatCelsius: z.number().int().optional(),
+      // Welle B — B1 phase 2. Sea-level QNH in millibars. Float (not int)
+      // because the sim's BAROMETER PRESSURE simvar provides ~0.1 mb
+      // resolution that matches METAR Q-group precision (1013.2). Rounding
+      // to int would round-trip 1013.6/1014.4 to 1014/1014 and erase the
+      // meaningful sub-mb deltas that make the PIREP weather-comparison
+      // useful. Range gate: typical sea-level QNH is 870-1085 mb (lowest
+      // ever recorded 870, highest 1085); the schema lets ±200 of that
+      // window through to allow for sim weather edge-cases without
+      // policing too strictly here — display layer can call out outliers.
+      ambientPressureMb: z.number().min(800).max(1100).optional(),
     })
     .optional(),
 
@@ -405,6 +415,12 @@ export async function POST(req: NextRequest) {
     windSpeedKts: data.environment?.windSpeedKts ?? null,
     windDirection: data.environment?.windDirection ?? null,
     oatCelsius: data.environment?.oatCelsius ?? null,
+    // Welle B — B1 phase 2. Sea-level QNH in mb from the sim. Persisted
+    // alongside the other environment fields so the PIREP weather-
+    // comparison UI can pull all four sim-side data points from a single
+    // LiveSession row read instead of joining out to LiveSessionPosition
+    // or recomputing from heartbeat-history.
+    ambientPressureMb: data.environment?.ambientPressureMb ?? null,
 
     gForce: data.forces?.gForce ?? null,
 
