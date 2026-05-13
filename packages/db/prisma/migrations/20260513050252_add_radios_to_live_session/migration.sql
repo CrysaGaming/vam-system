@@ -1,0 +1,4 @@
+-- AlterTable
+ALTER TABLE "LiveSession" ADD COLUMN     "com1ActiveMhz" DOUBLE PRECISION,
+ADD COLUMN     "com1StandbyMhz" DOUBLE PRECISION,
+ADD COLUMN     "nav1ActiveMhz" DOUBLE PRECISION;

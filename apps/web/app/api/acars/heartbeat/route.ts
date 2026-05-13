@@ -168,6 +168,38 @@ const HeartbeatSchema = z.object({
     })
     .optional(),
 
+  // Welle B — B2 phase 2A. COM1 + NAV1 frequency snapshot in MHz from
+  // the client's radio-stack. The downstream ATC-session-tracker
+  // (phase 2B) matches these against the VATSIM ATC datafeed; for
+  // phase 2A we just persist them on LiveSession so the data is there
+  // when 2B's matcher comes online.
+  //
+  // Validation rules per band (ICAO/FAA allocations):
+  //   - COM (VHF voice):    118.000 - 137.000 MHz (civilian aviation)
+  //   - NAV (VOR/ILS LOC):  108.000 - 118.000 MHz (NAV freq, NOT COM)
+  //
+  // The com1Standby field intentionally shares COM's range — pilots
+  // sometimes "park" NAV frequencies on COM standby for memo purposes
+  // but the actual radio-stack standby slot is always in the COM band.
+  //
+  // Range gates: we accept the FULL combined civil aviation band
+  // (108-137) for all three fields rather than splitting strictly,
+  // because (a) some military / non-standard equipment uses 117.x for
+  // COM, (b) some pilots tune marker beacons or other off-band signals,
+  // (c) being permissive at the wire-edge avoids cryptic 400-rejects
+  // for edge cases — the matcher in phase 2B can apply the strict-band
+  // logic for actual ATC-attribution.
+  //
+  // All fields optional + nullable. Older clients (pre-B2 phase 1) send
+  // no `radios` block; zod's .optional() accepts that as "absent".
+  radios: z
+    .object({
+      com1ActiveMhz: z.number().min(108).max(137).nullable().optional(),
+      com1StandbyMhz: z.number().min(108).max(137).nullable().optional(),
+      nav1ActiveMhz: z.number().min(108).max(137).nullable().optional(),
+    })
+    .optional(),
+
   forces: z
     .object({
       gForce: z.number().optional(),
@@ -421,6 +453,18 @@ export async function POST(req: NextRequest) {
     // LiveSession row read instead of joining out to LiveSessionPosition
     // or recomputing from heartbeat-history.
     ambientPressureMb: data.environment?.ambientPressureMb ?? null,
+
+    // Welle B — B2 phase 2A. COM1/NAV1 freq snapshot from heartbeat
+    // radios-block. Persisted on LiveSession so phase 2B's matcher
+    // (which runs against the VATSIM ATC datafeed, polled separately
+    // by the bot) has the latest radio state available when it comes
+    // online. Frontend UI (phase 3) doesn't read these directly —
+    // they feed the AtcSession table via the matcher, and the UI
+    // reads AtcSession. Nullable cascades: missing radios block
+    // (pre-B2 client) → undefined → ?? null → DB NULL.
+    com1ActiveMhz: data.radios?.com1ActiveMhz ?? null,
+    com1StandbyMhz: data.radios?.com1StandbyMhz ?? null,
+    nav1ActiveMhz: data.radios?.nav1ActiveMhz ?? null,
 
     gForce: data.forces?.gForce ?? null,
 

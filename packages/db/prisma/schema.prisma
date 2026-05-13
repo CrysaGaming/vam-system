@@ -1354,6 +1354,30 @@ model LiveSession {
   // weather-comparison UI. Nullable for pre-B1 sessions and for
   // heartbeats from clients that haven't shipped phase 1 yet.
   ambientPressureMb Float?
+
+  // ─── Welle B — B2 phase 2A. Radio frequencies ────────────────────
+  // COM1 + NAV1 frequency snapshot in MHz. Updated by every heartbeat;
+  // the values reflect what the pilot's radio panel currently shows.
+  // The downstream ATC-session-tracker (phase 2B) reads these and
+  // matches them against the VATSIM ATC datafeed (controller online +
+  // frequency + position) to populate a separate AtcSession table —
+  // we deliberately don't try to derive sessions from heartbeat history
+  // alone because the matching needs the VATSIM controller list which
+  // isn't available at heartbeat-handler time (it's polled by the bot
+  // separately and exposed via /atc/online).
+  //
+  // Float (not Int) because aviation radios use 8.33-kHz spacing in
+  // European airspace (118.005, 118.010, …) — int would lose the
+  // last two decimal digits and treat 118.005 as 118 MHz, matching
+  // the wrong controller in the datafeed.
+  //
+  // Nullable for: (a) pre-B2 sessions, (b) heartbeats from pre-2-1
+  // clients, (c) aircraft with no radio loaded (gliders, sailplanes
+  // with no avionics), (d) cockpits with COM1 powered off.
+  com1ActiveMhz  Float?
+  com1StandbyMhz Float?
+  nav1ActiveMhz  Float?
+
   currentPhase  String? // 'PreFlight'|'Pushback'|'Taxi'|'Takeoff'|'Climb'|'Cruise'|'Descent'|'Approach'|'Landing'|'TaxiIn'|'BlockOn'
   // Welle 9 Phase 5 (server-side phase-detection): timestamp when we entered
   // currentPhase. Used for hysteresis (must hold a phase ≥3s before transition,
