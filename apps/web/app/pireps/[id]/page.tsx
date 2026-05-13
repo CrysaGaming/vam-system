@@ -16,6 +16,7 @@ import {
   type WeatherComparisonSimData,
   type WeatherComparisonRealData,
 } from '@/components/weather-comparison-card';
+import { AtcSessionsCard } from '@/components/atc-sessions-card';
 import { fetchSingleMetar } from '@/lib/metars/fetch-from-bot';
 import { ApprovalActions } from './approval-actions';
 import { DraftActions } from './draft-actions';
@@ -300,6 +301,24 @@ export default async function PirepDetail({
             windDirection: true,
             oatCelsius: true,
             ambientPressureMb: true,
+            // Welle B — B2 phase 3. AtcSessions for the "ATC Sessions"
+            // card below. The query selects exactly the fields the
+            // component needs — controllerCid + controllerName + endedAt
+            // intentionally excluded from the Prisma select on the open-
+            // session lookup; here we DO want the full record + endedAt
+            // so the card can compute durations.
+            lastUpdatedAt: true,
+            atcSessions: {
+              select: {
+                id: true,
+                stationCallsign: true,
+                facilityType: true,
+                frequencyMhz: true,
+                startedAt: true,
+                endedAt: true,
+              },
+              orderBy: { startedAt: 'asc' },
+            },
           },
         })
       : Promise.resolve(null),
@@ -1107,6 +1126,35 @@ export default async function PirepDetail({
             sim={simData}
             real={realData}
           />
+        )}
+
+        {/* Welle B — B2 phase 3 (ATC Sessions): per-station list of
+            VATSIM controllers the pilot was tuned to during this flight.
+            Populated by the matcher (lib/acars/atc-matcher.ts) at
+            heartbeat-time, one row per (station-callsign, contiguous
+            time-window). See AtcSession Prisma model docstring for
+            lifecycle.
+
+            Renders directly after Weather-Comparison so the ACARS-flight
+            context (sim weather + ATC stations + landing-metrics) reads
+            top-to-bottom as the actual chronological story of the flight:
+            "this is what the air looked like, this is who was on freq,
+            this is how the touchdown went."
+
+            Conditional gate: liveSession must exist (= ACARS-triggered
+            PIREP, sessionId resolvable) AND there must be at least one
+            attributed AtcSession row. Manual PIREPs, pre-B2 flights,
+            and offline flights with no ATC contact legitimately
+            evaluate to 0 rows here — we hide the section in those
+            cases to avoid noise. The component itself also defensively
+            returns null on empty sessions array. */}
+        {liveSession && liveSession.atcSessions.length > 0 && (
+          <div className="mb-8">
+            <AtcSessionsCard
+              sessions={liveSession.atcSessions}
+              sessionEndedAt={liveSession.lastUpdatedAt}
+            />
+          </div>
         )}
 
         {/* Track 4 #6 (Landing-Analysis): Touchdown-metrics aus dem
