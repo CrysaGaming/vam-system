@@ -1415,8 +1415,13 @@ model LiveSession {
   lastUpdatedAt DateTime
   isActive      Boolean  @default(true)
 
-  positions LiveSessionPosition[]
-  events    AcarsEvent[]
+  positions   LiveSessionPosition[]
+  events      AcarsEvent[]
+  // Welle B — B2 phase 2B. ATC controller-sessions attributed to this
+  // flight via the freq+position matcher. One row per
+  // (station-callsign, contiguous time-window); see AtcSession model
+  // docstring for lifecycle.
+  atcSessions AtcSession[]
 
   @@unique([network, externalId])
   @@index([userId, isActive])
@@ -2847,6 +2852,96 @@ model AcarsEvent {
   triggeredPirep   Pirep?  @relation("PirepTriggeringEvent", fields: [triggeredPirepId], references: [id], onDelete: SetNull)
 
   @@index([sessionId, type, timestamp])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Welle B — B2 phase 2B: AtcSession (ATC-attribution per LiveSession)
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Records that a pilot was tuned to a specific VATSIM ATC controller's
+/// frequency during a flight. Populated by the ATC-matcher (lib/acars/
+/// atc-matcher.ts) which runs from the heartbeat-handler whenever the
+/// LiveSession's com1ActiveMhz matches an online controller's frequency
+/// within ±5 kHz tolerance AND the pilot's position is within the
+/// facility-type's reasonable coverage range (e.g. <50 nm for TWR, <300
+/// nm for CTR).
+///
+/// One row per (session, station-callsign, contiguous time-window):
+/// when the pilot tunes 121.6 EDDF_GND for 3 minutes, then switches to
+/// 119.9 EDDF_TWR for 5 minutes, that's TWO rows. If they switch BACK
+/// to 121.6 EDDF_GND later, that's a THIRD row — sessions are not
+/// resumed across gaps. The "EDDF_GND" station can appear multiple
+/// times per flight if the pilot tuned away and back.
+///
+/// Lifecycle:
+///   - Matcher creates a row with endedAt=null when it first sees a
+///     pilot-frequency matching an online controller.
+///   - On subsequent heartbeats with the same match, it bumps the
+///     `endedAt` (or rather, leaves it null and uses lastUpdatedAt
+///     as the effective endpoint).
+///   - When the pilot tunes away (no match for 2+ heartbeats), the
+///     matcher closes the row by setting endedAt to the timestamp of
+///     the last matching heartbeat.
+///   - When the LiveSession itself goes inactive (BLOCK_ON, stale
+///     cleanup), any still-open AtcSession rows are closed with
+///     endedAt = LiveSession.lastUpdatedAt.
+///
+/// The PIREP-page reads these rows via session → AtcSession[] and
+/// renders an "ATC Sessions" list ordered by startedAt: "12:42 EDDF_GND
+/// 121.6 (5 min)".
+///
+/// Cascade: session deletion deletes its AtcSession rows. Historical
+/// AtcSession data isn't worth preserving when the parent flight record
+/// goes away — it's pure context for the flight, not a standalone
+/// artifact.
+model AtcSession {
+  id        String      @id @default(cuid())
+  sessionId String
+  session   LiveSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  /// VATSIM controller callsign, e.g. "EDDF_GND", "LANGEN_R", "KJFK_TWR".
+  /// Format: {LOCATION}_{POSITION}. Always uppercase. Up to 32 chars to
+  /// accommodate edge-case formats like "LON_NW_CTR" or "EDDF_S_GND".
+  stationCallsign String @db.VarChar(32)
+
+  /// Position type (GND/TWR/APP/CTR/DEL/FSS) parsed from the callsign
+  /// suffix. Denormalized from the suffix for fast filtering / UI
+  /// color-coding. Always uppercase, 3-4 chars.
+  facilityType String @db.VarChar(8)
+
+  /// Frequency in MHz at the time of the match. Stored as Float (not
+  /// Int) for the same 8.33-kHz-spacing reason as LiveSession's radio
+  /// columns. We store the controller's frequency, not the pilot's
+  /// com1ActiveMhz — the two should be within ±5 kHz at match time but
+  /// the controller's exact value is the authoritative one to display
+  /// (e.g. "EDDF_GND 121.605" not "121.610" rounded).
+  frequencyMhz Float
+
+  /// VATSIM CID of the controller. Used to disambiguate same-callsign
+  /// sessions across reconnect (controller logs off then back on with
+  /// same EDDF_GND — that's a new row because the cid changed).
+  controllerCid Int
+
+  /// Display name of the controller (for the PIREP-UI). VATSIM users
+  /// can change this between logons; we capture the value at match time.
+  controllerName String @db.VarChar(64)
+
+  /// Timestamp of the heartbeat that first matched this controller for
+  /// this session. Wall-clock at the heartbeat-handler — NOT sim-time.
+  startedAt DateTime @default(now())
+
+  /// Timestamp of the last heartbeat that matched. NULL while the
+  /// session is still actively tuned. Set when the matcher detects
+  /// the pilot has tuned away (2+ heartbeats with no match) or when
+  /// the parent LiveSession closes.
+  endedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Per-session + ordered fetch is the dominant query (PIREP-page).
+  // Add (sessionId, startedAt) so the ORDER BY uses the index directly.
+  @@index([sessionId, startedAt])
 }
 
 // ─────────────────────────────────────────────────────────────────────────

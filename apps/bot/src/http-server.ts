@@ -7,7 +7,7 @@ import { handlePirepApproved } from './events/pirep-approved.js';
 import { handlePirepRejected } from './events/pirep-rejected.js';
 import { handleAwardEarned } from './events/award-earned.js';
 import { handleEventPublished } from './events/event-published.js';
-import { getPublicVatsimPilots } from './services/vatsim-tracker.js';
+import { getPublicVatsimPilots, getPublicVatsimControllers } from './services/vatsim-tracker.js';
 import { getPublicIvaoPilots } from './services/ivao-tracker.js';
 import { getCachedMetars } from './services/metar-tracker.js';
 
@@ -127,6 +127,32 @@ export function startHttpServer(client: Client) {
     res.json({
       count: Object.keys(metars).length,
       metars,
+    });
+  });
+
+  // ─── Welle B — B2 phase 2B. ATC controllers online (VATSIM) ────────
+  // Returns the current snapshot of online VATSIM controllers as cached
+  // by the vatsim-tracker. The vam-web ATC-matcher polls this to look
+  // up which controller a pilot is tuned to based on their COM1 active-
+  // frequency at heartbeat time.
+  //
+  // Why VATSIM-only in v1: IVAO is a much smaller network (~10% of VATSIM
+  // pilot traffic at peak) and the IVAO tracker doesn't yet poll their
+  // ATC datafeed. Future B2.x can add IVAO with the same shape.
+  //
+  // Returned shape is the pre-parsed PublicController array (see vatsim-
+  // tracker.ts docstring) — frequencyMhz already a number, facilityType
+  // already a string. No bot-side filtering by region/proximity; the
+  // matcher does that against the pilot's lat/lng so the same cache
+  // serves multiple ACARS clients without recomputation.
+  app.get('/atc/online', (_req, res) => {
+    const vatsim = getPublicVatsimControllers();
+    res.json({
+      vatsim: {
+        count: vatsim.controllers.length,
+        updatedAt: vatsim.updatedAt?.toISOString() ?? null,
+        controllers: vatsim.controllers,
+      },
     });
   });
 

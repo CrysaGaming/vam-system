@@ -16,6 +16,7 @@ import {
   type BlockEventInputs,
 } from '@/lib/acars/block-events';
 import { triggerAutoPirep } from '@/lib/acars/auto-pirep';
+import { matchAndPersistAtcSession } from '@/lib/acars/atc-matcher';
 
 /**
  * POST /api/acars/heartbeat — Welle 9 commit 9C.
@@ -764,6 +765,37 @@ export async function POST(req: NextRequest) {
       console.warn('[acars/heartbeat] auto-PIREP trigger failed:', err),
     );
   }
+
+  // ─── Welle B — B2 phase 2B. ATC-session matcher ────────────────────
+  //
+  // Fire-and-forget like the auto-PIREP trigger above. Same rationale:
+  // the matcher does a cached-bot-fetch + a prisma read + 0-2 writes
+  // (typically 0 because most heartbeats see "same controller as before",
+  // a no-op). Even cached worst-case (~20ms) is too much to add to the
+  // hot heartbeat-response path.
+  //
+  // We pass com1ActiveMhz directly — the matcher knows how to handle
+  // null (closes any open AtcSession) and how to handle bot-down (skips
+  // the heartbeat without DB changes). All error-handling is internal
+  // to matchAndPersistAtcSession; the .catch here is belt-and-braces
+  // for the case where the matcher itself throws synchronously before
+  // its internal try/catch can intercept.
+  //
+  // The matcher is invoked even when blockEventTypes triggers a BLOCK_ON
+  // → auto-PIREP path: a session in the BLOCK_ON heartbeat could still
+  // have an open AtcSession that needs closing (e.g., the pilot was on
+  // EDDF_GND at touchdown and never tuned away). The matcher's
+  // "close-existing-when-no-match" path handles that correctly because
+  // post-BLOCK_ON the pilot's com1 is often still tuned but no longer
+  // actively controlling, and we want the AtcSession to close cleanly.
+  void matchAndPersistAtcSession(
+    sessionId,
+    data.radios?.com1ActiveMhz ?? null,
+    data.position.latitude,
+    data.position.longitude,
+  ).catch((err) =>
+    console.warn('[acars/heartbeat] atc-matcher trigger failed:', err),
+  );
 
   // Echo the resolved phase back to the client (Welle 9 / M3.7).
   //

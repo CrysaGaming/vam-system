@@ -38,6 +38,46 @@ type VatsimPilot = {
   last_updated: string;
 };
 
+/**
+ * VATSIM ATC controller record from /v3/vatsim-data.json `controllers` array.
+ *
+ * Welle B — B2 phase 2B. We poll this alongside pilots and expose a public
+ * snapshot via getPublicVatsimControllers() / GET /atc/online. The vam-web's
+ * ATC-matcher reads it to attribute ACARS-pilots to specific ATC stations
+ * based on their COM1 active-frequency at heartbeat time.
+ *
+ * Fields we care about for matching:
+ *   - callsign: "EDDF_GND", "LANGEN_R", etc. Format: {LOCATION}_{POSITION}
+ *     where LOCATION is either an ICAO airport (EDDF, KJFK) for ground-
+ *     control positions or a region/FIR identifier (LANGEN, NEW_YORK) for
+ *     area control. The matcher pattern-matches the prefix against our
+ *     Airport table to derive a location for proximity checking.
+ *   - frequency: e.g. "121.600". Always 3 decimals in MHz. Parsed to a
+ *     number client-side for the matcher's ±5kHz tolerance check.
+ *   - facility: 0=OBS, 1=FSS, 2=DEL, 3=GND, 4=TWR, 5=APP, 6=CTR. The
+ *     matcher applies a position-distance gate scaled to the facility
+ *     type (CTR can reach hundreds of nm, GND only a few).
+ *   - visual_range: nm — VATSIM's notion of the station's coverage. We
+ *     surface this as a fallback when our Airport-lookup-based distance
+ *     fails (e.g., a non-standard callsign that doesn't match an ICAO).
+ *
+ * Fields we ignore: rating, server, qualifications — those are pilot/
+ * controller-experience metadata, not relevant to the freq-match itself.
+ */
+type VatsimController = {
+  cid: number;
+  name: string;
+  callsign: string;
+  frequency: string;
+  facility: number;
+  rating: number;
+  server: string;
+  visual_range: number;
+  text_atis: string[] | null;
+  last_updated: string;
+  logon_time: string;
+};
+
 type VatsimDatafeed = {
   general: {
     version: number;
@@ -45,6 +85,12 @@ type VatsimDatafeed = {
     connected_clients: number;
   };
   pilots: VatsimPilot[];
+  // Welle B — B2 phase 2B. ATC controllers are also part of the same
+  // VATSIM datafeed JSON; we used to ignore the field for tree-shake
+  // hygiene but the matcher now reads it. Optional in the type because
+  // a stale fetch (rare server outage) might return a stripped doc;
+  // pollVatsim() falls back to an empty array.
+  controllers?: VatsimController[];
 };
 
 async function pollVatsim(): Promise<void> {
@@ -76,6 +122,44 @@ async function pollVatsim(): Promise<void> {
       arrivalIcao: p.flight_plan?.arrival || null,
     }));
     publicVatsimLastUpdate = new Date();
+
+    // ─── Welle B — B2 phase 2B. Controllers cache ──────────────────────
+    // Parse the controllers array from the same datafeed (one fetch =
+    // pilots + ATC). The vam-web matcher polls /atc/online to grab this
+    // and attribute ACARS-pilots to specific stations based on their
+    // COM1 active-frequency.
+    //
+    // Two transformations applied here that the matcher would otherwise
+    // have to repeat on every read:
+    //   1. frequency: string "121.600" → frequencyMhz: number 121.6.
+    //      Floats so the matcher can do ±0.005 MHz tolerance arithmetic
+    //      directly. Unparseable strings become NaN which the matcher
+    //      filters out — never throws, always degrades gracefully.
+    //   2. facility: int 0-6 → facilityType: string "OBS"|"FSS"|"DEL"
+    //      |"GND"|"TWR"|"APP"|"CTR". The matcher's per-type proximity
+    //      gate is keyed by the string, which is also what the UI wants
+    //      to display ("EDDF_GND" badge color-coded by GND/TWR/etc.).
+    //
+    // Observers (facility=0) are skipped from the cache entirely. They
+    // can't transmit, can't be tuned to by a pilot, and would only
+    // pollute the matcher's candidate-set with false positives if their
+    // observer-frequency happens to coincide with the pilot's COM1.
+    const onlineControllers = data.controllers ?? [];
+    publicVatsimControllers = onlineControllers
+      .filter((c) => c.facility !== 0) // skip OBS
+      .map((c) => ({
+        cid: c.cid,
+        callsign: c.callsign,
+        frequency: c.frequency,
+        frequencyMhz: parseFloat(c.frequency),
+        facility: c.facility,
+        facilityType: facilityCodeToType(c.facility),
+        visualRange: c.visual_range,
+        textAtis: c.text_atis?.join('\n') ?? null,
+        logonTime: c.logon_time,
+      }))
+      .filter((c) => !Number.isNaN(c.frequencyMhz)); // skip bad frequencies
+    publicVatsimControllersLastUpdate = new Date();
 
     // Get all known CIDs from our DB
     const knownUsers = await prisma.user.findMany({
@@ -292,6 +376,82 @@ export function getPublicVatsimPilots(): {
     pilots: publicVatsimPilots,
     updatedAt: publicVatsimLastUpdate,
   };
+}
+
+// ─── Welle B — B2 phase 2B. Controllers cache + export ──────────────────
+//
+// Module-level snapshot of online ATC controllers, refreshed by every
+// pollVatsim() call. Mirror of the publicVatsimPilots cache above —
+// same shape (snapshot + updatedAt), same exposure pattern (one getter,
+// no setters), same lifecycle (filled on every 30s poll).
+
+/**
+ * Public shape exposed to vam-web's ATC matcher via GET /atc/online.
+ * Pre-parsed for matcher convenience: frequencyMhz is the .frequency
+ * field parsed to a number (NaN rows filtered out); facilityType is
+ * facility (int 0-6) mapped to the conventional ICAO position-suffix
+ * string ("GND", "TWR", etc.) for proximity-gate keys and UI display.
+ */
+type PublicController = {
+  cid: number;
+  callsign: string;
+  frequency: string;
+  frequencyMhz: number;
+  facility: number;
+  facilityType: string;
+  visualRange: number;
+  textAtis: string | null;
+  logonTime: string;
+};
+
+let publicVatsimControllers: PublicController[] = [];
+let publicVatsimControllersLastUpdate: Date | null = null;
+
+export function getPublicVatsimControllers(): {
+  controllers: PublicController[];
+  updatedAt: Date | null;
+} {
+  return {
+    controllers: publicVatsimControllers,
+    updatedAt: publicVatsimControllersLastUpdate,
+  };
+}
+
+/**
+ * VATSIM facility-code → conventional position-suffix string.
+ *
+ * Mapping per VATSIM API docs:
+ *   0 = OBS (Observer; filtered out of the cache, present here for completeness)
+ *   1 = FSS (Flight Service Station)
+ *   2 = DEL (Delivery)
+ *   3 = GND (Ground)
+ *   4 = TWR (Tower)
+ *   5 = APP (Approach/Departure — VATSIM uses one code for both)
+ *   6 = CTR (Center / Area Control)
+ *
+ * Unknown codes return the literal "UNK" rather than throwing because the
+ * matcher / UI should degrade gracefully if VATSIM ever introduces a new
+ * facility tier without redeploying the bot.
+ */
+function facilityCodeToType(facility: number): string {
+  switch (facility) {
+    case 0:
+      return 'OBS';
+    case 1:
+      return 'FSS';
+    case 2:
+      return 'DEL';
+    case 3:
+      return 'GND';
+    case 4:
+      return 'TWR';
+    case 5:
+      return 'APP';
+    case 6:
+      return 'CTR';
+    default:
+      return 'UNK';
+  }
 }
 
 export function startVatsimTracker(): void {
