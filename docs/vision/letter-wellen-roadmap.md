@@ -1,7 +1,7 @@
 # VAM Letter-Wellen Roadmap (A-S)
 
 > **Dokument-Typ**: Operative cross-repo Letter-Wellen-Roadmap
-> **Stand**: 2026-05-14 (Welle F1 fertig, F2-F5 + G + H + 50 weitere geplant)
+> **Stand**: 2026-05-14 (Welle F 5/5 ✅ komplett, G+H als nächstes geplant)
 > **Repos**: `vam-system` (cc-experiment) + `VamAcarsClient` (master)
 > **Live**: vam.kevindrack.de
 >
@@ -25,8 +25,8 @@
 1. [Was bereits erledigt ist](#1-was-bereits-erledigt-ist)
 2. [Naming-konvention + cross-repo-mapping](#2-naming-konvention)
 
-### TEIL B — IN-PROGRESS (Welle F)
-3. [Welle F — Admin/Airline-Hardening](#3-welle-f--adminairline-hardening) (F1 ✅, F2-F5 geplant)
+### TEIL B — RECENTLY-DONE (Welle F)
+3. [Welle F — Admin/Airline-Hardening](#3-welle-f--adminairline-hardening) (5/5 ✅ KOMPLETT)
 
 ### TEIL C — NEXT (Welle G + H)
 4. [Welle G — Pilot Quality-of-Life](#4-welle-g--pilot-quality-of-life) (4 features)
@@ -106,18 +106,18 @@ Reference: `docs/weather-provider-strategy.md` für B6-deferral-rationale.
 | E4 | Cockpit-room schema + endpoints | `65722ca` | vam-system | 👥 |
 | E5 | Tracks-heatmap on live-map | `9d0e63d` | vam-system | 🔥 |
 
-### 1.6 Welle F — Admin/Airline Hardening (1/5, in progress)
+### 1.6 Welle F — Admin/Airline Hardening (5/5 ✅ KOMPLETT)
 
 **Repo**: vam-system cc-experiment
-**Aktueller stand**: F1 fertig, F2-F5 geplant aber noch nicht implementiert.
+**Aktueller stand**: Welle F vollständig abgeschlossen, ~3416 LOC über 5 commits.
 
 | # | Feature | Status | Commit |
 |---|---|---|---|
 | F1 | Audit-log scoped to airline | ✅ | `8ad1481` |
-| F2 | Fleet-utilization dashboard | geplant | — |
-| F3 | Financial-reports export | geplant | — |
-| F4 | Member-onboarding-wizard | geplant | — |
-| F5 | Multi-base-management | geplant | — |
+| F2 | Fleet-utilization dashboard | ✅ | `9acb654` |
+| F3 | Financial-reports export PDF/CSV | ✅ | `f8b2aca` |
+| F5 | Multi-base-management | ✅ | `c2255f9` |
+| F4 | Member-onboarding-wizard | ✅ | `6d8ba45` |
 
 ## 2. Naming-konvention
 
@@ -159,80 +159,39 @@ Beispiele aus history:
 
 ---
 
-# TEIL B — IN-PROGRESS
+# TEIL B — RECENTLY-DONE
 
 ## 3. Welle F — Admin/Airline-Hardening
 
 **Goal**: Airline-admins sollen ihre eigene airline verwalten ohne system-admin-rechte zu brauchen. Tools für audit, finance-export, fleet-overview, member-onboarding, multi-base.
 
+**Status**: 5/5 ✅ KOMPLETT (commits `8ad1481` → `6d8ba45`, ~3416 LOC).
+
 ### F1 — Audit-Log für admin-actions ✅ (commit `8ad1481`)
 
-Done. Siehe §1.6 + commit-message.
+AdminAuditLog scoped to airline via `airlineId` FK + `[airlineId, createdAt]` index. listAuditEntries airlineId-filter (undef=alle, str=that airline, null=non-airline). 3 member-ops gewrapt: assignRole/Rank/removeMember. /airline/admin/audit-log page ~290 LOC mit requireAirlineManagerPage gate, cursor-pagination, filter-chips. Sidebar-link Airline-Admin-section.
 
 **F1.5 backlog**: settings-changes (updateAirlineSettings, updateDiscordTemplates), hub/rank/aircraft CRUD operations. Lower-frequency-actions die in einer follow-up session gewrapt werden können.
 
-### F2 — Fleet-utilization Dashboard
+### F2 — Fleet-utilization Dashboard ✅ (commit `9acb654`, +1028 LOC)
 
-**Scope**: Page `/airline/dashboard/fleet-utilization` mit:
-- Per-aircraft total-hours + last-flight-date
-- Route-coverage matrix (welche aircraft-types fliegen welche routes wie oft)
-- Hub-balance heatmap (departures/arrivals pro hub pro aircraft-type)
+Page `/airline/dashboard/fleet-utilization` mit period-switch (30d/90d/1y/all), 5 KPIs (active fleet, total-hours, busiest-airframe, busiest-hub, route-coverage). Per-airframe utilization-tables, hub-balance grid (departures vs arrivals pro hub), route-coverage TypeMixBar. Server-aggregation `lib/fleet/utilization.ts` (4 exports: getAirframeUtilization/getHubBalance/getRouteCoverage/rollupByType+summarize). `revalidate=300` cache. CRUD-→ link-pair in widget header von `_components/fleet-utilization.tsx`.
 
-**Reusable**: PIREP-data + LiveSession aggregation, identisch zu E5-heatmap-pattern (`lib/heatmap/aggregation.ts` als template).
+### F3 — Financial-Reports Export PDF/CSV ✅ (commit `f8b2aca`, +724 LOC)
 
-**LOC-estimate**: ~600-800 LOC across server-aggregation (`lib/fleet/utilization.ts`), page (`page.tsx`), und einem `<UtilizationMatrix>` component.
+`/api/airline/finance/export?period=30d|90d|1y|all&format=pdf|csv` route mit 3-layer auth (session/role/economyEnabled). PDF via `@react-pdf/renderer` (`lib/finance/report-pdf.tsx`, ~290 LOC, single-page A4 mit airline-header + 4 KPI-grid + per-typ rollup-tabelle + top-100 detail-list). CSV via UTF-8+BOM streaming (9 spalten, RFC-4180 escape). Single-pass in-memory aggregation für byType/revenueSum/expenseSum/netSum. TRANSFER_IN/OUT excluded from revenue/expense totals. Dynamic-import `@react-pdf/renderer` damit cold-start klein bleibt. `<details>` "📄 Bericht exportieren" section in `/airline/finance` mit 4×2 download-link grid.
 
-**DB-changes**: keine — alles aggregierbar aus existing Pirep + Aircraft + Route.
+### F4 — Member-onboarding-Wizard ✅ (commit `6d8ba45`, +1129 LOC)
 
-### F3 — Financial-Reports Export (PDF/CSV)
+`/airline/onboarding[?step=1|2|3|4]` 4-step setup-flow für neue airline-member. `User.onboardingCompletedAt DateTime?` field tracked completion. 3-layer auth-cascade (session → airline → !onboardingCompletedAt unless ?force=1). Step 1 profile (name+bio mit 500-cap), step 2 home-base (radio-list aus airline.hubs mit "Airline Primary" badge), step 3 preferences (economy+career switches mit airline-flag-warnings), step 4 done (summary + 4 "what's next" links). 5 server-actions (completeProfileStep/completeBaseStep/completePreferencesStep/completeOnboarding/skipOnboarding) jede idempotent. AcceptButton redirect post-invite-accept: `/dashboard` → `/airline/onboarding`. Server-rendered 4-segment progress-bar mit ✓-marker.
 
-**Scope**: Buttons in `/airline/finance`:
-- "Bericht herunterladen (PDF)" mit period-picker (quarter/year/custom-range)
-- "Transactions CSV" raw-export für excel-analysis
+### F5 — Multi-base-Management ✅ (commit `c2255f9`, +535 LOC)
 
-**Stack**: PDF-skill (`/mnt/skills/public/pdf/SKILL.md`) für PDF-generation (fpdf2 oder reportlab). CSV via streaming-response.
-
-**Template-content**:
-- Header mit airline-logo + period
-- Summary-table (revenue/expenses/balance pro category)
-- Transactions-detail-list mit type-icons
-- Footer mit generated-at-timestamp
-
-**LOC-estimate**: ~400-600 LOC inkl PDF-template + server-action.
-
-**DB-changes**: keine — existing WalletTransaction + AirlineTransaction reichen.
-
-### F4 — Member-onboarding-Wizard
-
-**Scope**: Multi-step form bei `/airline/onboarding/[token]` für neue members:
-1. **Profile**: name, callsign-preference, primary-base-airport
-2. **Type-ratings**: tick-boxes für aircraft-types die der pilot fliegen kann (initial-grant ohne flight-school)
-3. **Hub assignment**: pick from available hubs der airline
-4. **Welcome PIREP**: optional ersten test-flight ankündigen
-
-**Trigger**: airline-admin generates invite-token + sendet link an pilot. Pilot opens link → wizard.
-
-**LOC-estimate**: ~800-1000 LOC mit 4-step navigation + form-state.
-
-**DB-changes**: möglicherweise `OnboardingProgress` model für persistent-progress, oder localStorage-only (simpler).
-
-### F5 — Multi-base-Management
-
-**Scope**: Pilots können secondary-bases zusätzlich zum primary haben.
-
-**Use-case**: Pilot wohnt in EDDF aber fliegt häufig aus EDDM. Mit single-base wird jeder EDDM-flight als ferry-flight benötigt. Mit secondary-base sind direct-flights aus EDDM ohne ferry möglich.
-
-**Schema-changes**:
-- New `PilotSecondaryBase` model: pilotId, baseIcao, addedAt
-- Alternatively: User.secondaryBases as String[] (postgres-array)
-
-**UI**: settings-page für pilot, plus airline-admin-override.
-
-**LOC-estimate**: ~500-700 LOC inkl. schema-migration + booking-logic adjustment (eligibility-check muss beide bases akzeptieren).
+`User.secondaryBaseIcaos String[] @default([])` postgres-array (statt join-table — selten mutierende whitelist). `lib/positioning/bases.ts` (3 exports: getAllBaseIcaos, isAtAnyBase, canAddSecondaryBase). Server-action `updateSecondaryBases` mit 3-layer validation (session+airline → array+ICAO-format → dedupe+whitelist gegen airline.hubs+exclude primary). `SecondaryBasesCard` client-component im /settings profile-tab nach CareerCard: list-and-add pattern, optimistic update via useTransition, hint-states für no-airline/no-hubs/normal. Booking-eligibility-integration deferred als F5.5.
 
 ---
 
-# TEIL C — NEXT
+# TEIL C — IN-PROGRESS (NEXT)
 
 ## 4. Welle G — Pilot Quality-of-Life
 
@@ -426,25 +385,24 @@ Strukturiert nach themen-Wellen I-S. Jede Welle hat 4-6 options.
 Nach **dependency-graph** (was muss vor was kommen) + **impact-vs-effort** (was bringt am meisten pro stunde-arbeit):
 
 ### Phase 1 (sequenziell zum start)
-1. **Welle F2-F5** (4 features) — admin-hardening abschließen vor neuen features
-2. **Welle G1-G4** (4 features) — direkte pilot-value, kein platform-foundation nötig
-3. **Welle H1-H3** (3 features) — Welle E follow-ups, baut auf existing
+1. **Welle G1-G4** (4 features) — direkte pilot-value, kein platform-foundation nötig
+2. **Welle H1-H3** (3 features) — Welle E follow-ups, baut auf existing
 
 ### Phase 2 (parallele themen, in beliebiger reihenfolge)
-4. **Welle I** (analytics) — niedriger aufwand, hoher pilot-value
-5. **Welle L** (airline-ops) — admin-themen, builds auf Welle F
-6. **Welle N** (mobile) — builds auf E3 mobile-PWA + H2 service-worker
+3. **Welle I** (analytics) — niedriger aufwand, hoher pilot-value
+4. **Welle L** (airline-ops) — admin-themen, builds auf Welle F
+5. **Welle N** (mobile) — builds auf E3 mobile-PWA + H2 service-worker
 
 ### Phase 3 (advanced, brauchen mehr foundation)
-7. **Welle K** (community) — braucht discord-bot (K1) als foundation
-8. **Welle J** (realism) — externe APIs (navigraph, VATSIM) erfordern auth-handling
-9. **Welle O** (streaming) — braucht twitch-OAuth (O1) als foundation
+6. **Welle K** (community) — braucht discord-bot (K1) als foundation
+7. **Welle J** (realism) — externe APIs (navigraph, VATSIM) erfordern auth-handling
+8. **Welle O** (streaming) — braucht twitch-OAuth (O1) als foundation
 
 ### Phase 4 (big-ticket items, lange roadmap)
-10. **Welle M** (economy v2) — fundamentale economic-modeling, mehrwöchig
-11. **Welle P** (AI features) — API-cost-management + UX-design für AI-features
-12. **Welle Q** (i18n) — touches every UI-string, lange refactor-projekt
-13. **Welle R** (performance) — kontinuierliche maintenance-arbeit
+9. **Welle M** (economy v2) — fundamentale economic-modeling, mehrwöchig
+10. **Welle P** (AI features) — API-cost-management + UX-design für AI-features
+11. **Welle Q** (i18n) — touches every UI-string, lange refactor-projekt
+12. **Welle R** (performance) — kontinuierliche maintenance-arbeit
 
 ---
 
