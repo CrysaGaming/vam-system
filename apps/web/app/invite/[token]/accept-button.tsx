@@ -30,8 +30,13 @@ export function AcceptButton({ token, airlineName }: Props) {
         return;
       }
       setSuccess(true);
-      // Brief delay so user sees the confirmation, then redirect
-      setTimeout(() => router.push('/dashboard'), 1500);
+      // Brief delay so user sees the confirmation, then redirect.
+      // Welle F / F4: Statt direkt zum dashboard → erst durch das
+      // Onboarding-Wizard. Page-side gate redirected automatisch
+      // zu /dashboard wenn onboardingCompletedAt schon gesetzt
+      // (sehr unwahrscheinlich post-accept, aber idempotent gegen
+      // edge-cases wie multi-airline-wechsel).
+      setTimeout(() => router.push('/airline/onboarding'), 1500);
     });
   }
 

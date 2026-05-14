@@ -745,6 +745,17 @@ model User {
   // bestehende users der echte beitritts-zeitpunkt war (auto-join
   // bei registrierung).
   joinedAirlineAt DateTime?
+  // Welle F / F4: Member-onboarding-wizard completion timestamp.
+  // NULL = wizard noch nicht durchlaufen → /airline/onboarding redirect
+  // greift bei nächstem dashboard-besuch. Gesetzt = wizard abgeschlossen
+  // (oder vom user explizit übersprungen). Mit completeOnboarding-action
+  // gesetzt; kann admin später resetten falls pilot den wizard erneut
+  // sehen soll (z.B. nach airline-wechsel). Bewusst kein step-tracking-
+  // field — der wizard ist idempotent, jeder step macht eigene DB-writes
+  // (baseIcao, economyEnabled, etc.), bei page-reload startet er wieder
+  // ab dem ersten unkomplettierten step (oder von vorn wenn user
+  // backtracken will).
+  onboardingCompletedAt DateTime?
   rankId          String?
   rank            Rank?     @relation(fields: [rankId], references: [id])
   roleId          String?
