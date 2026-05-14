@@ -17,6 +17,10 @@ import {
   type WeatherComparisonRealData,
 } from '@/components/weather-comparison-card';
 import { AtcSessionsCard } from '@/components/atc-sessions-card';
+import {
+  AircraftSubstitutionCard,
+  type AircraftSubstitution,
+} from '@/components/aircraft-substitution-card';
 import { fetchSingleMetar } from '@/lib/metars/fetch-from-bot';
 import { ApprovalActions } from './approval-actions';
 import { DraftActions } from './draft-actions';
@@ -319,6 +323,12 @@ export default async function PirepDetail({
               },
               orderBy: { startedAt: 'asc' },
             },
+            // Welle B — B4 phase 3. Aircraft-substitution disposition.
+            // Json column populated by the ACARS client when the pilot
+            // confirmed a booked-vs-flown mismatch dialog. May be null
+            // for the common case (no dialog shown / no mismatch /
+            // pre-B4 session). Card below renders only when populated.
+            aircraftSubstitution: true,
           },
         })
       : Promise.resolve(null),
@@ -1184,6 +1194,38 @@ export default async function PirepDetail({
               sessionEndedAt={liveSession.lastUpdatedAt}
             />
           </div>
+        )}
+
+        {/* Welle B — B4 phase 3 (Aircraft-Substitution): pilot's pre-flight
+            disposition when the sim-loaded aircraft type differed from the
+            booked aircraft type. Populated by the ACARS client at Verbinden
+            time (B4 P2C dialog) and shipped via the heartbeat's
+            aircraftSubstitution block into LiveSession.aircraftSubstitution
+            (B4 P1 server-side).
+
+            Renders directly after ATC-Sessions because both belong to the
+            "pre-flight + in-flight context" cluster on this page — the
+            three Welle-B cards (Weather, ATC, Substitution) read top-to-
+            bottom as the ACARS-flight narrative before the Landing-
+            Analysis post-flight section kicks in.
+
+            Type narrowing: LiveSession.aircraftSubstitution is a Prisma
+            Json column, which Prisma types as JsonValue. The component
+            does its own defensive shape-check, but we narrow here to give
+            React the right type without an `any` cast. The intent is
+            either "intentional" or "wrongBooking"; "wrongLoaded" never
+            reaches the server (client aborts the connect-flow), so we
+            don't have to handle it.
+
+            Conditional gate: liveSession must exist AND its
+            aircraftSubstitution Json must be non-null. Manual / pre-B4
+            sessions and the common no-mismatch case all fall through. */}
+        {liveSession?.aircraftSubstitution != null && (
+          <AircraftSubstitutionCard
+            substitution={
+              liveSession.aircraftSubstitution as unknown as AircraftSubstitution
+            }
+          />
         )}
 
         {/* Track 4 #6 (Landing-Analysis): Touchdown-metrics aus dem
