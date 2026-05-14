@@ -290,6 +290,62 @@ export async function approvePirep(pirepId: string) {
     console.warn('[approvePirep] follower-fanout (pirep) failed:', err),
   );
 
+  // Welle K / K1 — Milestone-detection + discord-broadcast.
+  // Lade die aktuellen approved-totals via aggregate (post-commit), leite
+  // daraus die prev-totals durch subtraktion dieser PIREP-contribution
+  // ab, checke ob ein threshold gecrossst wurde. Fire-and-forget;
+  // bot-handler ist optional (silent 404 wenn bot endpoint nicht kennt).
+  void (async () => {
+    try {
+      const agg = await prisma.pirep.aggregate({
+        where: { userId: pirep.userId, status: 'Approved' },
+        _count: { _all: true },
+        _sum: { flightTimeMin: true },
+      });
+      const nextFlights = agg._count._all ?? 0;
+      const nextMinutes = agg._sum.flightTimeMin ?? 0;
+      const nextHours = nextMinutes / 60;
+      // Dieser PIREP ist bereits in den totals enthalten (post-commit),
+      // also subtrahieren wir seine contribution für prev-state.
+      const thisFlightMin = pirep.flightTimeMin ?? 0;
+      const prevFlights = Math.max(0, nextFlights - 1);
+      const prevHours = Math.max(0, nextHours - thisFlightMin / 60);
+
+      const { detectMilestones } = await import('@/lib/milestones/check');
+      const milestones = detectMilestones(
+        { hours: prevHours, flights: prevFlights },
+        { hours: nextHours, flights: nextFlights },
+      );
+      if (milestones.length === 0) return;
+
+      // Discord-id für mention. Wir haben den pirep.user.accounts schon
+      // aus dem oberen include; finde die discord-account-id.
+      const pilotDiscordId =
+        pirep.user.accounts[0]?.providerAccountId ?? null;
+      const { emitMilestoneReached } = await import('@/lib/bot-events');
+
+      for (const m of milestones) {
+        console.info(
+          `[approvePirep] milestone reached for user ${pirep.userId}: ${m.label}`,
+        );
+        void emitMilestoneReached({
+          userId: pirep.userId,
+          pilotName: pirep.user.name ?? 'Unbenannt',
+          pilotDiscordId,
+          kind: m.kind,
+          threshold: m.threshold,
+          label: m.label,
+          currentHours: Math.round(nextHours * 10) / 10,
+          currentFlights: nextFlights,
+        }).catch((err) =>
+          console.warn('[approvePirep] emitMilestoneReached failed:', err),
+        );
+      }
+    } catch (err) {
+      console.warn('[approvePirep] milestone-detection failed:', err);
+    }
+  })();
+
   // Track 5 #10 — Evaluate pilot-goals nach approval. Idempotent
   // (skipt periods that already incremented). Fire-and-forget mit
   // try/catch — goal-eval-fehlschlag darf approval nicht blockieren.

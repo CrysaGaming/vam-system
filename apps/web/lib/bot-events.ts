@@ -180,3 +180,41 @@ export async function emitAwardEarned(payload: AwardEarnedPayload): Promise<void
 export async function emitEventPublished(payload: EventPublishedPayload): Promise<void> {
   await post('/events/event-published', payload);
 }
+
+/**
+ * Welle K / K1 — Milestone-Discord-Broadcast payload.
+ *
+ * Triggered wenn ein pilot durch einen approved-PIREP über einen hours-
+ * oder flights-threshold gepusht wurde (siehe lib/milestones/check.ts).
+ *
+ * Bot-handler ist OPTIONAL: wenn der bot-server `/events/milestone-reached`
+ * nicht kennt, returnt er 404 und der web-side fire-and-forget loggt
+ * silently. Bot-team kann den handler später nachziehen ohne breaking.
+ *
+ * Discord-handler-empfehlung (für bot-side):
+ *   - In #milestones channel posten
+ *   - Embed-color nach threshold-tier (10/25/50 = grau, 100/250 = blau,
+ *     500/1000 = gold, 2500+ = platinum)
+ *   - Mention den pilot via discord-id (falls vorhanden)
+ *   - Optional: action-button "Profil ansehen" → vam.kevindrack.de/p/{userId}
+ */
+export type MilestoneReachedPayload = {
+  userId: string;
+  pilotName: string;
+  pilotDiscordId: string | null;
+  /** "hours" oder "flights" — bot rendert label entsprechend */
+  kind: 'hours' | 'flights';
+  /** Der gerade gecrosste threshold (z.B. 100, 500, 1000) */
+  threshold: number;
+  /** Pre-rendered german label (z.B. "100 Flugstunden", "500 Flüge") */
+  label: string;
+  /** Pilot's aktuelle totale wie vom DB-aggregate gelesen (post-crossing) */
+  currentHours: number;
+  currentFlights: number;
+};
+
+export async function emitMilestoneReached(
+  payload: MilestoneReachedPayload,
+): Promise<void> {
+  await post('/events/milestone-reached', payload);
+}
