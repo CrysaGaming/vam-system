@@ -577,6 +577,9 @@ model Airline {
 
   // Welle K / K5 — Inter-airline-trips organized by this airline.
   organizedInterAirlineTrips InterAirlineTrip[] @relation("TripOrganizerAirline")
+
+  // Welle L / L2 — Crew-pairings of this airline.
+  crewPairings CrewPairing[]
 }
 
 model User {
@@ -1062,6 +1065,10 @@ model User {
   // Welle K / K5 — Inter-airline-trips: organized + participations.
   organizedTrips      InterAirlineTrip[]        @relation("TripOrganizer")
   tripParticipations  InterAirlineTripParticipant[]
+
+  // Welle L / L2 — Crew-pairings: assigned als pilot + created als admin.
+  assignedCrewPairings CrewPairing[] @relation("CrewPairingAssignedPilot")
+  createdCrewPairings  CrewPairing[] @relation("CrewPairingCreatedBy")
 
   // Track 5 #24 (Section E): Web Push subscriptions. Ein user kann mehrere
   // devices/browsers haben (laptop chrome, mobile safari, tablet edge),
@@ -2898,7 +2905,139 @@ model ScheduledFlight {
   // model. Cascade-delete via RosterAssignment.scheduledFlight damit cleanup
   // sauber ist wenn ein flight cancelled wird.
   rosterAssignments RosterAssignment[]
+
+  // Welle L / L2 — Crew-pairing legs. Ein scheduled-flight kann teil einer
+  // mehr-leg-pairing sein. M:N via CrewPairingLeg (junction-table mit
+  // sequence + dauer-info). Cascade-delete: wenn flight gecancelled wird,
+  // räumen wir die leg-row mit, die pairing bleibt aber bestehen (kann
+  // updated werden).
+  crewPairingLegs CrewPairingLeg[]
 }
+
+/// Welle L / L2 — Crew-Pairing lifecycle status.
+///
+/// Draft: admin baut die pairing zusammen, noch nicht für pilots sichtbar.
+/// Published: pairing kann von pilots gebid werden (V2 bidding) oder admin
+///   weist sie zu (V1 admin-assigned).
+/// Assigned: ein pilot ist zugewiesen.
+/// InProgress: erstes leg ist live oder bereits geflogen.
+/// Completed: alle legs flown.
+/// Cancelled: pairing abgebrochen, audit-trail bleibt.
+enum CrewPairingStatus {
+  Draft
+  Published
+  Assigned
+  InProgress
+  Completed
+  Cancelled
+}
+
+/// Welle L / L2 — Crew-Pairing.
+///
+/// Eine pairing ist eine geordnete sequenz von ScheduledFlight-legs die
+/// als zusammenhängender duty-period vom selben pilot geflogen werden.
+/// Typisch: out-and-back (EDDF→LFPG→EDDF) oder 2-3 day-trip (EDDF→KJFK
+/// → übernachtung → KJFK→EDDF).
+///
+/// # Design rationale (vs RosterAssignment)
+///
+/// RosterAssignment ist per-flight: ein pilot wird auf einen einzelnen
+/// scheduled-flight gerostert. Das funktioniert gut für single-leg-ops,
+/// hat aber zwei limits:
+///   1. Multi-leg-trips müssen einzeln gerostert werden, ohne dass
+///      das system "weiß" dass sie zusammengehören.
+///   2. Keine duty-time-tracking (gesamt-dauer + rest-perioden).
+///
+/// CrewPairing bündelt mehrere flights und trackt die meta-data.
+/// RosterAssignment bleibt das primäre instrument für single-leg-
+/// roster-flow; CrewPairing ist für admin-curated multi-leg duties.
+///
+/// # Conflict-handling
+///
+/// Wir validieren NICHT in der DB dass die legs eines pairings
+/// "consistent" sind (z.B. arrival[leg N] == departure[leg N+1]).
+/// V1 vertraut auf den admin. V2 könnte eine validatePairing()-
+/// helper-funktion sein die das im UI checkt.
+model CrewPairing {
+  id        String  @id @default(cuid())
+  airlineId String
+  airline   Airline @relation(fields: [airlineId], references: [id], onDelete: Cascade)
+
+  /// Human-friendly label, z.B. "P-FRA-NYC-Day1+2" oder "Daily MUC-FRA Pairing"
+  name        String  @db.VarChar(200)
+  description String? @db.VarChar(2000)
+
+  status CrewPairingStatus @default(Draft)
+
+  /// Optional pilot-assignment. Set wenn ein pilot der pairing
+  /// zugewiesen wurde (status≥Assigned). SetNull cascade: wenn der
+  /// pilot account gelöscht wird, bleibt die pairing audit-trail
+  /// erhalten ohne zuweisung.
+  assignedPilotId String?
+  assignedPilot   User?   @relation("CrewPairingAssignedPilot", fields: [assignedPilotId], references: [id], onDelete: SetNull)
+
+  /// Wer hat die pairing erstellt (admin-attribution für audit).
+  createdById String
+  createdBy   User   @relation("CrewPairingCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  /// Berechnete summary-felder. Werden von der app gepflegt (auf legs-
+  /// updates), denormalized weil das ein häufiger query auf der
+  /// list-page ist und wir nicht jedes mal über alle legs aggregaten
+  /// wollen.
+  totalDurationMin Int @default(0)
+  legCount         Int @default(0)
+
+  startsAt   DateTime? // = legs[0].departureTime
+  endsAt     DateTime? // = legs[last].departureTime + legs[last].route.estimatedMinutes
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  publishedAt DateTime?
+  completedAt DateTime?
+  cancelledAt DateTime?
+
+  legs CrewPairingLeg[]
+
+  // Häufige queries:
+  //   "alle pairings meiner airline, sortiert by startsAt"
+  //   "meine assigned pairings" (pilot-side)
+  @@index([airlineId, status, startsAt])
+  @@index([assignedPilotId, status])
+}
+
+/// Welle L / L2 — Junction-row zwischen CrewPairing und ScheduledFlight.
+///
+/// Sequence-feld für die reihenfolge (1-based). Ein scheduled-flight kann
+/// theoretisch in mehreren pairings landen (z.B. wenn ein admin die
+/// pairing dupliziert) — wir blockieren das nicht in V1, weil das edge-
+/// case ist und die @@unique constraint zwischen pairing+sequence reicht.
+model CrewPairingLeg {
+  id        String @id @default(cuid())
+  pairingId String
+  pairing   CrewPairing @relation(fields: [pairingId], references: [id], onDelete: Cascade)
+
+  /// Die ScheduledFlight-row die in dieser pairing als leg dient.
+  /// Cascade-delete wenn flight gelöscht wird (selten — flights werden
+  /// normalerweise cancelled statt gelöscht).
+  scheduledFlightId String
+  scheduledFlight   ScheduledFlight @relation(fields: [scheduledFlightId], references: [id], onDelete: Cascade)
+
+  /// Position innerhalb der pairing (1-based). UI sortiert nach dieser
+  /// reihenfolge. Wir enforce uniqueness via @@unique damit der admin
+  /// nicht versehentlich zwei legs an position 1 hat.
+  sequence Int
+
+  /// Optional layover-info bis zum nächsten leg (für display).
+  layoverHoursAfter Decimal? @db.Decimal(5, 2)
+
+  createdAt DateTime @default(now())
+
+  @@unique([pairingId, sequence])
+  @@unique([pairingId, scheduledFlightId])
+  @@index([scheduledFlightId])
+}
+
+
 
 // ─────────────────────────────────────────────────────────────────────────
 // Welle 9: ACARS Phase 2-5
