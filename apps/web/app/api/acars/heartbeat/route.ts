@@ -370,6 +370,12 @@ export async function POST(req: NextRequest) {
       currentPhaseEnteredAt: true,
       lastAcarsHeartbeat: true,
       connectedAt: true,
+      // Welle C / C1 — read the running time-acceleration counters
+      // so the per-heartbeat update can extend them. See sessionFields
+      // build below for the increment/reset rules.
+      simRateMax: true,
+      timeAccelConsecutive: true,
+      timeAccelMaxRun: true,
     },
     orderBy: { lastUpdatedAt: 'desc' },
   });
@@ -442,6 +448,53 @@ export async function POST(req: NextRequest) {
     registration: data.aircraft.registration,
     title: data.aircraft.title ?? null,
   });
+
+  // ─── Welle C / C1 — time-acceleration tracking ───────────────────────
+  //
+  // The roadmap rule is "3 aufeinanderfolgende heartbeats mit simRate
+  // > 1.0 → flag". We maintain three counters on LiveSession that
+  // together implement this without per-position storage:
+  //
+  //   timeAccelConsecutive: current run-length of consecutive
+  //     heartbeats with simRate > 1.0. Reset to 0 on any heartbeat
+  //     with simRate <= 1.0 (or simRate omitted, which we treat as
+  //     1.0 — a client that doesn't report simRate isn't accelerating
+  //     by definition for our purposes).
+  //   timeAccelMaxRun: max run-length ever observed in this session.
+  //     This is what buildPirepFlags checks against the >=3 threshold.
+  //   simRateMax: max simRate value ever observed. Surfaced in the
+  //     flag payload so admin review sees the actual peak (4.0x, 8.0x)
+  //     rather than just "at least one run of 3+ frames".
+  //
+  // existing may be null (brand-new session OR stale-cleanup branch
+  // above set it to null). In that case both counters start at 0
+  // and simRateMax tracks just this heartbeat's value.
+  //
+  // We deliberately don't compare against the Airline.enforceSimRate
+  // 1.01 threshold here — that's the real-time hard-reject threshold.
+  // The flag-detection threshold is 1.0 (any non-real-time rate),
+  // because the flag is post-hoc surveillance, not real-time
+  // enforcement. A pilot doing 1.05x for 3+ frames still gets flagged
+  // for admin review even if the airline doesn't hard-reject.
+  const isAccelerated = (data.simRate ?? 1.0) > 1.0;
+  const nextTimeAccelConsecutive = isAccelerated
+    ? (existing?.timeAccelConsecutive ?? 0) + 1
+    : 0;
+  const nextTimeAccelMaxRun = Math.max(
+    existing?.timeAccelMaxRun ?? 0,
+    nextTimeAccelConsecutive,
+  );
+  // simRateMax: only consider client-reported values. If the client
+  // doesn't send simRate at all, we leave the existing max unchanged
+  // (no information one way or the other).
+  const reportedSimRate = data.simRate ?? null;
+  const previousSimRateMax = existing?.simRateMax ?? null;
+  const nextSimRateMax =
+    reportedSimRate !== null
+      ? previousSimRateMax === null
+        ? reportedSimRate
+        : Math.max(previousSimRateMax, reportedSimRate)
+      : previousSimRateMax;
 
   // Build the field-set used by both create and update so they can't drift.
   const sessionFields = {
@@ -522,6 +575,14 @@ export async function POST(req: NextRequest) {
 
     simRate: data.simRate ?? null,
     totalPauseSeconds: data.totalPauseSeconds ?? 0,
+
+    // Welle C / C1 — running anti-cheat counters. Computed above; see
+    // the "time-acceleration tracking" comment-block for the increment
+    // rules. Always written so the row state is internally consistent
+    // (max ≥ current, current ≥ 0).
+    simRateMax: nextSimRateMax,
+    timeAccelConsecutive: nextTimeAccelConsecutive,
+    timeAccelMaxRun: nextTimeAccelMaxRun,
 
     lastUpdatedAt: now,
     isActive: true,

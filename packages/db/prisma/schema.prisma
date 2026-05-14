@@ -1425,8 +1425,44 @@ model LiveSession {
   // Seconds aggregiert pause-zeit über die session. Beides wird in
   // PIREP-validation berücksichtigt (out-of-scope für 9A schema, das
   // ist 9F territory).
+  //
+  // simRate holds the LATEST value reported by the client; useful for
+  // the live-display surface ("pilot is currently at 2.0x") but not
+  // for retrospective audit. The Welle-C / C1 counters below cover
+  // the audit dimension.
   simRate           Float?
   totalPauseSeconds Int    @default(0)
+
+  // Welle C / C1 — time-acceleration detection (anti-cheat).
+  //
+  // The roadmap spec is "3 aufeinanderfolgende heartbeats mit
+  // simRate > 1.0 → flag TIME_ACCELERATION_DETECTED". That requires
+  // per-heartbeat history, which we'd otherwise have to reconstruct
+  // by walking LiveSessionPosition rows at PIREP-creation. Instead
+  // we maintain the running counters inline during heartbeat
+  // processing:
+  //
+  //   - simRate > 1.0:   timeAccelConsecutive += 1
+  //                      timeAccelMaxRun = max(timeAccelMaxRun, timeAccelConsecutive)
+  //                      simRateMax      = max(simRateMax, simRate)
+  //   - simRate <= 1.0:  timeAccelConsecutive = 0
+  //
+  // At PIREP-creation, buildPirepFlags reads timeAccelMaxRun and
+  // simRateMax. If maxRun >= 3, the flag fires with the max-rate
+  // observed. The same logic is intentionally separate from the
+  // existing "session.simRate > 1.01" instant-rejection enforced by
+  // Airline.enforceSimRate — that gate is real-time and hard-rejects;
+  // this flag is post-hoc and surfaces to admin review.
+  //
+  // Why on LiveSession rather than per-LiveSessionPosition: position
+  // rows are written every 1-2 sec during a flight (~3600+ rows for
+  // a 90-min flight). Adding a column to that hot path for the sole
+  // benefit of one detection at PIREP-creation would bloat the trail
+  // table for no other consumer; the running-counter pattern keeps
+  // the per-heartbeat write footprint stable.
+  simRateMax           Float?
+  timeAccelConsecutive Int    @default(0)
+  timeAccelMaxRun      Int    @default(0)
 
   aircraftType         String?
   aircraftRegistration String?

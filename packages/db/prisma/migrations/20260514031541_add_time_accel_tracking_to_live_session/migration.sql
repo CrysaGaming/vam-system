@@ -1,0 +1,4 @@
+-- AlterTable
+ALTER TABLE "LiveSession" ADD COLUMN     "simRateMax" DOUBLE PRECISION,
+ADD COLUMN     "timeAccelConsecutive" INTEGER NOT NULL DEFAULT 0,
+ADD COLUMN     "timeAccelMaxRun" INTEGER NOT NULL DEFAULT 0;
