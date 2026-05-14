@@ -574,6 +574,9 @@ model Airline {
   // Welle F / F1 — Audit-log entries scoped to this airline. Used by
   // /airline/admin/audit-log for airline-admin-visible action history.
   auditLogEntries AdminAuditLog[] @relation("AdminAuditAirline")
+
+  // Welle K / K5 — Inter-airline-trips organized by this airline.
+  organizedInterAirlineTrips InterAirlineTrip[] @relation("TripOrganizerAirline")
 }
 
 model User {
@@ -1055,6 +1058,10 @@ model User {
 
   // Welle K / K2 — Pilot-Blog posts authored by this user.
   blogPosts BlogPost[] @relation("BlogPostAuthor")
+
+  // Welle K / K5 — Inter-airline-trips: organized + participations.
+  organizedTrips      InterAirlineTrip[]        @relation("TripOrganizer")
+  tripParticipations  InterAirlineTripParticipant[]
 
   // Track 5 #24 (Section E): Web Push subscriptions. Ein user kann mehrere
   // devices/browsers haben (laptop chrome, mobile safari, tablet edge),
@@ -4713,6 +4720,106 @@ model BlogPost {
   @@index([status, publishedAt(sort: Desc)])
   // Author-dashboard: alle posts eines users, neueste-zuerst, by status
   @@index([authorId, status, createdAt(sort: Desc)])
+}
+
+/// Welle K / K5 — Inter-airline-trip lifecycle status.
+///
+/// Proposed: organizer hat den trip erstellt, suchen partner-pilots.
+/// Confirmed: organizer hat den trip bestätigt (genug teilnehmer).
+/// Completed: trip wurde geflogen (manuell vom organizer gesetzt).
+/// Cancelled: trip wurde abgesagt — bleibt für audit-trail erhalten.
+enum InterAirlineTripStatus {
+  Proposed
+  Confirmed
+  Completed
+  Cancelled
+}
+
+/// Welle K / K5 — Inter-Airline-Trip. Cross-airline cooperative flight.
+///
+/// Ein pilot (typischerweise airline-admin) organisiert einen joint-flight
+/// (z.B. "Cologne-Hopper EDDK→LFPG mit interessenten aus partner-airlines")
+/// und andere pilots — egal aus welcher airline — können sich anschließen.
+/// Im gegensatz zu Booking sind Inter-Airline-Trips nicht an einen
+/// finanziellen flow gebunden; sie sind reine community-events.
+///
+/// # Workflow
+///
+///   1. Pilot creates trip (status=Proposed), setzt route + scheduledAt +
+///      maxParticipants. Wird auto-participant als organizer.
+///   2. Andere pilots browsen /trips, joinen via joinTripAction
+///      (creates InterAirlineTripParticipant)
+///   3. Organizer bestätigt → status=Confirmed
+///   4. Nach dem flight: organizer setzt → status=Completed
+///   5. Bei absage: status=Cancelled (audit-trail)
+///
+/// # Why eigene tabelle statt Booking/Event
+///
+/// - Booking: ein-pilot-pro-flight, mit finanzieller wallet-flow,
+///   route-locked auf Route-model. Inter-airline-trips sind multi-pilot,
+///   keine wallet-bewegung, free-form route.
+/// - Event: airline-admin schedules eigene events (TOUR/SINGLE_FLIGHT etc.)
+///   mit PIREP-bonus. Inter-airline-trips sind nicht reward-gebunden.
+///
+/// V2 könnte einen "promotion to airline-event"-flow haben wo ein
+/// erfolgreich-completed inter-airline-trip in beiden teilnehmer-airlines'
+/// event-historien landet.
+model InterAirlineTrip {
+  id          String                @id @default(cuid())
+  title       String                @db.VarChar(200)
+  description String                @db.Text
+
+  /// Organizer-airline. Wer den trip rein-formal "hostet". Der trip ist
+  /// aber für pilots aus ALLEN airlines offen.
+  organizerAirlineId String
+  organizerAirline   Airline        @relation("TripOrganizerAirline", fields: [organizerAirlineId], references: [id], onDelete: Cascade)
+
+  /// Organizer-user. Der pilot der den trip erstellt + managed hat.
+  organizerUserId    String
+  organizerUser      User           @relation("TripOrganizer", fields: [organizerUserId], references: [id], onDelete: Cascade)
+
+  /// Departure + arrival ICAO als plain-text (nicht FK auf Airport weil
+  /// auch unrealistic-routes / off-route-trips erlaubt sind — z.B.
+  /// "alle treffen sich in Schönefeld und fliegen nach Tegel"; manche
+  /// pilots auf MSFS haben non-real airports installed).
+  departureIcao String @db.VarChar(10)
+  arrivalIcao   String @db.VarChar(10)
+
+  scheduledAt     DateTime
+  maxParticipants Int       @default(0) // 0 = unbegrenzt
+
+  status     InterAirlineTripStatus @default(Proposed)
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  completedAt DateTime?
+  cancelledAt DateTime?
+
+  participants InterAirlineTripParticipant[]
+
+  // Browse-feed: alle Proposed/Confirmed trips, sortiert by scheduledAt
+  @@index([status, scheduledAt])
+  // Organizer-dashboard
+  @@index([organizerUserId, status])
+}
+
+/// Welle K / K5 — Trip-participation join-table.
+///
+/// Ein pilot kann sich an einem trip beteiligen. Self-service: pilot
+/// joint via /trips/[id] page. Leave ist immer möglich solange status
+/// nicht Completed ist.
+model InterAirlineTripParticipant {
+  id       String           @id @default(cuid())
+  tripId   String
+  trip     InterAirlineTrip @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  userId   String
+  user     User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  joinedAt DateTime         @default(now())
+  /// Optional notes vom joiner (z.B. aircraft, callsign-hint).
+  notes    String?          @db.VarChar(500)
+
+  @@unique([tripId, userId])
+  @@index([userId])
 }
 
 /// Track 5 #14 (Section C): PIREP Discussion Comments.
