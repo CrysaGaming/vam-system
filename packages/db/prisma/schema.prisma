@@ -782,6 +782,16 @@ model User {
   // staleness-detection (z.B. "VATSIM-position älter als 24h → fall back
   // to last PIREP arrival").
   baseIcao              String?
+  // Welle F / F5: Multi-base support. Zusätzliche bases neben baseIcao
+  // damit pilots die in mehreren cities ansässig sind (z.B. wohnt EDDF,
+  // pendelt EDDM) keine ferry-flights brauchen wenn sie aus dem zweiten
+  // hub starten wollen. String[] mit ICAO-codes; postgres-array damit
+  // wir kein extra join-tabelle anlegen müssen für eine selten
+  // mutierende whitelist. Validation in app-layer: jedes element muss
+  // ein matching airline.hubs entry sein (analog zu baseIcao). baseIcao
+  // bleibt der "primary" base für display-priorität — secondaryBaseIcaos
+  // ist additive. Leeres array = nur primary-base (default-state).
+  secondaryBaseIcaos    String[]      @default([])
   currentLocationIcao   String?
   currentLocationSource LocationSource @default(MANUAL)
   currentLocationAt     DateTime?

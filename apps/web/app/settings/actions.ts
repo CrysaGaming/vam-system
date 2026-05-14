@@ -762,3 +762,107 @@ export async function setProfileVisibility(isPublic: boolean) {
 
   return { success: true, isProfilePublic: isPublic };
 }
+
+/**
+ * Welle F / F5: Multi-base secondary-bases update.
+ *
+ * Setzt User.secondaryBaseIcaos auf eine deduplizierte und validierte
+ * subset von airline.hubs (ohne primary base). Server-side validation:
+ *   - User muss einer airline angehören (sonst keine hubs verfügbar)
+ *   - Alle ICAOs müssen matching airline.hubs entries sein
+ *   - Primary base (baseIcao) darf nicht in secondary-liste sein
+ *   - Duplikate werden silent entfernt
+ *   - Hard cap 10 entries (sanity-check gegen übertragungs-bugs)
+ *
+ * Bei invalid input wird `{ success: false, error }` returned. Bei
+ * success wird die deduplizierte/validierte liste persistiert + die
+ * aktuelle effektive liste returned damit die UI optimistic-update
+ * machen kann.
+ *
+ * Lifecycle:
+ *   - Add base: caller schickt [...current, newIcao]
+ *   - Remove base: caller schickt current.filter(i => i !== removedIcao)
+ *   - Clear all: caller schickt []
+ *
+ * Diese single-action für die ganze liste (statt add/remove einzeln) ist
+ * einfacher zu serialisieren + atomar persistiert.
+ */
+export async function updateSecondaryBases(
+  icaos: string[],
+): Promise<
+  | { success: true; secondaryBaseIcaos: string[] }
+  | { success: false; error: string }
+> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { success: false, error: 'unauthorized' };
+  }
+
+  // Layer 1: load user + airline + available hubs in one round-trip.
+  const user = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: {
+      airlineId: true,
+      baseIcao: true,
+      airline: {
+        select: {
+          hubs: {
+            select: { airportIcao: true },
+          },
+        },
+      },
+    },
+  });
+  if (!user) {
+    return { success: false, error: 'not_found' };
+  }
+  if (!user.airlineId || !user.airline) {
+    return { success: false, error: 'no_airline' };
+  }
+
+  // Layer 2: input shape. We expect array-of-strings with reasonable
+  // ICAO format. Reject anything weird before we hit the DB.
+  if (!Array.isArray(icaos)) {
+    return { success: false, error: 'invalid_input' };
+  }
+  if (icaos.length > 10) {
+    return { success: false, error: 'too_many_bases' };
+  }
+  for (const icao of icaos) {
+    if (typeof icao !== 'string' || !/^[A-Z0-9]{3,4}$/.test(icao)) {
+      return { success: false, error: 'invalid_icao_format' };
+    }
+  }
+
+  // Layer 3: dedupe + filter against airline.hubs whitelist + exclude
+  // primary base (semantic: primary is already implicitly first base).
+  const availableHubIcaos = new Set(user.airline.hubs.map((h) => h.airportIcao));
+  const seen = new Set<string>();
+  const cleaned: string[] = [];
+  for (const icao of icaos) {
+    if (seen.has(icao)) continue; // silent dedupe
+    if (icao === user.baseIcao) continue; // silent skip primary (already implicit)
+    if (!availableHubIcaos.has(icao)) {
+      // ICAO ist not an airline hub — reject (harder error: caller
+      // sent invalid data, fail loud rather than silent skip).
+      return { success: false, error: 'not_a_hub' };
+    }
+    seen.add(icao);
+    cleaned.push(icao);
+  }
+
+  await prisma.user.update({
+    where: { id: session.user.id },
+    data: { secondaryBaseIcaos: cleaned },
+  });
+
+  // Revalidate paths where the bases are displayed. /settings = the
+  // form itself, /dashboard = where the bases may show up as info,
+  // /bookings/new = where route-suggestions could in future iterate
+  // over all bases.
+  revalidatePath('/settings');
+  revalidatePath('/dashboard');
+  revalidatePath('/bookings/new');
+
+  return { success: true, secondaryBaseIcaos: cleaned };
+}

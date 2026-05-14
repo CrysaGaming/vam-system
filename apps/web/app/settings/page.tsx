@@ -31,6 +31,7 @@ import { EconomyCard } from './economy-card';
 import { CareerCard } from './career-card';
 import { BioCard } from './bio-card';
 import { ProfileVisibilityCard } from './profile-visibility-card';
+import { SecondaryBasesCard } from './secondary-bases-card';
 
 /**
  * Settings page — refactored from a long single-column layout into 4
@@ -91,8 +92,25 @@ export default async function SettingsPage({
       // pattern — User.careerEnabled UND Airline.careerEnabled müssen
       // beide true sein für aktive license-gates.
       careerEnabled: true,
+      // Welle F / F5: Multi-base. Primary baseIcao + secondary array
+      // werden in der SecondaryBasesCard angezeigt. airline.hubs wird
+      // mitgeladen damit das add-form die available hubs als select-
+      // dropdown zeigen kann (whitelist-filter passiert eh server-side
+      // in updateSecondaryBases).
+      baseIcao: true,
+      secondaryBaseIcaos: true,
       airline: {
-        select: { economyEnabled: true, careerEnabled: true },
+        select: {
+          economyEnabled: true,
+          careerEnabled: true,
+          hubs: {
+            select: {
+              airportIcao: true,
+              airport: { select: { name: true } },
+            },
+            orderBy: { airportIcao: 'asc' as const },
+          },
+        },
       },
     },
   });
@@ -199,6 +217,30 @@ export default async function SettingsPage({
         <CareerCard
           initialEnabled={user.careerEnabled}
           airlineCareerEnabled={user.airline?.careerEnabled ?? null}
+          hasAirline={!!user.airline}
+        />
+      </div>
+
+      {/* Welle F / F5: Multi-base settings card. Direkt nach Career —
+          gehört zur "wer bist du als pilot"-gruppe (base, type-ratings,
+          career-state). Hubs werden im prisma-include oben mitgeladen
+          + zu { icao, name }-shape gemappt, primary base wird im card
+          excluded weil "primary als secondary" semantisch redundant.
+          Bei !hasAirline zeigt die card einen info-hint statt zu
+          verschwinden — der pilot soll wissen dass das feature existiert
+          sobald er einer airline beitritt. */}
+      <div className="mt-6">
+        <SecondaryBasesCard
+          primaryBase={user.baseIcao}
+          currentBases={user.secondaryBaseIcaos}
+          availableHubs={
+            user.airline?.hubs
+              ?.filter((h) => h.airportIcao !== user.baseIcao)
+              .map((h) => ({
+                icao: h.airportIcao,
+                name: h.airport.name,
+              })) ?? []
+          }
           hasAirline={!!user.airline}
         />
       </div>
