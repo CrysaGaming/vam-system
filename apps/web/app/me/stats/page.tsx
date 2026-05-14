@@ -212,6 +212,83 @@ export default async function PersonalStatsPage() {
                     </>
                   )}
                 </RecordCard>
+
+                {/* Welle I / I3 — expanded records: meiste-hours-tag,
+                    meiste-flüge-tag, längste-route */}
+                <RecordCard
+                  icon="📅"
+                  title="Stundenrekord (Tag)"
+                  empty={!bundle.records.mostHoursInOneDay}
+                >
+                  {bundle.records.mostHoursInOneDay && (
+                    <>
+                      <p className="font-mono text-base font-bold">
+                        {formatMinutes(
+                          bundle.records.mostHoursInOneDay.totalMinutes,
+                        )}
+                      </p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        am{' '}
+                        {bundle.records.mostHoursInOneDay.day.toLocaleDateString(
+                          'de-DE',
+                          { day: '2-digit', month: '2-digit', year: 'numeric' },
+                        )}{' '}
+                        ({bundle.records.mostHoursInOneDay.flights} Flüge)
+                      </p>
+                    </>
+                  )}
+                </RecordCard>
+
+                <RecordCard
+                  icon="🗓️"
+                  title="Flugrekord (Tag)"
+                  empty={!bundle.records.mostFlightsInOneDay}
+                >
+                  {bundle.records.mostFlightsInOneDay && (
+                    <>
+                      <p className="font-mono text-base font-bold">
+                        {bundle.records.mostFlightsInOneDay.flights} Flüge
+                      </p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        am{' '}
+                        {bundle.records.mostFlightsInOneDay.day.toLocaleDateString(
+                          'de-DE',
+                          { day: '2-digit', month: '2-digit', year: 'numeric' },
+                        )}{' '}
+                        ({formatMinutes(
+                          bundle.records.mostFlightsInOneDay.totalMinutes,
+                        )})
+                      </p>
+                    </>
+                  )}
+                </RecordCard>
+
+                <RecordCard
+                  icon="🌍"
+                  title="Längste Strecke"
+                  empty={!bundle.records.longestRoute}
+                >
+                  {bundle.records.longestRoute && (
+                    <>
+                      <p className="font-mono text-base font-bold">
+                        {bundle.records.longestRoute.distanceKm.toLocaleString(
+                          'de-DE',
+                        )}{' '}
+                        km
+                      </p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {bundle.records.longestRoute.departureIcao} →{' '}
+                        {bundle.records.longestRoute.arrivalIcao}
+                      </p>
+                      <Link
+                        href={`/pireps/${bundle.records.longestRoute.pirepId}`}
+                        className="mt-1 inline-block text-xs text-indigo-600 hover:underline dark:text-indigo-400"
+                      >
+                        PIREP ansehen →
+                      </Link>
+                    </>
+                  )}
+                </RecordCard>
               </div>
             </section>
 

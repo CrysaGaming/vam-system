@@ -96,6 +96,24 @@ export type PersonalRecords = {
     departureIcao: string;
     arrivalIcao: string;
   } | null;
+  // Welle I / I3 — Personal records expanded.
+  mostHoursInOneDay: {
+    day: Date; // midnight UTC
+    totalMinutes: number;
+    flights: number; // count of PIREPs on that day
+  } | null;
+  mostFlightsInOneDay: {
+    day: Date;
+    flights: number;
+    totalMinutes: number;
+  } | null;
+  longestRoute: {
+    pirepId: string;
+    departureIcao: string;
+    arrivalIcao: string;
+    distanceKm: number;
+    submittedAt: Date;
+  } | null;
 };
 
 // ─────────────────────────────────────────────────────────────────────
@@ -374,50 +392,128 @@ export async function getTopAirports(
 export async function getPersonalRecords(
   userId: string,
 ): Promise<PersonalRecords> {
-  const [longest, smoothest, first] = await Promise.all([
-    prisma.pirep.findFirst({
-      where: { userId, status: 'Approved', flightTimeMin: { not: null } },
-      orderBy: { flightTimeMin: 'desc' },
-      select: {
-        id: true,
-        flightTimeMin: true,
-        submittedAt: true,
-        departure: { select: { icao: true } },
-        arrival: { select: { icao: true } },
-      },
-    }),
-    prisma.pirep.findFirst({
-      where: {
-        userId,
-        status: 'Approved',
-        landingRateFpm: { not: null },
-        // Filter out unrealistic touch-and-go positive-rates ("smoothest"
-        // means closest to 0 from negative side, i.e. softest sink). We
-        // accept negative rates only — positive means go-around or bad
-        // data.
-        // Note: prisma doesn't support OR + null-check easily, so we
-        // do the orderBy server-side and trust the data here. The UI
-        // gates display anyway.
-      },
-      orderBy: { landingRateFpm: 'desc' }, // -50 > -300 > -800
-      select: {
-        id: true,
-        landingRateFpm: true,
-        submittedAt: true,
-        arrival: { select: { icao: true } },
-      },
-    }),
-    prisma.pirep.findFirst({
-      where: { userId, status: 'Approved' },
-      orderBy: { submittedAt: 'asc' },
-      select: {
-        id: true,
-        submittedAt: true,
-        departure: { select: { icao: true } },
-        arrival: { select: { icao: true } },
-      },
-    }),
-  ]);
+  const [longest, smoothest, first, hoursPerDay, flightsPerDay, longestRoute] =
+    await Promise.all([
+      prisma.pirep.findFirst({
+        where: { userId, status: 'Approved', flightTimeMin: { not: null } },
+        orderBy: { flightTimeMin: 'desc' },
+        select: {
+          id: true,
+          flightTimeMin: true,
+          submittedAt: true,
+          departure: { select: { icao: true } },
+          arrival: { select: { icao: true } },
+        },
+      }),
+      prisma.pirep.findFirst({
+        where: {
+          userId,
+          status: 'Approved',
+          landingRateFpm: { not: null },
+          // Filter out unrealistic touch-and-go positive-rates ("smoothest"
+          // means closest to 0 from negative side, i.e. softest sink). We
+          // accept negative rates only — positive means go-around or bad
+          // data.
+          // Note: prisma doesn't support OR + null-check easily, so we
+          // do the orderBy server-side and trust the data here. The UI
+          // gates display anyway.
+        },
+        orderBy: { landingRateFpm: 'desc' }, // -50 > -300 > -800
+        select: {
+          id: true,
+          landingRateFpm: true,
+          submittedAt: true,
+          arrival: { select: { icao: true } },
+        },
+      }),
+      prisma.pirep.findFirst({
+        where: { userId, status: 'Approved' },
+        orderBy: { submittedAt: 'asc' },
+        select: {
+          id: true,
+          submittedAt: true,
+          departure: { select: { icao: true } },
+          arrival: { select: { icao: true } },
+        },
+      }),
+      // Welle I / I3 — most hours in one day. Group by UTC date of
+      // submittedAt; SUM flight minutes; return the day with the highest
+      // total. Bei tie nimmt postgres deterministisch den ältesten.
+      prisma.$queryRaw<
+        Array<{ day: Date; total_min: bigint | null; flights: bigint }>
+      >`
+        SELECT
+          date_trunc('day', "submittedAt") AS day,
+          COALESCE(SUM("flightTimeMin"), 0) AS total_min,
+          COUNT(*) AS flights
+        FROM "Pirep"
+        WHERE "userId" = ${userId}
+          AND status = 'Approved'
+          AND "flightTimeMin" IS NOT NULL
+        GROUP BY date_trunc('day', "submittedAt")
+        ORDER BY total_min DESC, day ASC
+        LIMIT 1
+      `,
+      // Welle I / I3 — most flights in one day. Same windowing as above
+      // but ordered by COUNT instead of SUM. Bewusst eine separate query
+      // statt clever-combined: die zwei records könnten auf
+      // unterschiedliche tage fallen (4 short flights = höhere count
+      // als 1 long flight; 1 9h-leg = mehr hours als 5 30min hops).
+      prisma.$queryRaw<
+        Array<{ day: Date; flights: bigint; total_min: bigint | null }>
+      >`
+        SELECT
+          date_trunc('day', "submittedAt") AS day,
+          COUNT(*) AS flights,
+          COALESCE(SUM("flightTimeMin"), 0) AS total_min
+        FROM "Pirep"
+        WHERE "userId" = ${userId}
+          AND status = 'Approved'
+        GROUP BY date_trunc('day', "submittedAt")
+        ORDER BY flights DESC, day ASC
+        LIMIT 1
+      `,
+      // Welle I / I3 — longest route by great-circle-distance. Haversine
+      // formula im SQL: 6371 km (earth radius) × acos der lat/lng
+      // spherical-distance. Postgres unterstützt das native ohne earth
+      // distance-extension. Result in km, gerundet auf integer.
+      //
+      // Same-airport-PIREPs (dep===arr, z.B. pattern-work): distance=0,
+      // landen unten in der order. ICAO-codes via join geliefert.
+      prisma.$queryRaw<
+        Array<{
+          id: string;
+          dep_icao: string;
+          arr_icao: string;
+          distance_km: number;
+          submitted_at: Date;
+        }>
+      >`
+        SELECT
+          p.id AS id,
+          dep.icao AS dep_icao,
+          arr.icao AS arr_icao,
+          (6371 * acos(
+            LEAST(1.0, GREATEST(-1.0,
+              cos(radians(dep.latitude)) * cos(radians(arr.latitude)) *
+              cos(radians(arr.longitude) - radians(dep.longitude)) +
+              sin(radians(dep.latitude)) * sin(radians(arr.latitude))
+            ))
+          ))::float AS distance_km,
+          p."submittedAt" AS submitted_at
+        FROM "Pirep" p
+        INNER JOIN "Airport" dep ON dep.id = p."departureId"
+        INNER JOIN "Airport" arr ON arr.id = p."arrivalId"
+        WHERE p."userId" = ${userId}
+          AND p.status = 'Approved'
+        ORDER BY distance_km DESC
+        LIMIT 1
+      `,
+    ]);
+
+  const hoursRow = hoursPerDay[0];
+  const flightsRow = flightsPerDay[0];
+  const routeRow = longestRoute[0];
 
   return {
     longestFlight: longest
@@ -444,6 +540,29 @@ export async function getPersonalRecords(
           submittedAt: first.submittedAt,
           departureIcao: first.departure.icao,
           arrivalIcao: first.arrival.icao,
+        }
+      : null,
+    mostHoursInOneDay: hoursRow
+      ? {
+          day: hoursRow.day,
+          totalMinutes: Number(hoursRow.total_min ?? 0),
+          flights: Number(hoursRow.flights),
+        }
+      : null,
+    mostFlightsInOneDay: flightsRow
+      ? {
+          day: flightsRow.day,
+          flights: Number(flightsRow.flights),
+          totalMinutes: Number(flightsRow.total_min ?? 0),
+        }
+      : null,
+    longestRoute: routeRow
+      ? {
+          pirepId: routeRow.id,
+          departureIcao: routeRow.dep_icao,
+          arrivalIcao: routeRow.arr_icao,
+          distanceKm: Math.round(routeRow.distance_km),
+          submittedAt: routeRow.submitted_at,
         }
       : null,
   };
