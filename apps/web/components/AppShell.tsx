@@ -101,11 +101,15 @@ interface Props {
 //   - / (landing/login)
 //   - /invite/[token] (public accept-flow, both anon + authed)
 //   - /overlay/[token] (OBS browser source — must be chrome-free)
+//   - /m and /m/* (Welle E / E3: mobile-companion PWA — chrome-free
+//     full-screen for use as a homescreen-pinned app on a phone next
+//     to MSFS. The route auth-gates internally via auth() + redirect)
 //   - /api/* (API routes — they don't render UI but defend in depth)
 function isPublicPath(pathname: string): boolean {
   if (pathname === '/') return true;
   if (pathname.startsWith('/invite/')) return true;
   if (pathname.startsWith('/overlay/')) return true;
+  if (pathname === '/m' || pathname.startsWith('/m/')) return true;
   if (pathname.startsWith('/api/')) return true;
   // Track 5 #23: /offline ist standalone — wird vom Service Worker als
   // navigation-fallback serviert wenn netzwerk + cache beide miss sind.
