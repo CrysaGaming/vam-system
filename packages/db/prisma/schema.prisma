@@ -583,6 +583,9 @@ model Airline {
 
   // Welle L / L3 — Maintenance-events for the fleet aircraft.
   maintenanceEvents MaintenanceEvent[]
+
+  // Welle L / L5 — NOTAMs published by this airline.
+  notams Notam[]
 }
 
 model User {
@@ -1075,6 +1078,9 @@ model User {
 
   // Welle L / L3 — Maintenance-events created by this user.
   createdMaintenanceEvents MaintenanceEvent[] @relation("MaintenanceEventCreatedBy")
+
+  // Welle L / L5 — NOTAMs created by this user.
+  createdNotams Notam[] @relation("NotamCreatedBy")
 
   // Track 5 #24 (Section E): Web Push subscriptions. Ein user kann mehrere
   // devices/browsers haben (laptop chrome, mobile safari, tablet edge),
@@ -5354,4 +5360,100 @@ model MaintenanceEvent {
   @@index([airlineId, status, scheduledStart])
   @@index([aircraftId, scheduledStart])
   @@index([airlineId, nextDueAt])
+}
+
+/// Welle L / L5 — NOTAM-types.
+///
+/// Notice-to-Airmen kategorien für VA-internal use. Airline-admin
+/// publisht NOTAMs die für member dieser airline relevant sind.
+///
+/// Closure: Airport oder runway-closure (z.B. "EDDF closed for renovation")
+/// Restriction: einschränkung (z.B. "Slot-required for LFPG between 06-09")
+/// Procedure: prozedur-änderung (z.B. "New SID at EDDM effective ...")
+/// Info: allgemeine information (z.B. "Welcome new members from XYZ")
+enum NotamType {
+  Closure
+  Restriction
+  Procedure
+  Info
+}
+
+/// Welle L / L5 — NOTAM-severity (UI-color-coding).
+enum NotamSeverity {
+  Info
+  Warning
+  Critical
+}
+
+/// Welle L / L5 — NOTAM (Notice to Airmen).
+///
+/// Airline-internal notices die member informieren über schedule-
+/// änderungen, airport-closures, prozedur-änderungen, etc.
+///
+/// # Activity-determination
+///
+/// V1: Ein NOTAM ist "aktiv" wenn:
+///   - publishedAt !== null (admin hat publisht)
+///   - validFrom ≤ now()
+///   - validUntil === null || validUntil > now()
+///   - cancelledAt === null
+///
+/// Validity-window ist nicht in DB-constraint enforced — wir nutzen
+/// es im query-layer für filterung. Das gibt admin flexibilität,
+/// z.B. ein NOTAM dass "ab 1. Juni" gültig wird kann schon im Mai
+/// publisht werden.
+///
+/// # Affected airports
+///
+/// `affectedIcaos` ist plain String[] (Postgres array). Wir könnten
+/// das als Many-to-many über Airport-FK modellieren, aber:
+///   1. NOTAMs können sich auf non-real-airports beziehen (siehe
+///      InterAirlineTrip rationale)
+///   2. Query-pattern ist "alle NOTAMs für EDDF" via array-contains —
+///      Prisma supports das gut auf String[]
+///   3. NOTAMs haben oft wenige (1-3) affected airports; FK-table
+///      overhead unnötig
+model Notam {
+  id          String    @id @default(cuid())
+  airlineId   String
+  airline     Airline   @relation(fields: [airlineId], references: [id], onDelete: Cascade)
+
+  type     NotamType
+  severity NotamSeverity @default(Info)
+
+  /// Headline. Wird in feed-views als titel + push-notification-text
+  /// gerendert.
+  title String @db.VarChar(200)
+  /// Vollständiger body. Markdown-flavor lite (rein plaintext + line-
+  /// breaks im V1; richer formatting V2).
+  body  String @db.Text
+
+  /// Affected airports als ICAO-strings. Empty = "general NOTAM" für
+  /// alle airline-operations (kein airport-filter).
+  affectedIcaos String[] @default([])
+
+  validFrom  DateTime
+  /// Open-ended NOTAMs: validUntil === null = "bis auf weiteres".
+  validUntil DateTime?
+
+  /// Set wenn publisht. null = Draft, Werte = wann admin den NOTAM
+  /// freigegeben hat.
+  publishedAt DateTime?
+
+  /// Cancellation marker. Cancelled NOTAMs bleiben für audit-trail
+  /// erhalten, werden aber im pilot-feed nicht mehr angezeigt.
+  cancelledAt DateTime?
+
+  /// Wer hat den NOTAM erstellt (admin-attribution).
+  createdById String
+  createdBy   User   @relation("NotamCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Pilot-feed query: "alle aktiven NOTAMs meiner airline" — by
+  // airlineId + validFrom + cancelledAt-NULL-check.
+  @@index([airlineId, validFrom])
+  // Admin-list: status-filter via publishedAt + cancelledAt
+  @@index([airlineId, publishedAt])
 }
