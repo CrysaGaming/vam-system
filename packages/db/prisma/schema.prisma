@@ -570,6 +570,10 @@ model Airline {
   // Track 5 #29: swap-requests gehören zur airline (für admin-overview
   // und cascade-cleanup wenn airline gelöscht wird).
   rosterSwapRequests RosterSwapRequest[]
+
+  // Welle F / F1 — Audit-log entries scoped to this airline. Used by
+  // /airline/admin/audit-log for airline-admin-visible action history.
+  auditLogEntries AdminAuditLog[] @relation("AdminAuditAirline")
 }
 
 model User {
@@ -4007,6 +4011,23 @@ model AdminAuditLog {
   actorId      String?
   actor        User?    @relation("AdminAuditActor", fields: [actorId], references: [id], onDelete: SetNull)
 
+  /// Welle F / F1 — Airline-Scoping für audit-log. NULL für system-weite
+  /// actions die NICHT zu einer airline gehören (z.B. global role-CRUD,
+  /// flight-school CRUD). Set wenn die action eine bestimmte airline
+  /// betrifft — dann ist die zeile sichtbar für airline-admins im
+  /// scoped /airline/admin/audit-log view.
+  ///
+  /// Trennung der zwei views:
+  ///   - /admin/audit (system-admin only): alle rows, kein scoping
+  ///   - /airline/admin/audit-log (airline-admin): airlineId = own
+  ///
+  /// SetNull beim airline-delete: bei airline-shutdown bleiben die
+  /// rows als globale history erhalten (forensic-trail). Die airline-
+  /// admin-page filtert dann diese rows weg (airlineId IS NULL), aber
+  /// system-admins sehen sie weiterhin.
+  airlineId    String?
+  airline      Airline? @relation("AdminAuditAirline", fields: [airlineId], references: [id], onDelete: SetNull)
+
   /// Action-type als string (kein enum — schnellere iteration ohne
   /// migration bei neuen action-types). Konvention: dot-separated
   /// "noun.verb" z.B. "user.role.changed", "event.published",
@@ -4033,9 +4054,11 @@ model AdminAuditLog {
   ///   - alle actions chronologisch (admin-dashboard /admin/audit)
   ///   - alle actions eines bestimmten actors
   ///   - alle actions auf einem target (z.B. wer hat user X moderiert?)
+  ///   - alle actions einer airline (Welle F / F1 — airline-scoped view)
   @@index([createdAt])
   @@index([actorId, createdAt])
   @@index([targetType, targetId, createdAt])
+  @@index([airlineId, createdAt])
 }
 
 // ─────────────────────────────────────────────────────────────────────────

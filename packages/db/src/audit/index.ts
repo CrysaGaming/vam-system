@@ -49,6 +49,14 @@ export async function logAdminAction(input: {
   action: string;
   targetType?: string | null;
   targetId?: string | null;
+  /**
+   * Welle F / F1 — Airline-Scoping. Set wenn die action eine bestimmte
+   * airline betrifft (member-management, settings, hubs, ranks etc.) —
+   * dann ist die zeile sichtbar im /airline/admin/audit-log scoped view
+   * für die airline-admins dieser airline. NULL für globale system-actions
+   * (z.B. global role-CRUD, flight-school CRUD).
+   */
+  airlineId?: string | null;
   metadata?: Prisma.InputJsonValue;
   ipAddress?: string | null;
   userAgent?: string | null;
@@ -60,6 +68,7 @@ export async function logAdminAction(input: {
         action: input.action,
         targetType: input.targetType ?? null,
         targetId: input.targetId ?? null,
+        airlineId: input.airlineId ?? null,
         metadata: input.metadata,
         ipAddress: input.ipAddress ?? null,
         userAgent: input.userAgent ?? null,
@@ -83,6 +92,16 @@ export async function listAuditEntries(options: {
   actorId?: string | null;
   targetType?: string | null;
   targetId?: string | null;
+  /**
+   * Welle F / F1 — Filter rows by airline. Three modes:
+   *   - undefined: no filter (system-admin view sees everything)
+   *   - string:    filter to actions affecting that airline
+   *   - null:      filter to non-airline actions only (rare; for global-
+   *                actions investigation)
+   * The airline-scoped /airline/admin/audit-log page passes the caller's
+   * own airlineId here; system-admins on /admin/audit pass undefined.
+   */
+  airlineId?: string | null;
 }) {
   const limit = Math.min(Math.max(options.limit ?? 50, 1), 200);
 
@@ -90,6 +109,7 @@ export async function listAuditEntries(options: {
   if (options.actorId) where.actorId = options.actorId;
   if (options.targetType) where.targetType = options.targetType;
   if (options.targetId) where.targetId = options.targetId;
+  if (options.airlineId !== undefined) where.airlineId = options.airlineId;
 
   const entries = await prisma.adminAuditLog.findMany({
     where,
@@ -98,6 +118,7 @@ export async function listAuditEntries(options: {
     ...(options.beforeId ? { cursor: { id: options.beforeId }, skip: 1 } : {}),
     include: {
       actor: { select: { id: true, name: true, image: true } },
+      airline: { select: { id: true, name: true, icao: true } },
     },
   });
 

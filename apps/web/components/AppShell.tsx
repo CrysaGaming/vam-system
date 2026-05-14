@@ -935,6 +935,11 @@ function Sidebar({ user, pathname }: SidebarProps) {
                 wer fliegt das (pilot↔scheduled-flight assignments). Filter-
                 tabs in der page selbst (Anstehend/Probleme/Abgeschlossen). */}
             <NavLink href="/airline/roster" pathname={pathname} icon="📋" label="Roster" />
+            {/* Welle F / F1: Audit-log für airline-admins — chronologische
+                historie aller member-management-aktionen (role/rank/remove)
+                in dieser airline. Sitzt am ende der admin-section weil's
+                ein retrospective-tool ist (read-only), nicht ein operatives. */}
+            <NavLink href="/airline/admin/audit-log" pathname={pathname} icon="📜" label="Audit-Log" />
           </NavSection>
         )}
 

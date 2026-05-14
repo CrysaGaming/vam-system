@@ -1,6 +1,6 @@
 'use server';
 
-import { prisma, Prisma } from '@vam/db';
+import { prisma, Prisma, logAdminAction } from '@vam/db';
 import { requireAirlineManagerWithAirline } from '@/lib/roles';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
@@ -220,13 +220,22 @@ export async function assignRoleToMember(
     data: { roleId: parsed.roleId },
   });
 
-  // Audit-log placeholder — when invite/audit-tracking lands we'll
-  // record actor + target + previous + new role. For now, just log
-  // server-side so it shows up in dev console.
-  console.log(
-    `[airline-admin] ${actingAdmin.name} assigned role ${parsed.roleId} ` +
-      `to ${target.name} in airline ${airlineId}`,
-  );
+  // Welle F / F1 — audit-log. Records actor, target, before/after roles
+  // so an airline-admin reviewing /airline/admin/audit-log can see the
+  // full provenance of any role change. logAdminAction swallows its own
+  // errors so a logging failure can't fail the role change retroactively.
+  await logAdminAction({
+    actorId: actingAdmin.id,
+    action: 'airline.member.role.changed',
+    targetType: 'User',
+    targetId: target.id,
+    airlineId,
+    metadata: {
+      targetName: target.name,
+      fromRole: target.role?.name ?? null,
+      toRole: newRole?.name ?? null,
+    },
+  });
 
   revalidatePath('/airline');
 }
@@ -287,10 +296,21 @@ export async function assignRankToMember(
     data: { rankId: parsed.rankId },
   });
 
-  console.log(
-    `[airline-admin] ${actingAdmin.name} assigned rank ${parsed.rankId} ` +
-      `to ${target.name} in airline ${airlineId}`,
-  );
+  // Welle F / F1 — audit-log. Records actor + target + rank change so the
+  // /airline/admin/audit-log shows a complete history of who edited whose
+  // rank. We don't capture the "from-rank" by name (would need an extra
+  // join) — rank-ids are sufficient since the page resolves names on read.
+  await logAdminAction({
+    actorId: actingAdmin.id,
+    action: 'airline.member.rank.changed',
+    targetType: 'User',
+    targetId: target.id,
+    airlineId,
+    metadata: {
+      targetName: target.name,
+      toRankId: parsed.rankId,
+    },
+  });
 
   revalidatePath('/airline');
   revalidatePath('/pilots');
@@ -368,10 +388,23 @@ export async function removeMemberFromAirline(
     },
   });
 
-  console.log(
-    `[airline-admin] ${actingAdmin.name} removed ${target.name} ` +
-      `from airline ${airlineId}`,
-  );
+  // Welle F / F1 — audit-log. Records the removal with the target's
+  // identity at the moment of removal (after the update, target.* still
+  // refers to the snapshot we read above). roleAtRemoval helps the
+  // airline-admin audit-page distinguish "admin demoted us by leaving"
+  // from "normal pilot left" — different operational signals.
+  await logAdminAction({
+    actorId: actingAdmin.id,
+    action: 'airline.member.removed',
+    targetType: 'User',
+    targetId: target.id,
+    airlineId,
+    metadata: {
+      targetName: target.name,
+      roleAtRemoval: target.role?.name ?? null,
+      selfRemoval: target.id === actingAdmin.id,
+    },
+  });
 
   revalidatePath('/airline');
   revalidatePath('/pilots');
