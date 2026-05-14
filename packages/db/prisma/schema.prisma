@@ -1043,6 +1043,9 @@ model User {
   following Follow[] @relation("FollowFollower")
   followers Follow[] @relation("FollowFollowee")
 
+  // Welle K / K2 — Pilot-Blog posts authored by this user.
+  blogPosts BlogPost[] @relation("BlogPostAuthor")
+
   // Track 5 #24 (Section E): Web Push subscriptions. Ein user kann mehrere
   // devices/browsers haben (laptop chrome, mobile safari, tablet edge),
   // daher ist die relation 1:N. Bei user-löschung cascade-delete alle
@@ -4640,6 +4643,66 @@ model Follow {
   @@unique([followerId, followeeId])
   @@index([followeeId, createdAt(sort: Desc)])
   @@index([followerId, createdAt(sort: Desc)])
+}
+
+/// Welle K / K2 — Pilot-Blog post status.
+///
+/// Draft: privater entwurf, nur für den autor sichtbar.
+/// Published: öffentlich auf /blog + /blog/[slug] sichtbar.
+enum BlogPostStatus {
+  Draft
+  Published
+}
+
+/// Welle K / K2 — Pilot-Blog. Long-form-content den pilots posten
+/// können (flight stories, tipps, route-reviews).
+///
+/// # Visibility-modell
+///
+/// Status Draft → nur autor kann sehen/editieren.
+/// Status Published → public auf /blog + /blog/[slug].
+/// Kein per-airline-scope V1 — single global blog für alle pilots
+/// der platform. V2 könnte airline-scoped blogs als feature für
+/// premium-airlines sein.
+///
+/// # Slug
+///
+/// Auto-generiert aus title via slugify mit collision-suffix.
+/// Unique-constraint enforced. Slug ist immutable nach erstem
+/// publish (sonst SEO-broken).
+///
+/// # Body-format
+///
+/// V1: plaintext mit line-break-preservation (whitespace-pre-wrap
+/// im UI). Keine markdown-rendering — keeps deps minimal + reduziert
+/// XSS-surface. V2 könnte sanitized markdown via micromark sein.
+///
+/// # View-counter
+///
+/// Increment on /blog/[slug] page-load. V1: simple Int+1 via update;
+/// race-conditions tolerieren wir (zwei concurrent reads → counter
+/// landet bei +1 statt +2, kein semantisches problem).
+model BlogPost {
+  id          String          @id @default(cuid())
+  slug        String          @unique @db.VarChar(220)
+  title       String          @db.VarChar(200)
+  excerpt     String?         @db.VarChar(500)
+  body        String          @db.Text
+  status      BlogPostStatus  @default(Draft)
+
+  authorId    String
+  author      User            @relation("BlogPostAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  publishedAt DateTime?
+
+  viewCount   Int             @default(0)
+
+  // Feed-query: alle published posts neueste-zuerst
+  @@index([status, publishedAt(sort: Desc)])
+  // Author-dashboard: alle posts eines users, neueste-zuerst, by status
+  @@index([authorId, status, createdAt(sort: Desc)])
 }
 
 /// Track 5 #14 (Section C): PIREP Discussion Comments.
