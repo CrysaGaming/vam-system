@@ -132,12 +132,23 @@ export async function FleetUtilization({ airlineId }: FleetUtilizationProps) {
             {' '}· letzte 30 Tage
           </p>
         </div>
-        <Link
-          href="/airline/aircraft"
-          className="text-xs text-primary hover:underline"
-        >
-          Alle anzeigen →
-        </Link>
+        <div className="flex items-center gap-3 text-xs">
+          {/* Welle F / F2: drill-down zur deep-analyse page (period-switch,
+              hub-balance, route-coverage). Bewusst getrennt vom "Alle
+              anzeigen"-Link (= CRUD-liste) — sind unterschiedliche jobs. */}
+          <Link
+            href="/airline/dashboard/fleet-utilization"
+            className="text-primary hover:underline"
+          >
+            Analyse →
+          </Link>
+          <Link
+            href="/airline/aircraft"
+            className="text-gray-500 dark:text-gray-400 hover:text-primary"
+          >
+            CRUD →
+          </Link>
+        </div>
       </div>
       <Card>
         <CardContent className="p-0">
