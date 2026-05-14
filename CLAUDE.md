@@ -12,8 +12,11 @@ VAM-System is a self-hosted Virtual-Airline-Management platform for flight-sim c
 
 The roadmap and architecture docs are authoritative. Don't drift from them; if a task seems to contradict them, stop and ask.
 
-- `docs/vision/vam-master-roadmap.md` — strategic concept, Track model, current priorities. **Read first** if the task touches scope, architecture decisions, or "what should I build next".
-- `docs/acars-architecture.md` — ACARS-Client design (.NET 9, SimConnect, pairing-codes).
+- **`docs/vision/letter-wellen-roadmap.md` — PRIMARY operative roadmap** (cross-repo letter-Wellen A-S + 50-option brainstorm-bank + reihenfolge-empfehlung). Read first für "was kommt als nächstes" + cross-repo coordination.
+- `docs/vision/Wellen-Roadmap.md` — numeric Wellen 0-19 (strategische langzeit-roadmap, vam-system-fokus).
+- `docs/vision/acars-client-roadmap.md` — VamAcarsClient repo-spezifisch.
+- `docs/vision/vam-master-roadmap.md` — strategic concept, 5-track-modell, Tag 5 (teilweise outdated bei status).
+- `docs/acars-architecture.md` — ACARS-Client design (.NET 10, SimConnect, pairing-codes).
 - `docs/weather-provider-strategy.md` — multi-provider weather strategy.
 - `docs/simconnect-data-catalog.md` — SimConnect variable catalog.
 - `docs/pirep-analysis-page.md` — PIREP detail page vision (12 sections).

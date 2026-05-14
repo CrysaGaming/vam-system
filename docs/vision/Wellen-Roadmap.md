@@ -1,9 +1,9 @@
 # VAM-System — Wellen-Roadmap
 
 > **Dokument-Typ**: Operative Wellen-Roadmap (Was-jetzt-vs-Was-als-nächstes)
-> **Stand**: 2026-05-13 (status-update für ACARS — see Welle 9 + neue [`acars-client-roadmap.md`](./acars-client-roadmap.md))
+> **Stand**: 2026-05-14 (Letter-Welle F1 fertig — siehe [`letter-wellen-roadmap.md`](./letter-wellen-roadmap.md))
 > **Original**: 2026-05-03 (Tag 6, Sonntag)
-> **Status**: 187+ commits gepusht. ACARS-client (extern repo) hat ~30 commits seit 0.1.0 mit M1-M6 alle done. vam-system Track 5 (30 PIREP/social/PWA/roster features) komplett abgeschlossen auf cc-experiment branch.
+> **Status**: 200+ commits gepusht. Letter-Welle A-E komplett, Welle F in progress (F1 done 2026-05-14 `8ad1481`). vam-system Track 5 (30 features) komplett.
 > **Live**: vam.kevindrack.de
 >
 > **Zweck**:
@@ -13,12 +13,17 @@
 > 4. Für jede zukünftige welle: scope, aufwand, abhängigkeiten, definition-of-done
 >
 > **Verwandte Docs**:
+> - **`letter-wellen-roadmap.md` — PRIMARY für daily-work** (letter-Wellen A-S, cross-repo, 50-option-brainstorm)
 > - `vam-master-roadmap.md` — Strategische 5-Track-Ebene (Tag 5, teilweise outdated bei status — hier ist der aktualisierte stand)
 > - `2026-05-01-airline-ops-roadmap.md` — Detaillierte airline-ops 11-Phasen-Roadmap (in Wellen-Mapping unten referenziert)
 > - `Economy-Karriere.md` — Maximal-Vision für economy + career (Wellen 12-19 entsprechen dort)
 > - `twitch-to-sim-integration.md` — Twitch-deep-integration (Welle 11 + spätere)
 > - `acars-architecture.md` — ACARS-system-design (mit 13. Mai status-update header)
-> - **`acars-client-roadmap.md` — NEU: post-MVP ACARS-client roadmap (Wellen A-E)**
+> - `acars-client-roadmap.md` — VamAcarsClient repo-spezifisch (Wellen A-E aus client-perspektive)
+>
+> **Note**: Dieses doc deckt die **numerischen Wellen 0-19** ab (strategische langzeit-roadmap).
+> Die **letter-Wellen A-S** laufen parallel — operative themen-sprints — und sind in
+> [`letter-wellen-roadmap.md`](./letter-wellen-roadmap.md) detailliert.
 
 ---
 

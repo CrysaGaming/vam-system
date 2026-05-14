@@ -1,22 +1,27 @@
 # VAM ACARS-Client Roadmap
 
 > **Dokument-Typ**: Operative ACARS-Client Roadmap (Was-jetzt-vs-Was-als-nächstes für VamAcarsClient repo)
-> **Stand**: 2026-05-13
-> **Repo**: [github.com/CrysaGaming/vam-acars-client](https://github.com/CrysaGaming/vam-acars-client) — branch `master`
-> **Aktuelle Version**: 0.1.1
+> **Stand**: 2026-05-14 (Welle A 7/7 ✅, C5+C6 ✅, D5 ✅, E1+E2 ✅. Welle H1+H3 als next geplant — siehe [`letter-wellen-roadmap.md`](./letter-wellen-roadmap.md))
+> **Repo**: [github.com/CrysaGaming/vam-acars-client](https://github.com/CrysaGaming/vam-acars-client) — branch `master`, HEAD `713b751`
+> **Aktuelle Version**: 0.1.1 (v0.2.0 mit Welle A+C5+C6+D5+E1+E2 bündel-release pending)
 >
 > **Zweck**:
 > 1. Single source of truth für **was am ACARS-Client schon fertig ist**
-> 2. **Wellen-strukturierte roadmap** für die nächsten 1-12 monate
+> 2. **Wellen-strukturierte roadmap** für die nächsten 1-12 monate (client-perspektive)
 > 3. Cross-references zu architektur-docs und SimConnect-catalog
 > 4. Successor zu Welle 9 in der [Wellen-Roadmap](./Wellen-Roadmap.md) — die Welle 9 "Phase 2-5" ist im kern-scope abgeschlossen, diese roadmap deckt das post-MVP territory ab.
 >
 > **Verwandte Docs**:
+> - **[`letter-wellen-roadmap.md`](./letter-wellen-roadmap.md) — PRIMARY operative roadmap** (cross-repo letter-Wellen A-S, brainstorm-bank)
 > - [`acars-architecture.md`](../acars-architecture.md) — System-design + Server-side architecture (Network/DataSource/ACARS-trennung, Pairing-flow, edge-cases)
 > - [`simconnect-data-catalog.md`](../simconnect-data-catalog.md) — Welche SimVars werden gelesen
 > - [`weather-provider-strategy.md`](../weather-provider-strategy.md) Section 5 — ACARS-Coupling als premium-feature
-> - [`Wellen-Roadmap.md`](./Wellen-Roadmap.md) — Operative master-wellen-roadmap für vam-system
+> - [`Wellen-Roadmap.md`](./Wellen-Roadmap.md) — Operative master-wellen-roadmap für vam-system (numerische Wellen 0-19)
 > - [`pirep-analysis-page.md`](../pirep-analysis-page.md) — Was mit ACARS-daten visualisiert wird
+>
+> **Note**: Dieses doc fokussiert auf den **VamAcarsClient-repo** (WPF + .NET10). Die letter-Wellen sind cross-repo
+> und daher in `letter-wellen-roadmap.md` umfassender beschrieben — dieses doc bleibt für die client-spezifische
+> tiefe (build-pipeline, SimConnect-details, etc.).
 
 ---
 
