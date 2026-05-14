@@ -3,6 +3,10 @@ import { z } from 'zod';
 import { prisma, NetworkType, Simulator, Prisma } from '@vam/db';
 import { authenticateAcarsRequest } from '@/lib/acars/auth';
 import {
+  acarsRateLimitHeaders,
+  checkAcarsRateLimit,
+} from '@/lib/acars/rate-limit';
+import {
   buildHeartbeatPhaseInput,
   buildPreviousPhaseState,
   resolveHeartbeatPhase,
@@ -287,6 +291,38 @@ function isTimestampWithinWindow(clientTs: string): boolean {
 export async function POST(req: NextRequest) {
   const auth = await authenticateAcarsRequest(req);
   if ('response' in auth) return auth.response;
+
+  // ─── Welle C / C6 — per-user rate limit ─────────────────────────────
+  //
+  // Tight gate immediately after auth, before any body parsing or DB
+  // work. A throttled client should be cheap to reject — we don't want
+  // a pathological-cadence sender to do real work (zod parse, prisma
+  // calls, M3.9 phase resolution) just to have the result thrown away.
+  //
+  // The check is keyed on userId (auth always succeeded by this point,
+  // so the id is always defined). See lib/acars/rate-limit.ts for the
+  // threshold/window choice and threat-model rationale.
+  //
+  // Headers attach to BOTH the 429-reject AND the eventual 200-success
+  // response, so well-behaved clients can read X-RateLimit-Remaining
+  // and back off preemptively. The 429 additionally sets Retry-After
+  // (RFC 9110 §10.2.3) with the seconds-until-window-reset value —
+  // matches what the C6 client-side handler reads.
+  const rl = checkAcarsRateLimit(`user:${auth.user.id}`);
+  const rlHeaders = acarsRateLimitHeaders(rl);
+  if (!rl.allowed) {
+    return NextResponse.json(
+      {
+        error: 'rate-limited',
+        retryAfterSec: rl.retryAfterSec,
+        message: `Heartbeat rate limit exceeded (${rl.limit}/min per user). Retry in ${rl.retryAfterSec}s.`,
+      },
+      {
+        status: 429,
+        headers: { ...rlHeaders, 'Retry-After': String(rl.retryAfterSec) },
+      },
+    );
+  }
 
   let body: unknown;
   try {
@@ -973,15 +1009,23 @@ export async function POST(req: NextRequest) {
   //   payload. Echoed verbatim — no resolver needed since registration
   //   is what the client actively types into the form. May be null
   //   for pilots flying with no registration set.
-  return NextResponse.json({
-    ok: true,
-    sessionId,
-    currentPhase: resolved.phase,
-    currentPhaseEnteredAt:
-      resolved.state.enteredPhaseAt?.toISOString() ?? null,
-    phaseChanged: resolved.changed,
-    phaseSource: resolved.source,
-    aircraftType: resolvedAircraft.icaoType,
-    aircraftRegistration: data.aircraft.registration ?? null,
-  });
+  return NextResponse.json(
+    {
+      ok: true,
+      sessionId,
+      currentPhase: resolved.phase,
+      currentPhaseEnteredAt:
+        resolved.state.enteredPhaseAt?.toISOString() ?? null,
+      phaseChanged: resolved.changed,
+      phaseSource: resolved.source,
+      aircraftType: resolvedAircraft.icaoType,
+      aircraftRegistration: data.aircraft.registration ?? null,
+    },
+    // Welle C / C6 — surface remaining-quota on every 200 so well-
+    // behaved clients can read X-RateLimit-Remaining and slow down
+    // preemptively before hitting a 429. rlHeaders is closed over
+    // from the top of the handler — same values as on the 429 path,
+    // updated to reflect THIS request's increment.
+    { headers: rlHeaders },
+  );
 }
