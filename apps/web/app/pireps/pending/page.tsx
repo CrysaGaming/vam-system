@@ -156,6 +156,34 @@ function flagSeverityScore(flags: PirepFlags | null | undefined): number {
     else if (flags.pauseSec > 60) score += 10;
   }
 
+  // Welle C / C1 — timeAccel scoring. Distinct from the legacy simRate
+  // above: timeAccel captures historical runs that the latest-value
+  // simRate might miss entirely. Peak-rate bands mirror the simRate
+  // bands so the two flags are comparable in severity-mode sort.
+  if (flags.timeAccel) {
+    if (flags.timeAccel.maxRate >= 4) score += 80;
+    else if (flags.timeAccel.maxRate >= 2) score += 50;
+    else score += 30;
+  }
+
+  // Welle C / C2 — positionJumps scoring. Server-derived heuristic, same
+  // confidence-tier as replayFlags. Per-jump weight intentionally higher
+  // than replayFlags (50 vs 30 for major, 20 for minor) because a
+  // position-jump is a concrete distance/time impossibility, not a
+  // pattern-match — narrower false-positive surface.
+  if (flags.positionJumps && flags.positionJumps.length > 0) {
+    for (const j of flags.positionJumps) {
+      score += j.severity === 'major' ? 50 : 20;
+    }
+  }
+
+  // Welle C / C3 — pauseRatio scoring. Ratio above 0.30 is suspicious
+  // but ambiguous (could be legitimate AFK over a long flight). Single
+  // 30-point band — admins can dismiss as false-positive easily.
+  if (flags.pauseRatio !== undefined && flags.pauseRatio !== null) {
+    score += 30;
+  }
+
   return score;
 }
 
@@ -185,8 +213,34 @@ function dominantFlagLabel(flags: PirepFlags | null | undefined): {
     };
   }
 
-  // Replay-flags second — server-derived heuristic findings tend to be
-  // higher-confidence than client-attestable runtime metrics.
+  // Welle C / C2 — position-jumps. High-confidence heuristic (concrete
+  // distance/time impossibility), placed above replayFlags because the
+  // false-positive surface is narrower. Major outranks minor.
+  if (flags.positionJumps && flags.positionJumps.length > 0) {
+    const majorCount = flags.positionJumps.filter((j) => j.severity === 'major').length;
+    if (majorCount > 0) {
+      return {
+        label: majorCount === 1 ? 'Position jump' : `${majorCount} major jumps`,
+        classes: 'bg-pink-500/15 text-pink-700 dark:text-pink-300 border-pink-500/30',
+      };
+    }
+    return {
+      label: `${flags.positionJumps.length} pos-jumps`,
+      classes: 'bg-pink-500/15 text-pink-700 dark:text-pink-300 border-pink-500/30',
+    };
+  }
+
+  // Welle C / C1 — time-acceleration run-detection. Stronger signal
+  // than the legacy simRate snapshot (catches runs even when latest
+  // value is back to 1.0), so promoted above the legacy simRate branch.
+  if (flags.timeAccel) {
+    return {
+      label: `Accel ${flags.timeAccel.maxRate.toFixed(1)}x (${flags.timeAccel.maxRunFrames}f)`,
+      classes: 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30',
+    };
+  }
+
+  // Replay-flags next — server-derived heuristic findings.
   if (flags.replayFlags && flags.replayFlags.length > 0) {
     const count = flags.replayFlags.length;
     return {
@@ -195,11 +249,22 @@ function dominantFlagLabel(flags: PirepFlags | null | undefined): {
     };
   }
 
-  // Sim-rate next — explicit cheat-attempt indicator.
+  // Sim-rate next — explicit cheat-attempt indicator (latest value).
   if (flags.simRate !== undefined && flags.simRate !== null && flags.simRate > 1.01) {
     return {
       label: `Sim-rate ${flags.simRate.toFixed(1)}x`,
       classes: 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30',
+    };
+  }
+
+  // Welle C / C3 — pauseRatio. Ratio-based pause-detection. Placed
+  // above the legacy pauseSec because it captures a different shape
+  // (death-by-thousand-cuts vs single big burst) that admin review
+  // should distinguish.
+  if (flags.pauseRatio !== undefined && flags.pauseRatio !== null) {
+    return {
+      label: `Pause ${Math.round(flags.pauseRatio * 100)}%`,
+      classes: 'bg-yellow-500/15 text-yellow-700 dark:text-yellow-300 border-yellow-500/30',
     };
   }
 
@@ -233,6 +298,25 @@ function flagsTooltip(flags: PirepFlags | null | undefined): string {
   }
   if (flags.simRate !== undefined && flags.simRate !== null) {
     parts.push(`Sim-rate ${flags.simRate.toFixed(2)}x`);
+  }
+  if (flags.timeAccel) {
+    // Welle C / C1
+    parts.push(
+      `Accel-run ${flags.timeAccel.maxRunFrames}f peak ${flags.timeAccel.maxRate.toFixed(1)}x`,
+    );
+  }
+  if (flags.positionJumps && flags.positionJumps.length > 0) {
+    // Welle C / C2
+    const major = flags.positionJumps.filter((j) => j.severity === 'major').length;
+    const minor = flags.positionJumps.length - major;
+    const bands: string[] = [];
+    if (major > 0) bands.push(`${major} major`);
+    if (minor > 0) bands.push(`${minor} minor`);
+    parts.push(`Pos-jumps ${flags.positionJumps.length} (${bands.join(', ')})`);
+  }
+  if (flags.pauseRatio !== undefined && flags.pauseRatio !== null) {
+    // Welle C / C3
+    parts.push(`Pause-ratio ${Math.round(flags.pauseRatio * 100)}%`);
   }
   if (flags.pauseSec !== undefined && flags.pauseSec !== null) {
     const min = Math.round(flags.pauseSec / 60);
