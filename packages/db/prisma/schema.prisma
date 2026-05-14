@@ -1028,6 +1028,8 @@ model User {
   // Track 5 #15 (Section C): PIREP-Photos posted by this user.
   // Cascade-delete via PirepPhoto.author — wenn user weg, photos weg.
   pirepPhotosAuthored PirepPhoto[] @relation("PirepPhotoAuthor")
+  // Welle K / K3 — Photos this admin has featured as Photo-of-the-Week.
+  pirepPhotosFeatured PirepPhoto[] @relation("PirepPhotoFeaturedBy")
 
   // Track 5 #10 (Flight Streaks & Goals): Selbst gesetzte ziele des pilots
   // (weekly flights, monthly hours, etc.). Cascade-delete via PilotGoal.user
@@ -4814,8 +4816,22 @@ model PirepPhoto {
   caption   String?
   createdAt DateTime @default(now())
 
+  // Welle K / K3 — Photo-of-the-week curation.
+  // Admin sets featuredAt=now() when picking a "photo of the week";
+  // featuredById tracks WHO featured it (audit trail). NULL = not
+  // currently featured. Multiple photos can have featuredAt set at
+  // different times — UI sorts featuredAt desc and shows the most
+  // recent on /photo-of-the-week + a history-grid of older features.
+  featuredAt    DateTime?
+  featuredById  String?
+  featuredBy    User?    @relation("PirepPhotoFeaturedBy", fields: [featuredById], references: [id], onDelete: SetNull)
+
   @@index([pirepId, createdAt])
   @@index([authorId, createdAt])
+  // Welle K / K3 — index für /photo-of-the-week feed (sort by featuredAt desc,
+  // only rows where featuredAt is not null are practically interesting but
+  // postgres handles that fine without a partial index for our volume).
+  @@index([featuredAt(sort: Desc)])
 }
 
 // ─────────────────────────────────────────────────────────────────────
