@@ -950,6 +950,14 @@ model User {
   ///   mentorshipsAsMentee = mentorships wo DIESER user mentee ist
   mentorshipsAsMentor       Mentorship[]           @relation("MentorshipMentor")
   mentorshipsAsMentee       Mentorship[]           @relation("MentorshipMentee")
+
+  /// Welle K / K4 — Mentor-self-service opt-in.
+  /// Pilots können sich auf /me/mentorship als verfügbarer mentor markieren
+  /// und topics + kurz-bio angeben. Andere pilots können sie auf /mentorship
+  /// browsen und einen request schicken (Mentorship.status=PROPOSED).
+  mentorAvailable  Boolean   @default(false)
+  mentorTopics     String[]  @default([])
+  mentorBio        String?   @db.VarChar(500)
   /// Track 4 #98 (Section S): EventTemplate-back-relation. Templates die
   /// dieser user erstellt hat. SetNull beim user-delete um historische
   /// templates nicht zu verlieren — wäre möglich aber MVP nutzt cascade
