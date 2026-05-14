@@ -302,6 +302,16 @@ export default async function PersonalStatsPage() {
                 >
                   Year-in-Review →
                 </Link>
+                {' · '}
+                <a
+                  href="/api/me/logbook"
+                  className="text-indigo-600 hover:underline dark:text-indigo-400"
+                  // Native <a> statt next/Link weil das ein file-download
+                  // ist (Content-Disposition: attachment) — nicht client-
+                  // side navigation. next/Link würde versuchen prefetching.
+                >
+                  Logbook als PDF herunterladen ↓
+                </a>
               </p>
             </footer>
           </>
