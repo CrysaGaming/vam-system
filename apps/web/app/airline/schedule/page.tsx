@@ -68,6 +68,12 @@ export default async function AirlineSchedulePage() {
 
           <div className="flex flex-wrap items-center gap-2">
             <Link
+              href="/airline/schedule/calendar"
+              className="px-4 py-2 border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded text-sm font-medium transition"
+            >
+              📅 Kalender
+            </Link>
+            <Link
               href="/airline/schedule/instances"
               className="px-4 py-2 border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded text-sm font-medium transition"
             >
