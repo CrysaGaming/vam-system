@@ -60,6 +60,14 @@ interface LiveMapFilters {
   clustering: boolean;
   /** PIREP-heatmap-layer (Track 1 #4 — historische flight-aktivität). */
   heatmap: boolean;
+  /**
+   * Welle E / E5 — Position-track-heatmap-layer. Komplementär zur
+   * PIREP-heatmap: PIREP zeigt nur DEP/ARR-airport-cluster, tracks
+   * zeigt die volle flight-density inkl. en-route-korridore und
+   * SID/STAR-fan-outs. Off-by-default damit der erste page-load nicht
+   * zwei heatmaps gleichzeitig rendert (visueller overload).
+   */
+  tracksHeatmap: boolean;
 }
 
 interface LiveMapState extends LiveMapFilters {
@@ -94,6 +102,7 @@ export const DEFAULT_FILTERS: LiveMapFilters = {
   autoWeather: false,
   clustering: true,
   heatmap: false,
+  tracksHeatmap: false,
 };
 
 export const useLiveMapStore = create<LiveMapState>()(

@@ -382,6 +382,17 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
   const [heatmapLoading, setHeatmapLoading] = useState(false);
   const [heatmapTimeframe, setHeatmapTimeframe] = useState<'7d' | '30d' | '90d' | 'all'>('all');
 
+  // Welle E / E5 — Position-track-heatmap state. Mirror-pattern of the
+  // PIREP-heatmap above: lazy-loaded GeoJSON, re-fetched on timeframe
+  // change. Default-timeframe '7d' rather than 'all' because the
+  // position-row volume is orders of magnitude higher than PIREP
+  // count — 'all' on day 1 of a busy airline can already top 5M rows,
+  // and the visual is noisier when over-bucketed. 24h/7d/30d/all keep
+  // the same UI affordance as the PIREP timeframe segment.
+  const [tracksHeatmapData, setTracksHeatmapData] = useState<GeoJSON.FeatureCollection | null>(null);
+  const [tracksHeatmapLoading, setTracksHeatmapLoading] = useState(false);
+  const [tracksHeatmapTimeframe, setTracksHeatmapTimeframe] = useState<'24h' | '7d' | '30d' | 'all'>('7d');
+
   const selected = useMemo(
     () => sessions.find((s) => s.id === selectedId) ?? null,
     [sessions, selectedId],
@@ -969,6 +980,52 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
     // sich ändert.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [heatmapTimeframe]);
+
+  // Welle E / E5 — Position-track-heatmap fetch. Symmetric to the PIREP
+  // heatmap useEffects above: lazy fetch on first enable, cache-clear
+  // on timeframe change → refetch. Different endpoint
+  // (/api/heatmap/positions vs /api/live/heatmap) and different default
+  // timeframe (7d vs all), but the same overall shape.
+  useEffect(() => {
+    if (!filters.tracksHeatmap) return;
+    if (tracksHeatmapData !== null) return;
+    if (tracksHeatmapLoading) return;
+
+    let cancelled = false;
+    setTracksHeatmapLoading(true);
+
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/heatmap/positions?timeframe=${tracksHeatmapTimeframe}`,
+        );
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data: GeoJSON.FeatureCollection = await res.json();
+        if (!cancelled) {
+          setTracksHeatmapData(data);
+        }
+      } catch (err) {
+        console.error('Failed to fetch tracks heatmap:', err);
+      } finally {
+        if (!cancelled) {
+          setTracksHeatmapLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [filters.tracksHeatmap, tracksHeatmapData, tracksHeatmapLoading, tracksHeatmapTimeframe]);
+
+  // Cache-invalidation on timeframe change. Same pattern as the PIREP
+  // version above — separate effect so that switching timeframe while
+  // the toggle is OFF still queues the next enable to fetch the right
+  // window.
+  useEffect(() => {
+    setTracksHeatmapData(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tracksHeatmapTimeframe]);
 
   // Trail-Loading bei Session-Click
   const loadTrail = useCallback(async (sessionId: string) => {
@@ -1669,6 +1726,100 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
                     ['zoom'],
                     7, 0,
                     9, 1,
+                  ],
+                }}
+              />
+            </Source>
+          )}
+
+          {/* Welle E / E5 — Position-track-heatmap-layer. Symmetric to
+              the PIREP-heatmap above but visually distinct:
+                - Cool indigo/violet/cyan spectrum (vs. PIREP's blue→red
+                  warm spectrum) so a user with both layers on can tell
+                  them apart at a glance.
+                - Higher weight-scale (5000 vs. 50): each grid-cell here
+                  is a count of position-rows, not flights. En-route
+                  corridors can easily have 5000+ rows per 1° cell.
+                - No circle-fallback at high zoom: the tracks-heatmap
+                  is conceptually a global density-view, individual
+                  cells aren't meaningful at zoom 9+ where pilots are
+                  inspecting specific aircraft. Just fades out and
+                  leaves the live-traffic layer to dominate.
+              maxzoom=9 matches the PIREP heatmap so both fade out
+              together when the user zooms in to inspect individual
+              traffic. */}
+          {filters.tracksHeatmap && tracksHeatmapData && tracksHeatmapData.features.length > 0 && (
+            <Source id="tracks-heatmap-source" type="geojson" data={tracksHeatmapData}>
+              <Layer
+                id="tracks-heatmap-layer"
+                type="heatmap"
+                source="tracks-heatmap-source"
+                maxzoom={9}
+                paint={{
+                  // Weight ramp: 0 → 0, 5000 → 1. Position-row counts
+                  // can range from 1 (single overflight) to 50000+
+                  // (popular corridor over months). 5000 saturates at
+                  // "very busy corridor" without compressing all the
+                  // mid-range cells into the same hot color. If an
+                  // airline's volume outgrows this, bump the upper bound.
+                  'heatmap-weight': [
+                    'interpolate',
+                    ['linear'],
+                    ['get', 'weight'],
+                    0, 0,
+                    5000, 1,
+                  ],
+                  // Intensity ramps up at zoom-out (more cells stack)
+                  // and stays flat through mid-zoom. Same shape as the
+                  // PIREP layer for visual consistency.
+                  'heatmap-intensity': [
+                    'interpolate',
+                    ['linear'],
+                    ['zoom'],
+                    0, 1,
+                    9, 3,
+                  ],
+                  // Cool spectrum: transparent → deep indigo → violet
+                  // → bright cyan → near-white. Distinct from the
+                  // PIREP heatmap's blue-to-red. The high-density
+                  // tail goes to white (not yellow/red) so the eye
+                  // reads "tracks" as cooler than "endpoints" — they
+                  // describe different things (flow vs. clusters).
+                  'heatmap-color': [
+                    'interpolate',
+                    ['linear'],
+                    ['heatmap-density'],
+                    0, 'rgba(49, 46, 129, 0)',
+                    0.2, 'rgb(67, 56, 202)',
+                    0.4, 'rgb(99, 102, 241)',
+                    0.6, 'rgb(129, 140, 248)',
+                    0.8, 'rgb(165, 180, 252)',
+                    1, 'rgb(224, 231, 255)',
+                  ],
+                  // Radius scales with zoom — narrow at world-view so
+                  // corridors stay visible, wider at regional zoom so
+                  // SID/STAR fan-outs blend smoothly. Slightly wider
+                  // than the PIREP layer because position-cells are
+                  // larger (1° vs. airport-level point) and need a
+                  // bigger draw-radius to feel connected.
+                  'heatmap-radius': [
+                    'interpolate',
+                    ['linear'],
+                    ['zoom'],
+                    0, 6,
+                    9, 40,
+                  ],
+                  // Fade out from zoom 7 → 9, matching PIREP heatmap.
+                  // Slightly higher peak opacity (0.7 vs PIREP's 0.85)
+                  // because the cool spectrum is dimmer-feeling — keeps
+                  // the visual weight roughly balanced when both layers
+                  // are on simultaneously.
+                  'heatmap-opacity': [
+                    'interpolate',
+                    ['linear'],
+                    ['zoom'],
+                    7, 0.7,
+                    9, 0,
                   ],
                 }}
               />
@@ -2436,6 +2587,76 @@ export function LiveMap({ mapboxToken }: { mapboxToken: string }) {
                     }}
                     aria-pressed={active}
                     aria-label={`Heatmap-Zeitraum: ${label}`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          {/* Welle E / E5 — Tracks-Heatmap toggle. Mirror of the PIREP-
+              Heatmap toggle above but for full flight-track density
+              (en-route corridors, SID/STAR fan-outs). Distinct indigo
+              accent-color (#6366f1) to telegraph that the two heatmaps
+              are different layers — same swatch as the layer-color in
+              the Mapbox paint above. */}
+          <FilterToggle
+            label={tracksHeatmapLoading ? 'Tracks (lädt...)' : 'Tracks-Heatmap'}
+            checked={filters.tracksHeatmap}
+            onChange={(v) => setFilter('tracksHeatmap', v)}
+            color="#6366f1"
+          />
+          {/* Welle E / E5 — Timeframe-selector for the tracks-heatmap.
+              Same UX shape as the PIREP-heatmap timeframe-segment
+              (4-segment grid, click → re-fetch with new ?timeframe).
+              Different default + options: 24h instead of 90d as the
+              short window (24h tracks shows "what's flying today"
+              which is actually useful; 90d position-rows are a lot of
+              data without proportional insight), and the indigo accent
+              matches the heatmap-layer color so the segment visually
+              belongs to its toggle. */}
+          {filters.tracksHeatmap && (
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(4, 1fr)',
+                gap: '0.2rem',
+                padding: '0 0.5rem 0.25rem',
+              }}
+            >
+              {(['24h', '7d', '30d', 'all'] as const).map((tf) => {
+                const label =
+                  tf === '24h'
+                    ? '24h'
+                    : tf === '7d'
+                      ? '7T'
+                      : tf === '30d'
+                        ? '30T'
+                        : 'Alle';
+                const active = tracksHeatmapTimeframe === tf;
+                return (
+                  <button
+                    key={tf}
+                    onClick={() => setTracksHeatmapTimeframe(tf)}
+                    style={{
+                      padding: '0.25rem 0.1rem',
+                      fontSize: '0.65rem',
+                      fontWeight: 600,
+                      border: `1px solid ${
+                        active
+                          ? 'rgba(99, 102, 241, 0.6)'
+                          : 'rgba(255, 255, 255, 0.1)'
+                      }`,
+                      borderRadius: '0.2rem',
+                      backgroundColor: active
+                        ? 'rgba(99, 102, 241, 0.2)'
+                        : 'transparent',
+                      color: active ? '#a5b4fc' : 'rgb(156, 163, 175)',
+                      cursor: 'pointer',
+                      transition: 'background-color 120ms, border-color 120ms',
+                    }}
+                    aria-pressed={active}
+                    aria-label={`Tracks-Heatmap-Zeitraum: ${label}`}
                   >
                     {label}
                   </button>
