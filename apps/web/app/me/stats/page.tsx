@@ -303,6 +303,20 @@ export default async function PersonalStatsPage() {
                   Year-in-Review →
                 </Link>
                 {' · '}
+                <Link
+                  href="/me/quality"
+                  className="text-indigo-600 hover:underline dark:text-indigo-400"
+                >
+                  Flight-Quality-Score →
+                </Link>
+                {' · '}
+                <Link
+                  href="/me/comparison"
+                  className="text-indigo-600 hover:underline dark:text-indigo-400"
+                >
+                  Vergleich vs. Airline/Platform →
+                </Link>
+                {' · '}
                 <a
                   href="/api/me/logbook"
                   className="text-indigo-600 hover:underline dark:text-indigo-400"
