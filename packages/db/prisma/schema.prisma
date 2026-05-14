@@ -580,6 +580,9 @@ model Airline {
 
   // Welle L / L2 — Crew-pairings of this airline.
   crewPairings CrewPairing[]
+
+  // Welle L / L3 — Maintenance-events for the fleet aircraft.
+  maintenanceEvents MaintenanceEvent[]
 }
 
 model User {
@@ -1069,6 +1072,9 @@ model User {
   // Welle L / L2 — Crew-pairings: assigned als pilot + created als admin.
   assignedCrewPairings CrewPairing[] @relation("CrewPairingAssignedPilot")
   createdCrewPairings  CrewPairing[] @relation("CrewPairingCreatedBy")
+
+  // Welle L / L3 — Maintenance-events created by this user.
+  createdMaintenanceEvents MaintenanceEvent[] @relation("MaintenanceEventCreatedBy")
 
   // Track 5 #24 (Section E): Web Push subscriptions. Ein user kann mehrere
   // devices/browsers haben (laptop chrome, mobile safari, tablet edge),
@@ -1759,6 +1765,9 @@ model Aircraft {
   // cascade damit assignment überlebt wenn das aircraft gelöscht wird —
   // admin kann dann ein neues airframe nachreichen.
   rosterAssignmentsAircraft RosterAssignment[] @relation("RosterAssignmentAssignedAircraft")
+
+  // Welle L / L3 — Maintenance-events für dieses aircraft.
+  maintenanceEvents MaintenanceEvent[]
 
   // Welle 5: Indexes für die /airline/aircraft filter-UI.
   // - (airlineId, status): "alle aktiven aircraft meiner airline" (häufigster query)
@@ -5236,4 +5245,113 @@ model CockpitMember {
 
   @@index([roomId])
   @@index([pilotId, status])
+}
+
+/// Welle L / L3 — Maintenance-event types.
+///
+/// Real-world fleet-operations: A-Check (every ~600fh), B-Check
+/// (~6 months), C-Check (~2 years, deep airframe inspection), D-Check
+/// (~6 years, heavy maintenance). Plus tägliche pre-flight checks,
+/// reparaturen, oil-changes.
+///
+/// V1 deckt die häufigsten kategorien ab. Bei bedarf können weitere
+/// hinzugefügt werden (z.B. Engine_Overhaul, Avionics_Upgrade).
+enum MaintenanceType {
+  PreFlightCheck
+  ACheck
+  BCheck
+  CCheck
+  DCheck
+  Repair
+  OilChange
+  TireReplacement
+  EngineWork
+  AvionicsUpdate
+  Other
+}
+
+/// Welle L / L3 — Maintenance-event lifecycle.
+///
+/// Scheduled: geplant für die zukunft, aircraft ist noch in operation.
+/// InProgress: aircraft ist out-of-service, maintenance läuft.
+/// Completed: maintenance abgeschlossen, aircraft wieder verfügbar.
+/// Cancelled: maintenance abgebrochen (z.B. doch nicht nötig).
+enum MaintenanceStatus {
+  Scheduled
+  InProgress
+  Completed
+  Cancelled
+}
+
+/// Welle L / L3 — Aircraft Maintenance Event.
+///
+/// Trackt geplante + durchgeführte wartungsereignisse pro aircraft.
+/// Aircraft mit status=InProgress maintenance sind in der schedule-
+/// generation als "nicht verfügbar" zu betrachten (V2 könnte das
+/// automatisch im generator integrieren; V1 nur informational).
+///
+/// # Cost-tracking
+///
+/// V1: optional cost-feld (Decimal) für die buchhaltung. Keine
+/// automatische wallet-buchung — admin muss separat über Transaction
+/// abrechnen wenn er das economy-modul nutzt. V2 könnte einen
+/// expense-auto-flow gegen Airline.wallet sein.
+///
+/// # Reminders
+///
+/// nextDueAt für recurring-checks (z.B. "A-Check fällig wieder am ...").
+/// V1: kein cron — admin sieht nur die information auf der detail-page.
+/// V2 könnte hier eine erinnerungs-email/-discord-broadcast sein.
+model MaintenanceEvent {
+  id          String   @id @default(cuid())
+  aircraftId  String
+  aircraft    Aircraft @relation(fields: [aircraftId], references: [id], onDelete: Cascade)
+  airlineId   String
+  airline     Airline  @relation(fields: [airlineId], references: [id], onDelete: Cascade)
+
+  type        MaintenanceType
+  status      MaintenanceStatus @default(Scheduled)
+
+  /// Kurze beschreibung des wartungsereignisses.
+  title       String   @db.VarChar(200)
+  /// Detaillierte beschreibung (technische details, findings, etc).
+  description String?  @db.Text
+
+  /// Geplanter start. Auch für Scheduled-events das datum an dem das
+  /// aircraft offline gehen soll.
+  scheduledStart DateTime
+  /// Geplantes ende. Aus der subtraktion (scheduledEnd - scheduledStart)
+  /// können wir die geplante out-of-service duration berechnen.
+  scheduledEnd   DateTime
+
+  /// Tatsächliches start-datum (gesetzt beim transitions Scheduled→
+  /// InProgress).
+  actualStart DateTime?
+  /// Tatsächliches ende (gesetzt beim transitions InProgress→Completed).
+  actualEnd   DateTime?
+
+  /// Optional cost in VAM$ (BigInt damit auch große C-Check-kosten
+  /// passen). V1: nicht automatisch von wallet abgebucht.
+  costVam Decimal? @db.Decimal(14, 2)
+
+  /// Wenn dieser maintenance-typ einen wiederkehrenden cycle hat,
+  /// nächstes-fälligkeits-datum. Für admin-planning.
+  nextDueAt DateTime?
+
+  /// Wer hat das event erstellt + verantwortlich.
+  createdById String
+  createdBy   User   @relation("MaintenanceEventCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  cancelledAt DateTime?
+
+  // Queries:
+  //   - "alle scheduled events meiner airline" (admin overview)
+  //   - "wartungs-history eines aircraft" (aircraft detail page)
+  //   - "alle aktiven (InProgress) — fleet-state" (dashboard)
+  //   - "nächste fällige checks" (planning)
+  @@index([airlineId, status, scheduledStart])
+  @@index([aircraftId, scheduledStart])
+  @@index([airlineId, nextDueAt])
 }
