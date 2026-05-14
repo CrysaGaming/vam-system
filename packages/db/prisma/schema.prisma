@@ -1039,6 +1039,15 @@ model User {
   // seine swap-requests irrelevant.
   swapRequestsSent     RosterSwapRequest[] @relation("SwapRequestRequester")
   swapRequestsReceived RosterSwapRequest[] @relation("SwapRequestTarget")
+
+  // Welle E / E4 — multi-pilot cockpit-rooms. Two relations: rooms
+  // I own (created/captain'd) vs rooms I'm a member of (joined as
+  // FO / Relief / Observer). Both are array-relations because v1
+  // allows multiple historical rooms per user; the "currently
+  // active" filter is done at query-time via status='ACTIVE' /
+  // status='OPEN'.
+  cockpitRoomsOwned   CockpitRoom[]   @relation("CockpitRoomOwner")
+  cockpitMemberships  CockpitMember[] @relation("CockpitMemberPilot")
 }
 
 // Track 5 #24 (Section E) — Web Push Subscription
@@ -2242,6 +2251,13 @@ model Booking {
   // free-bookings. SetNull-cascade: wenn ScheduledFlight gelöscht
   // wird (sollte nicht passieren), bleibt die Booking erhalten.
   scheduledFlight ScheduledFlight?
+
+  // Welle E / E4 — Cockpit-rooms anchored to this booking. Array-
+  // relation because in rare cases (room re-opened after close, or
+  // multi-leg booking with separate rooms per leg) more than one
+  // room may reference the same booking. SetNull-cascade on the
+  // Room side keeps history if booking is deleted.
+  cockpitRooms CockpitRoom[] @relation("CockpitRoomBooking")
 
   @@index([userId, state])
   @@index([airlineId, state])
@@ -4693,4 +4709,154 @@ model PirepPhoto {
 
   @@index([pirepId, createdAt])
   @@index([authorId, createdAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Welle E / E4 — Multi-pilot cockpit-rooms
+// ─────────────────────────────────────────────────────────────────────
+//
+// A CockpitRoom is a session-bound coordination surface where two or
+// more pilots fly the same flight together (captain + first officer,
+// long-haul reliefs, training scenarios). v1 is server-side only:
+// schema + REST endpoints. Client integration (the ACARS tray's
+// heartbeat-piggyback channel for shared state) is a separate phase
+// — this commit lays the data foundation.
+//
+// # Design choices
+//
+// Room is owned by ONE pilot (ownerId), typically the captain who
+// "opened the cockpit". Other pilots join as members with a role.
+// One pilot can only be a member of one OPEN room at a time — server
+// enforces this via the conditional unique index on
+// CockpitMember(pilotId, status='ACTIVE').
+//
+// flightId is optional + nullable on purpose. v1 supports two modes:
+//
+//   1. Anchored to a specific Booking (`flightId = Booking.id`) — the
+//      room is "for this scheduled flight; only pilots booked on it
+//      should join". Future server-side checks can enforce this.
+//   2. Free-form ad-hoc room (`flightId = null`) — training sessions,
+//      casual co-flying, or rooms opened before a booking exists.
+//
+// We deliberately do NOT FK to LiveSession.id here, because the room
+// often exists before any LiveSession is created (captain opens the
+// room at pre-flight, FO joins, both then click Verbinden separately
+// and each gets their own LiveSession). Tying the room to a single
+// LiveSession would force one of the two to be "primary" which
+// muddles the relationship.
+//
+// # Status lifecycle
+//
+// OPEN — accepting joins, room is the rendezvous-point for the flight.
+// CLOSED — owner closed the room or auto-closed after last member left.
+//          Historical record kept for audit/replay; new joins rejected.
+//
+// We don't add IN_PROGRESS or LANDED states — those live on the
+// individual LiveSessions / Bookings. The room is purely a
+// coordination object; the actual flight-state stays on existing models.
+//
+// # Cascade behavior
+//
+// Room.owner → User: Cascade. If the owning pilot is deleted (account
+// deletion), the room goes with them. Members lose access cleanly.
+//
+// CockpitMember.room → Room: Cascade. Room deleted → memberships gone.
+// CockpitMember.pilot → User: Cascade. Pilot deleted → memberships gone.
+//
+// # Indexes
+//
+// Room: (ownerId, status) — list "rooms I own" filtered by open/closed.
+//       (flightId) — find the room for a booking (sparse index, many
+//                    rooms have null flightId).
+//       (status, createdAt desc) — list open rooms (admin/discovery UI).
+//
+// Member: (roomId) — member list for a room.
+//         (pilotId, status) — find a pilot's active membership in O(1)
+//                             for the join-validation check.
+//
+// We don't index updatedAt — no query orders by it.
+
+enum CockpitRoomStatus {
+  OPEN
+  CLOSED
+}
+
+/// CockpitRole is intentionally narrow for v1. Most multi-crew sims
+/// recognize these three positions; broader fleet-specific roles
+/// (engineer, navigator) can be added later as enum members without
+/// migration pain (Prisma allows enum additions in-place).
+///
+/// CAPTAIN is the owner's default role. There can be multiple CAPTAINs
+/// in a room (rare — training scenarios where the instructor and
+/// trainee both fly left-seat in sequence) so we don't enforce
+/// "exactly one captain". The owner is identified by Room.ownerId,
+/// not by role.
+enum CockpitRole {
+  CAPTAIN
+  FIRST_OFFICER
+  RELIEF
+  OBSERVER
+}
+
+/// CockpitMember.status separates "currently in the room" from
+/// "historically was in the room". A pilot can leave a room and
+/// re-join (leftAt set, then a new ACTIVE row created with a fresh
+/// joinedAt) — we keep the LEFT row as a breadcrumb rather than
+/// deleting it, useful for the room's history view.
+enum CockpitMemberStatus {
+  ACTIVE
+  LEFT
+}
+
+model CockpitRoom {
+  id      String @id @default(cuid())
+  ownerId String
+  owner   User   @relation("CockpitRoomOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+
+  /// Optional FK to the Booking this room coordinates. Nullable for
+  /// ad-hoc rooms (training, casual co-flying). When set, future
+  /// server-side checks can require members to be on the booking's
+  /// pilot list — out of scope for v1, but the FK is here so the
+  /// constraint is cheap to add later.
+  flightId String?
+  flight   Booking? @relation("CockpitRoomBooking", fields: [flightId], references: [id], onDelete: SetNull)
+
+  /// Display name shown in pilot-facing UIs. Optional — defaults to
+  /// "Cockpit: {ownerName}" client-side when null. Capped at 80 chars
+  /// (varchar) so the field stays index-friendly and renders cleanly
+  /// in narrow mobile cards.
+  title String? @db.VarChar(80)
+
+  status      CockpitRoomStatus @default(OPEN)
+  members     CockpitMember[]
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  /// Set when status transitions to CLOSED. NULL while OPEN. Useful
+  /// for "show closed rooms from the last 24h" admin queries without
+  /// scanning updatedAt (which churns on every member join/leave).
+  closedAt DateTime?
+
+  @@index([ownerId, status])
+  @@index([flightId])
+  @@index([status, createdAt(sort: Desc)])
+}
+
+model CockpitMember {
+  id     String      @id @default(cuid())
+  roomId String
+  room   CockpitRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  pilotId String
+  pilot   User   @relation("CockpitMemberPilot", fields: [pilotId], references: [id], onDelete: Cascade)
+
+  role     CockpitRole         @default(FIRST_OFFICER)
+  status   CockpitMemberStatus @default(ACTIVE)
+  joinedAt DateTime            @default(now())
+  /// Set when status transitions to LEFT. NULL while ACTIVE. Same
+  /// pattern as CockpitRoom.closedAt — historical timestamp without
+  /// re-using updatedAt (which we don't expose for members anyway).
+  leftAt DateTime?
+
+  @@index([roomId])
+  @@index([pilotId, status])
 }

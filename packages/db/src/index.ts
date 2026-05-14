@@ -98,6 +98,13 @@ export type { RosterAssignment } from "@prisma/client";
 // Track 5 #29: RosterSwapRequest enum + model type für UI-konsumenten.
 export { RosterSwapRequestStatus } from "@prisma/client";
 export type { RosterSwapRequest } from "@prisma/client";
+// Welle E / E4: Cockpit-room enums + model types für multi-pilot
+// coordination. Role wird im UI für rollen-labels gerendert; Status
+// für open/closed-filter; MemberStatus für active/historical-list.
+// CockpitRoom + CockpitMember model-types für queries die rooms +
+// members joinen (endpoint responses, future room-list pages).
+export { CockpitRole, CockpitRoomStatus, CockpitMemberStatus } from "@prisma/client";
+export type { CockpitRoom, CockpitMember } from "@prisma/client";
 // Welle 9: ACARS Phase 2-5. Simulator + AcarsEventType enums für die
 // settings-UI (sim-picker) und die heartbeat/event-API endpoints.
 // Type-exports für die pairing-helpers + auto-PIREP-trigger.
