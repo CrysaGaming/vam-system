@@ -252,6 +252,24 @@ export async function grantAwardAction(
       console.warn('[awards] discord-broadcast fehlgeschlagen:', broadcastErr);
     }
 
+    // Welle G / G4 — Follower-fanout für manual-grant. Fire-and-forget;
+    // followers eines pilots werden benachrichtigt sobald ein admin
+    // ihm einen award vergibt (passiert seltener als auto-grants, aber
+    // genauso bemerkenswert).
+    try {
+      const { notifyFollowersOfAward } = await import(
+        '@/lib/notifications/follower-fanout'
+      );
+      void notifyFollowersOfAward(userId, awardId).catch((err) =>
+        console.warn('[awards] follower-fanout failed:', err),
+      );
+    } catch (fanoutErr) {
+      console.warn(
+        '[awards] follower-fanout dynamic-import failed:',
+        fanoutErr,
+      );
+    }
+
     return { ok: true, message: 'Award vergeben.' };
   } catch (err) {
     return {

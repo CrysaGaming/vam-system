@@ -15,6 +15,10 @@ import {
 } from '@/lib/discord-templates';
 import { evaluatePromotion } from '@/lib/ranks';
 import { APPROVER_ROLES, isApproverRole } from '@/lib/roles';
+import {
+  notifyFollowersOfPirep,
+  notifyFollowersOfAward,
+} from '@/lib/notifications/follower-fanout';
 
 /**
  * Server-side guard: throws wenn der current user keine approver-rolle hat.
@@ -266,10 +270,25 @@ export async function approvePirep(pirepId: string) {
       console.info(
         `[approvePirep] auto-granted ${granted.length} award(s) to user ${pirep.userId}: ${granted.map((g) => g.awardName).join(', ')}`,
       );
+      // Welle G / G4 — Follower-fanout für jeden auto-granted award.
+      // Fire-and-forget; eine push-notif pro award an alle follower
+      // des pilots (gefiltert nach prefs).
+      for (const g of granted) {
+        void notifyFollowersOfAward(pirep.userId, g.awardId).catch((err) =>
+          console.warn('[approvePirep] follower-fanout (award) failed:', err),
+        );
+      }
     }
   } catch (err) {
     console.error('[approvePirep] auto-grant evaluation failed:', err);
   }
+
+  // Welle G / G4 — Follower-fanout für den approved PIREP selbst.
+  // Fire-and-forget. Triggert nach allen anderen events damit ein
+  // fehlschlag im fanout den approval-flow nicht beeinflusst.
+  void notifyFollowersOfPirep(pirep.userId, pirep.id).catch((err) =>
+    console.warn('[approvePirep] follower-fanout (pirep) failed:', err),
+  );
 
   // Track 5 #10 — Evaluate pilot-goals nach approval. Idempotent
   // (skipt periods that already incremented). Fire-and-forget mit

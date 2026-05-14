@@ -21,6 +21,7 @@ import {
 } from '@/lib/acars/block-events';
 import { triggerAutoPirep } from '@/lib/acars/auto-pirep';
 import { matchAndPersistAtcSession } from '@/lib/acars/atc-matcher';
+import { notifyFollowersOfLiveStart } from '@/lib/notifications/follower-fanout';
 
 /**
  * POST /api/acars/heartbeat — Welle 9 commit 9C.
@@ -905,6 +906,15 @@ export async function POST(req: NextRequest) {
       return session;
     });
     sessionId = created.id;
+
+    // Welle G / G4 — Follower-fanout für neuen LiveSession-start.
+    // Nur in der NEW-session-branch — bei reconnect/existing-session
+    // sind wir den followers nicht erneut "ist jetzt live"-benachrich-
+    // tigung schuldig. Fire-and-forget; failures loggen aber nicht
+    // den heartbeat-roundtrip blockieren (latency-budget ~50ms p99).
+    void notifyFollowersOfLiveStart(userId, sessionId).catch((err) =>
+      console.warn('[heartbeat] follower-fanout (live-start) failed:', err),
+    );
   }
 
   // ─── M6: BLOCK_ON → auto-PIREP bridge ──────────────────────────────

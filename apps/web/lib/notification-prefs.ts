@@ -54,6 +54,13 @@ export const NOTIFICATION_CATEGORIES = [
   'eventReminder',
   'promotion',
   'adminBroadcast',
+  // Welle G / G4 — Follow-system live-notifications. Pilots können
+  // anderen folgen (Follow model existiert via Track 5 #13). Diese
+  // categories steuern ob der follower benachrichtigt wird wenn ein
+  // followed pilot was tut.
+  'followedPilotPirep',
+  'followedPilotLiveStart',
+  'followedPilotAward',
 ] as const;
 
 export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
@@ -120,6 +127,24 @@ export const CATEGORY_LABELS: Record<
     description:
       'System-weite Ansagen vom Airline-Admin (Wartung, neue Features, Saison-Updates).',
     icon: '📢',
+  },
+  followedPilotPirep: {
+    label: 'Followed Pilot: PIREP',
+    description:
+      'Wenn ein Pilot dem du folgst einen PIREP submitted bekommt (genehmigt).',
+    icon: '✈️',
+  },
+  followedPilotLiveStart: {
+    label: 'Followed Pilot: Live',
+    description:
+      'Wenn ein Pilot dem du folgst eine neue Live-Session startet (ACARS-flight begonnen).',
+    icon: '🟢',
+  },
+  followedPilotAward: {
+    label: 'Followed Pilot: Award',
+    description:
+      'Wenn ein Pilot dem du folgst einen neuen Award erhält.',
+    icon: '🏆',
   },
 };
 
