@@ -2,6 +2,7 @@ import 'server-only';
 import { prisma, type Prisma } from '@vam/db';
 import { verifyReplay } from './replay-verify';
 import { buildPirepFlags } from './pirep-flags';
+import { detectPositionJumps } from './position-jump-detection';
 
 /**
  * Auto-PIREP generator (Welle 9 commit 9F).
@@ -132,6 +133,11 @@ export async function generatePirepFromSession(
       lastUpdatedAt: true,
       simRate: true,
       totalPauseSeconds: true,
+      // Welle C / C1 — running anti-cheat counters maintained by the
+      // heartbeat-route. buildPirepFlags reads these to fire the
+      // structured timeAccel flag when run-length >= 3.
+      simRateMax: true,
+      timeAccelMaxRun: true,
       fuelTotalKg: true,
       user: {
         select: {
@@ -328,6 +334,67 @@ export async function generatePirepFromSession(
     flagParts.push(`paused ${Math.round(session.totalPauseSeconds / 60)}min`);
   }
 
+  // Welle C / C1 — time-acceleration run-detection. Independent of
+  // the latest-value simRate check above: this fires when ANY 3+
+  // consecutive heartbeats showed simRate > 1.0 during the session,
+  // even if the pilot dropped back to 1.0 by block-on. Surfaced as
+  // its own bucket in the remarks-prefix so admins can distinguish
+  // "current value at block-on" from "historical run somewhere
+  // during the flight".
+  if (session.timeAccelMaxRun >= 3 && session.simRateMax !== null) {
+    flagParts.push(
+      `accel-run ${session.timeAccelMaxRun}f peak ${session.simRateMax.toFixed(1)}x`,
+    );
+  }
+
+  // Welle C / C3 — pause-ratio. Sum of paused-seconds compared to
+  // wall-clock flight duration. >30% suggests the pilot spent more
+  // than a third of the flight in pause-state. Uses the same
+  // flightTimeMin we just computed (×60 to get seconds, same
+  // denominator semantics as the structured pauseRatio flag below).
+  if (
+    session.totalPauseSeconds &&
+    session.totalPauseSeconds > 0 &&
+    flightTimeMin > 0
+  ) {
+    const ratio = session.totalPauseSeconds / (flightTimeMin * 60);
+    if (ratio > 0.30) {
+      flagParts.push(`pause-ratio ${Math.round(ratio * 100)}%`);
+    }
+  }
+
+  // Welle C / C2 — position-jump detection. Walks the LiveSessionPosition
+  // trail for pairs where actual distance > expected × 2 or × 5. Soft-
+  // failed to empty on error so a flaky heuristic-pass can't block the
+  // auto-PIREP, same pattern as verifyReplay above. Each jump is
+  // included individually in the remarks-prefix bucket so the pilot can
+  // see what the detector caught; the structured `positionJumps` flag
+  // (next code-block) records the full detail for admin queue queries.
+  //
+  // Why before the tx: read-only against already-committed positions,
+  // no overlap with the writes the tx is about to do.
+  let positionJumps: Awaited<ReturnType<typeof detectPositionJumps>> = [];
+  try {
+    positionJumps = await detectPositionJumps(sessionId);
+  } catch (err) {
+    console.warn(
+      '[generate-pirep] position-jump detection failed for session %s: %s',
+      sessionId,
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+  if (positionJumps.length > 0) {
+    const majorCount = positionJumps.filter((j) => j.severity === 'major').length;
+    const minorCount = positionJumps.length - majorCount;
+    // Compact summary: "3 jumps (2 major, 1 minor)" rather than the
+    // full coordinate-list. The structured flag carries the details
+    // for admin drill-down; the remarks-prefix stays scannable.
+    const parts: string[] = [];
+    if (majorCount > 0) parts.push(`${majorCount} major`);
+    if (minorCount > 0) parts.push(`${minorCount} minor`);
+    flagParts.push(`pos-jumps ${positionJumps.length} (${parts.join(', ')})`);
+  }
+
   // Replay verification (option #11). Heuristics over the position
   // trail: teleports, sustained supersonic, altitude jumps, continuity
   // gaps. Soft-failed to empty on any error so a flaky verify-pass
@@ -403,6 +470,16 @@ export async function generatePirepFromSession(
     totalPauseSeconds: session.totalPauseSeconds,
     replayFlags,
     incidentPayload: incidentEvent?.payload ?? null,
+    // Welle C / C1
+    timeAccelMaxRun: session.timeAccelMaxRun,
+    simRateMax: session.simRateMax,
+    // Welle C / C2 — already detected above for the remarks-prefix
+    positionJumps,
+    // Welle C / C3 — convert flightTimeMin (the value we'll write to
+    // the PIREP) to seconds so the ratio matches what an admin would
+    // see if they computed it themselves. Multi-tier-fallback already
+    // applied; this is the final number that lands on the row.
+    flightDurationSec: flightTimeMin * 60,
   });
 
   // Transactional commit: PIREP-create + booking-completion + cache-

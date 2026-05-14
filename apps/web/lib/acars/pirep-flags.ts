@@ -1,5 +1,6 @@
 import 'server-only';
 import type { Prisma } from '@vam/db';
+import type { PositionJump } from './position-jump-detection';
 
 /**
  * Anti-Cheat structured flags for Pirep.flags (option #20).
@@ -63,6 +64,27 @@ import type { Prisma } from '@vam/db';
  *     verticalSpeedFpm is the recorded touchdown VSI; absent when
  *     the INCIDENT payload didn't capture the number.
  *
+ *   - timeAccel: Welle C / C1 — fired when the LiveSession's tracking
+ *     counters show >= 3 consecutive heartbeats with simRate > 1.0.
+ *     This is the structured detection the roadmap calls for, separate
+ *     from the legacy simRate field above which is a single max-value
+ *     snapshot. maxRunFrames is how many consecutive frames were
+ *     observed at the peak; maxRate is the peak simRate value during
+ *     the session (may have occurred outside the longest run). Both
+ *     present when this flag fires.
+ *
+ *   - positionJumps: Welle C / C2 — array of position-pairs where
+ *     actual distance > expected × 2 (minor) or × 5 (major). Empty
+ *     array semantics same as replayFlags above: only included when
+ *     non-empty. Capped at 20 entries server-side; if a session has
+ *     more, the extras are silently dropped (the flag still fires).
+ *
+ *   - pauseRatio: Welle C / C3 — totalPauseSec / flightDurationSec
+ *     when the ratio exceeds 0.30. Separate from pauseSec above:
+ *     pauseSec catches single-burst pauses ("paused 5 min"); pauseRatio
+ *     catches death-by-a-thousand-cuts ("30 brief pauses over a 1hr
+ *     flight totalling 25 min"). Both can fire simultaneously.
+ *
  * Future heuristics (route-deviation, callsign-mismatch, fuel-overflow)
  * can extend this type without a schema migration — just add new
  * optional keys and have buildPirepFlags() populate them when fired.
@@ -75,6 +97,15 @@ export type PirepFlags = {
     severity: 'hard' | 'severe';
     verticalSpeedFpm?: number;
   };
+  /** Welle C / C1 — time-acceleration detected via 3+ consecutive frame run. */
+  timeAccel?: {
+    maxRunFrames: number;
+    maxRate: number;
+  };
+  /** Welle C / C2 — list of position-jumps observed during the session. */
+  positionJumps?: PositionJump[];
+  /** Welle C / C3 — fraction of flight time spent paused, when > 0.30. */
+  pauseRatio?: number;
 };
 
 /**
@@ -88,12 +119,30 @@ export type PirepFlags = {
  * - incidentPayload: the JSON payload of the latest INCIDENT-event
  *   for the session, or null. The helper inspects it for HARD_LANDING
  *   shape and extracts severity + verticalSpeedFpm.
+ * - timeAccelMaxRun / simRateMax: from the LiveSession row (Welle C
+ *   / C1). The C1 instrumentation in apps/web/app/api/acars/heartbeat
+ *   updates these per heartbeat.
+ * - positionJumps: from detectPositionJumps (Welle C / C2), the same
+ *   array that gets joined into the [ACARS-flag: …] prefix when
+ *   non-empty.
+ * - flightDurationSec: total session duration in seconds, used with
+ *   totalPauseSeconds to compute the pauseRatio (Welle C / C3).
+ *   May be null when generate-pirep.ts couldn't establish a
+ *   block-to-block window — in that case the ratio is skipped (we
+ *   don't fabricate a denominator).
  */
 export type PirepFlagsInput = {
   simRate: number | null;
   totalPauseSeconds: number | null;
   replayFlags: string[];
   incidentPayload: Prisma.JsonValue | null;
+  // Welle C / C1
+  timeAccelMaxRun: number | null;
+  simRateMax: number | null;
+  // Welle C / C2
+  positionJumps: PositionJump[];
+  // Welle C / C3
+  flightDurationSec: number | null;
 };
 
 /**
@@ -165,6 +214,76 @@ export function buildPirepFlags(input: PirepFlagsInput): PirepFlags | undefined 
         }
         flags.hardLanding = hl;
       }
+    }
+  }
+
+  // ─── Welle C / C1 — time-acceleration ────────────────────────────
+  //
+  // Spec: "3 aufeinanderfolgende heartbeats mit simRate > 1.0 →
+  // flag". The heartbeat-route maintains timeAccelMaxRun as the
+  // max observed consecutive-frame count. Threshold is >= 3.
+  //
+  // Note this is independent of the legacy `simRate` flag above:
+  // a pilot whose simRate dropped back to 1.0 at block-on won't
+  // fire the legacy flag (which only sees the latest value) but
+  // WILL fire timeAccel if they ran 3+ consecutive accelerated
+  // frames earlier in the flight. simRateMax surfaces the peak
+  // so admins can distinguish "barely above 1.0 for 3 frames"
+  // (likely jitter) from "8.0x for 15 frames" (egregious).
+  //
+  // Defensive null-checks: pre-C1 sessions or sessions where the
+  // client never reported simRate have timeAccelMaxRun=0 and
+  // simRateMax=null — no flag fires.
+  if (
+    input.timeAccelMaxRun !== null &&
+    input.timeAccelMaxRun >= 3 &&
+    input.simRateMax !== null
+  ) {
+    flags.timeAccel = {
+      maxRunFrames: input.timeAccelMaxRun,
+      maxRate: Math.round(input.simRateMax * 10) / 10,
+    };
+  }
+
+  // ─── Welle C / C2 — position-jumps ───────────────────────────────
+  //
+  // Detected by detectPositionJumps (see position-jump-detection.ts).
+  // Empty-array semantics same as replayFlags: only include the key
+  // when at least one jump was found. The detector caps at 20
+  // entries server-side, so we don't need a length-check here.
+  if (input.positionJumps.length > 0) {
+    flags.positionJumps = [...input.positionJumps];
+  }
+
+  // ─── Welle C / C3 — pause-ratio ──────────────────────────────────
+  //
+  // Spec: "total-pause-seconds > 30% of flight-time → flag
+  // EXCESSIVE_PAUSE". Computed as totalPauseSeconds /
+  // flightDurationSec.
+  //
+  // Separate flag from `pauseSec` above:
+  //   - pauseSec catches a single big pause ("paused 5 minutes
+  //     straight"). Threshold: > 60 seconds.
+  //   - pauseRatio catches death-by-a-thousand-cuts ("30 brief
+  //     pauses totalling 25 min over a 1hr flight"). Threshold:
+  //     > 0.30 ratio.
+  // Both can fire simultaneously on the same PIREP and the admin
+  // queue treats them as separate dispositions.
+  //
+  // Null-guards: skip the ratio if either input is missing or if
+  // flightDurationSec is zero (defensive against divide-by-zero;
+  // shouldn't happen in practice since generate-pirep always
+  // computes a duration ≥ 1min).
+  if (
+    input.totalPauseSeconds !== null &&
+    input.totalPauseSeconds > 0 &&
+    input.flightDurationSec !== null &&
+    input.flightDurationSec > 0
+  ) {
+    const ratio = input.totalPauseSeconds / input.flightDurationSec;
+    if (ratio > 0.30) {
+      // Round to 2 decimals — 0.37 reads clearer than 0.3734567.
+      flags.pauseRatio = Math.round(ratio * 100) / 100;
     }
   }
 
