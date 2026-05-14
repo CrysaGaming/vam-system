@@ -586,6 +586,9 @@ model Airline {
 
   // Welle L / L5 — NOTAMs published by this airline.
   notams Notam[]
+
+  // Welle M / M1 — Route price snapshots history.
+  routePriceSnapshots RoutePriceSnapshot[]
 }
 
 model User {
@@ -1937,6 +1940,9 @@ model Route {
   // Cascade-delete via BookingTemplate.route — route-löschung räumt
   // templates auf damit keine dangling vorlagen entstehen.
   bookingTemplates BookingTemplate[]
+
+  // Welle M / M1 — Price snapshots history.
+  priceSnapshots RoutePriceSnapshot[]
 
   @@unique([airlineId, flightNumber])
   @@index([departureId])
@@ -5456,4 +5462,54 @@ model Notam {
   @@index([airlineId, validFrom])
   // Admin-list: status-filter via publishedAt + cancelledAt
   @@index([airlineId, publishedAt])
+}
+
+/// Welle M / M1 — Route price snapshot.
+///
+/// Trackt historisch berechnete preise pro route, damit admin auf einer
+/// /airline/economy/pricing page die preis-evolution sehen kann.
+///
+/// # Berechnung
+///
+/// V1: Snapshot wird beim PIREP-approval oder einem cron-job (V2) angelegt.
+/// Berechnung erfolgt im app-layer via lib/pricing/dynamic.ts —
+/// computeRoutePrice(route, demand) → number.
+///
+/// # Persistenz vs derived
+///
+/// V1 speichert den FINAL-preis (basePrice nicht separat) damit historische
+/// auswertung mit allen modifikatoren funktioniert. Die einzelnen
+/// modifier-felder (demandMultiplier, etc.) sind für transparency-display
+/// auf der admin-page. Sollte sich V2 für recompute entscheiden, sind die
+/// inputs noch da.
+model RoutePriceSnapshot {
+  id        String  @id @default(cuid())
+  airlineId String
+  airline   Airline @relation(fields: [airlineId], references: [id], onDelete: Cascade)
+
+  routeId String
+  route   Route  @relation(fields: [routeId], references: [id], onDelete: Cascade)
+
+  /// Berechneter end-preis in VAM$ (pilot-payout für completion).
+  finalPrice Decimal @db.Decimal(14, 2)
+
+  /// Base-preis aus distance-formel (vor multipliers).
+  basePrice Decimal @db.Decimal(14, 2)
+
+  /// Demand-multiplier (0.5 – 2.0): hohe demand → höherer payout.
+  /// 1.0 ist neutral. Aus booking-count last 7 days / global average.
+  demandMultiplier Decimal @db.Decimal(5, 3)
+
+  /// Bookings in den letzten 7 days die in die demand-berechnung
+  /// eingeflossen sind (für transparency-display).
+  bookings7d Int @default(0)
+
+  /// Manual-override factor (admin kann pro route einen modifier setzen,
+  /// z.B. 1.5 für "premium business route"). Default 1.0.
+  airlineModifier Decimal @db.Decimal(5, 3) @default("1.000")
+
+  createdAt DateTime @default(now())
+
+  @@index([routeId, createdAt])
+  @@index([airlineId, createdAt])
 }
