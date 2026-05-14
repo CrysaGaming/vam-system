@@ -135,6 +135,60 @@ export default async function AirlineFinancePage({ searchParams }: PageProps) {
           />
         </div>
 
+        {/* Welle F / F3 — Export-section. PDF für executive-summary (single-
+            page A4 mit KPIs + per-typ-breakdown + top-100 details), CSV
+            für volle history zur excel-analyse. Period-grid 4x2: alle
+            4 perioden × 2 formate. Bewusst KEINE form-element — direkt
+            <a>-links damit der browser direkt den download triggert ohne
+            page-transition. download-attribute auf den links damit der
+            browser nicht versucht die response inline darzustellen. */}
+        <details className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-800 p-4 mb-4">
+          <summary className="cursor-pointer text-sm font-semibold text-gray-700 dark:text-gray-300 select-none">
+            📄 Bericht exportieren
+          </summary>
+          <div className="mt-4 space-y-3">
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              PDF = single-page A4 mit KPIs + Aufschlüsselung + Top-100 Transaktionen.
+              CSV = vollständige Transaktions-Liste im gewählten Zeitraum (UTF-8 + BOM für Excel).
+            </p>
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              {(
+                [
+                  { period: "30d", label: "30 Tage" },
+                  { period: "90d", label: "90 Tage" },
+                  { period: "1y", label: "1 Jahr" },
+                  { period: "all", label: "Gesamt" },
+                ] as const
+              ).map(({ period, label }) => (
+                <div
+                  key={period}
+                  className="rounded border border-gray-200 dark:border-gray-800 p-3 bg-gray-50 dark:bg-gray-950/50"
+                >
+                  <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">
+                    {label}
+                  </p>
+                  <div className="flex gap-2">
+                    <a
+                      href={`/api/airline/finance/export?period=${period}&format=pdf`}
+                      download
+                      className="flex-1 px-2 py-1.5 text-center text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white rounded transition"
+                    >
+                      PDF
+                    </a>
+                    <a
+                      href={`/api/airline/finance/export?period=${period}&format=csv`}
+                      download
+                      className="flex-1 px-2 py-1.5 text-center text-xs font-semibold bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 rounded transition"
+                    >
+                      CSV
+                    </a>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </details>
+
         <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-800 p-4 mb-4">
           <form method="get" className="flex flex-wrap items-end gap-4">
             <div className="flex-1 min-w-[200px]">
