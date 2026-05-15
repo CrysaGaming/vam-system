@@ -1106,6 +1106,10 @@ model User {
   // Welle N / N5 — Public embed tokens for Discord/OBS/Twitch.
   embedTokens EmbedToken[] @relation("EmbedTokens")
 
+  // Welle O / O4 — Twitch channel-points → in-flight events.
+  channelPointRewards     ChannelPointReward[]     @relation("ChannelPointRewards")
+  channelPointRedemptions ChannelPointRedemption[] @relation("ChannelPointRedemptions")
+
   // Track 5 #24 (Section E): Web Push subscriptions. Ein user kann mehrere
   // devices/browsers haben (laptop chrome, mobile safari, tablet edge),
   // daher ist die relation 1:N. Bei user-löschung cascade-delete alle
@@ -5820,4 +5824,163 @@ model EmbedToken {
   revokedAt  DateTime?
 
   @@index([userId, revokedAt])
+}
+
+// ────────────────────────────────────────────────────────────
+// Welle O / O4 — Channel-Points → In-Flight Events
+// ────────────────────────────────────────────────────────────
+//
+// Twitch viewers redeem channel-points on the streamer's channel
+// (subbed/long-time-viewer reward pool); the bot listens via EventSub
+// (`channel.channel_points_custom_reward_redemption.add`) and POSTs
+// the redemption to /api/twitch/redemption. That endpoint looks up
+// the corresponding ChannelPointReward → executes the configured
+// action (callsign-shout, fuel-bonus, gate-request, weather-nudge)
+// → writes a ChannelPointRedemption log row for audit + UI display.
+//
+// Why we store the mapping server-side rather than reading directly
+// from Twitch:
+//   - Twitch returns the reward's title + cost but NOT what we want
+//     to do with it. The streamer picks the action when configuring.
+//   - Streamer renames a reward on Twitch (very common — A/B testing
+//     copy) → the twitchRewardId stays the same → our mapping survives.
+//   - Disabling a reward in Twitch's dashboard doesn't disable our
+//     handler; we keep an independent isEnabled flag so streamers can
+//     suspend a reward server-side without re-fetching from Twitch.
+
+enum ChannelPointActionType {
+  // Generic "VAM$X bonus to the streamer's wallet" payout. The
+  // simplest action — just a wallet credit, no in-flight side-effect.
+  // payloadJson: { "amountVam": 50 } (default 25 if missing)
+  FUEL_BONUS
+
+  // Bot posts the redeemer's twitch-username to discord #livestreams
+  // ("@viewerX redeemed Pilot Shout!"). No effect on the flight, just
+  // a public ack — viewers like seeing their name in the airline feed.
+  // payloadJson: {} (no config)
+  CALLSIGN_SHOUT
+
+  // Adds a free-form message to the next PIREP's pilot-notes
+  // ("Viewer suggested gate B12"). Stored as ACARS event so it surfaces
+  // in the post-flight log. Best-effort — if no LiveSession is active
+  // at redemption time, the request is logged as UNMATCHED.
+  // payloadJson: { "label": "Gate change request" }
+  GATE_REQUEST
+
+  // Adds a weather-preset nudge note to the active PIREP. Same best-
+  // effort semantics as GATE_REQUEST. Viewers can suggest e.g. "fog",
+  // "thunderstorm" — the streamer decides whether to honor it in-sim.
+  // payloadJson: { "preset": "fog" }
+  WEATHER_NUDGE
+}
+
+model ChannelPointReward {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation("ChannelPointRewards", fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Twitch's UUID for this custom reward. Survives renames. @unique
+  /// per-user is the natural constraint (one mapping per Twitch reward
+  /// per pilot), but Prisma's composite-unique syntax handles that via
+  /// @@unique below.
+  twitchRewardId String @db.VarChar(64)
+
+  /// Display-title snapshot at the time of creation/last-update. Used
+  /// für UI listing wenn der bot keinen fresh-fetch macht. Wird vom
+  /// /api/twitch/redemption endpoint refreshed wenn der bot den
+  /// aktuellen titel mitschickt (in case streamer renamed).
+  rewardTitle String @db.VarChar(120)
+
+  /// Which action to fire when this reward is redeemed.
+  actionType ChannelPointActionType
+
+  /// Optional config-payload, action-type-specific (see enum docstrings).
+  /// Stored as Json so we can shape-evolve per action-type without
+  /// schema-migrations. Validation happens in the server-action that
+  /// writes this, not at the schema level.
+  payloadJson Json?
+
+  /// Streamer can temporarily disable a mapping without deleting it
+  /// (e.g. "no callsign-shouts during VFR practice"). Bot ignores
+  /// redemptions for disabled rewards.
+  isEnabled Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  redemptions ChannelPointRedemption[] @relation("RewardRedemptions")
+
+  @@unique([userId, twitchRewardId])
+  @@index([userId, isEnabled])
+}
+
+enum ChannelPointRedemptionStatus {
+  /// Bot delivered the event, mapping was found, action executed
+  /// successfully (wallet-credit posted, discord-message sent etc).
+  EXECUTED
+
+  /// Bot delivered but no ChannelPointReward was configured for this
+  /// twitchRewardId. We still log so the streamer can see "viewer
+  /// redeemed X, but I never set up a mapping". UI on the channel-
+  /// points page can highlight these as "configure this reward".
+  UNMATCHED
+
+  /// Mapping found but isEnabled=false at delivery time. Logged but
+  /// no action fired. Different from UNMATCHED so the streamer can
+  /// distinguish "I disabled this on purpose" from "I forgot to set
+  /// this up".
+  SKIPPED_DISABLED
+
+  /// Action execution threw — e.g. wallet-credit failed because the
+  /// system-wallet ran out of funds, or discord-bot couldn't post.
+  /// errorMessage carries the reason.
+  FAILED
+}
+
+model ChannelPointRedemption {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation("ChannelPointRedemptions", fields: [userId], references: [id], onDelete: Cascade)
+
+  /// FK to the matching reward-mapping IF one was found. Null for
+  /// UNMATCHED redemptions. Cascade-on-delete: if the streamer
+  /// deletes a mapping later, the historical log entries stay (we
+  /// SetNull rather than Cascade).
+  rewardId String?
+  reward   ChannelPointReward? @relation("RewardRedemptions", fields: [rewardId], references: [id], onDelete: SetNull)
+
+  /// Twitch's UUID for the redemption-instance. @unique prevents
+  /// duplicate logging if the bot retries the webhook (EventSub
+  /// occasionally re-delivers on websocket-reconnect).
+  twitchRedemptionId String @unique @db.VarChar(64)
+
+  /// Display-name of the viewer who redeemed. We DON'T store their
+  /// twitchUserId — we don't have a use-case for it beyond display,
+  /// and adding it would require GDPR-thinking about viewer-data
+  /// retention. Display-name suffices for "Viewer X redeemed Y".
+  redeemerUsername String @db.VarChar(60)
+
+  /// Optional free-text the viewer typed when redeeming (Twitch lets
+  /// reward-creators require text input). Empty string if reward
+  /// didn't request input.
+  redeemerUserInput String @default("") @db.VarChar(500)
+
+  /// Snapshot of the reward-title at delivery-time, so the UI can
+  /// show what the viewer thought they were redeeming even if the
+  /// reward was renamed afterwards.
+  rewardTitleSnapshot String @db.VarChar(120)
+
+  /// Action-outcome (see enum docstrings).
+  status ChannelPointRedemptionStatus
+
+  /// Filled when status=FAILED. Short human-readable reason.
+  errorMessage String? @db.VarChar(500)
+
+  createdAt   DateTime  @default(now())
+  /// When the action was actually executed (FAILED rows may have
+  /// null here if the failure happened before execution started).
+  executedAt  DateTime?
+
+  @@index([userId, createdAt])
+  @@index([rewardId, createdAt])
 }

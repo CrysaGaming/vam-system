@@ -116,6 +116,11 @@ export type { AcarsPairingCode, AcarsEvent } from "@prisma/client";
 export { WalletOwnerType, TransactionType } from "@prisma/client";
 export type { Wallet, Transaction } from "@prisma/client";
 
+// Welle O / O4: Channel-points action enums. Used by the UI (action-
+// type-dropdown) and by the action-dispatcher in apps/web/lib/twitch.
+export { ChannelPointActionType, ChannelPointRedemptionStatus } from "@prisma/client";
+export type { ChannelPointReward, ChannelPointRedemption } from "@prisma/client";
+
 // Welle 13 (Economy MVP): wallet/transfer/decimal helpers. Re-exports
 // vom ./economy barrel damit consumer (apps/web, apps/bot) alles via
 // `import { transfer, formatVamCurrency } from "@vam/db"` kriegen ohne

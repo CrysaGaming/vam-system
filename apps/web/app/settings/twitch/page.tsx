@@ -327,12 +327,34 @@ export default async function TwitchSettingsPage() {
               welleRef="Welle O · O3"
               description="Erweiterte /overlay/[token]-route mit live-PIREP-progress, fuel/wind, milestones-popup."
             />
-            <ComingSoonCard
-              icon="🎁"
-              title="Channel-Points → Events"
-              welleRef="Welle O · O4"
-              description="Viewer-redemptions triggern in-flight events (gate-change, weather-toggle, callsign-shout)."
-            />
+            {/* Welle O O4 shipped — replaced the ComingSoonCard with an
+                active link to /settings/twitch/channel-points. The card
+                styling matches the surrounding "coming soon" tiles
+                visually (same border + padding), but the chevron-arrow
+                signals "go here now" instead of "wait". */}
+            <Link
+              href="/settings/twitch/channel-points"
+              className="group flex flex-col gap-1 rounded-lg border border-indigo-400/40 bg-indigo-50/50 p-3 text-left transition hover:border-indigo-500 hover:bg-indigo-50 dark:bg-indigo-950/20 dark:hover:bg-indigo-950/40"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <span aria-hidden="true">🎁</span>
+                  <span className="text-sm font-semibold">
+                    Channel-Points → Events
+                  </span>
+                </div>
+                <span className="text-xs text-indigo-700 transition group-hover:translate-x-0.5 dark:text-indigo-400">
+                  →
+                </span>
+              </div>
+              <p className="text-xs uppercase tracking-wider text-indigo-700 dark:text-indigo-400">
+                Welle O · O4 · Aktiv
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Map deine Twitch channel-point rewards auf in-flight
+                actions (fuel-bonus, shout-out, gate-request).
+              </p>
+            </Link>
             <ComingSoonCard
               icon="✂️"
               title="Auto-Clip bei Milestones"
