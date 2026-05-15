@@ -1,0 +1,12 @@
+<strings>
+  <string id="AppName">VAM Flight HUD</string>
+  <string id="NoFlight">NO FLT</string>
+  <string id="StartAcars">start ACARS</string>
+  <string id="Stale">STALE</string>
+  <string id="OnGround">ON GND</string>
+  <string id="NoToken">SETUP</string>
+  <string id="NoTokenHint">set apiToken</string>
+  <string id="LabelAltitude">ALT</string>
+  <string id="LabelGroundSpeed">GS</string>
+  <string id="LabelHeading">HDG</string>
+</strings>

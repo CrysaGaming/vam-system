@@ -1,0 +1,55 @@
+<?xml version="1.0"?>
+<!--
+  Welle N / N4 — VAM Flight HUD Connect IQ data-field manifest.
+
+  This is a skeleton for the Garmin Connect IQ data-field that polls
+  the VAM server's /api/garmin/state endpoint and renders ALT/GS/HDG
+  on a Garmin watch or Edge cyclo. Not compilable without the Connect
+  IQ SDK installed locally — see README.md in this directory for
+  build instructions.
+
+  # Target devices
+
+  Wrist-worn watches with data-field slots. The list below is a sane
+  subset; add more devices when you have hardware to test on. Each
+  device gets its own resource fork (resources-fenix7/, etc.) for
+  layout overrides when the default resources/ doesn't fit.
+
+  # Permissions
+
+  Communications: required for makeWebRequest to vam.kevindrack.de.
+  No PositionDeg, no Sensor — we just read network data, don't
+  collect anything from the watch.
+-->
+<iq:manifest version="3" xmlns:iq="http://www.garmin.com/xml/connectiq">
+  <iq:application
+    entry="VamHudApp"
+    id="a1b2c3d4e5f64718aabbccddeeff0011"
+    launcherIcon="@Drawables.LauncherIcon"
+    minApiLevel="3.2.0"
+    name="@Strings.AppName"
+    type="datafield"
+    version="0.1.0">
+
+    <iq:products>
+      <iq:product id="fenix7"/>
+      <iq:product id="fenix7s"/>
+      <iq:product id="fenix7x"/>
+      <iq:product id="fr955"/>
+      <iq:product id="fr965"/>
+      <iq:product id="edge1040"/>
+      <iq:product id="edge840"/>
+    </iq:products>
+
+    <iq:permissions>
+      <iq:uses-permission id="Communications"/>
+    </iq:permissions>
+
+    <iq:languages>
+      <iq:language>eng</iq:language>
+      <iq:language>deu</iq:language>
+    </iq:languages>
+
+    <iq:barrels/>
+  </iq:application>
+</iq:manifest>

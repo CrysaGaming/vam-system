@@ -1,0 +1,10 @@
+<drawables>
+  <!--
+    Welle N / N4 — App launcher icon.
+
+    Placeholder reference. Replace `launcher_icon.png` with a real 40×40
+    PNG before submitting to the Connect IQ Store. Garmin requires a
+    flat single-color icon (no alpha gradient) on a transparent ground.
+  -->
+  <bitmap id="LauncherIcon" filename="launcher_icon.png"/>
+</drawables>

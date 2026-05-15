@@ -1,0 +1,26 @@
+<!--
+  Welle N / N4 — Settings UI definition.
+
+  This file tells the Connect-IQ phone-app how to render the in-app
+  settings screen. Each <setting> binds to a <property> in
+  properties.xml and gets a label + input-type.
+-->
+<settings>
+  <setting
+    propertyKey="@Properties.apiToken"
+    title="API Token">
+    <settingConfig type="alphaNumeric"/>
+  </setting>
+
+  <setting
+    propertyKey="@Properties.serverBase"
+    title="Server URL">
+    <settingConfig type="alphaNumeric"/>
+  </setting>
+
+  <setting
+    propertyKey="@Properties.pollSeconds"
+    title="Poll interval (s)">
+    <settingConfig type="numeric" min="5" max="60"/>
+  </setting>
+</settings>

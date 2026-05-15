@@ -1100,6 +1100,9 @@ model User {
   vamseHoldings VamseHolding[] @relation("VamseUserHoldings")
   vamseTrades   VamseTrade[]   @relation("VamseUserTrades")
 
+  // Welle N / N4 — Garmin Connect IQ API tokens.
+  garminApiTokens GarminApiToken[] @relation("GarminApiTokens")
+
   // Track 5 #24 (Section E): Web Push subscriptions. Ein user kann mehrere
   // devices/browsers haben (laptop chrome, mobile safari, tablet edge),
   // daher ist die relation 1:N. Bei user-löschung cascade-delete alle
@@ -5724,4 +5727,50 @@ model VamseTrade {
 
   @@index([userId, createdAt])
   @@index([stockId, createdAt])
+}
+
+/// Welle N / N4 — Garmin Connect IQ API token.
+///
+/// Long-lived bearer-token für die Connect-IQ data-field. Garmin
+/// watches/cyclo-computers können keine cookie-auth (kein cookie-jar
+/// im Monkey-C HTTP-stack), deshalb diese parallele auth-schicht
+/// neben NextAuth.
+///
+/// # Security model
+///
+/// Der token wird beim erstellen einmal im plain im UI angezeigt
+/// (user kopiert in Connect-IQ phone-app), in der DB nur als sha256-
+/// hash gespeichert. Revoke setzt revokedAt; lookup filtert das raus.
+/// Pro user beliebig viele tokens (mehrere garmin-geräte möglich),
+/// jeder mit einem free-text label ("Edge 1040", "fenix 7").
+///
+/// Token-format: 48 char hex = 192 bit entropy, präfix "vamg_" damit
+/// leaked tokens in logs/grep identifizierbar sind. UI zeigt vollen
+/// string einmal, danach nur "vamg_••••8a3f" suffix-display.
+///
+/// # Scope
+///
+/// V1: read-only access auf eigene LiveSession. Kein write, keine
+/// admin-actions. Wenn V2 mehr scopes braucht, fügt ein `scopes
+/// String[]` field hinzu — V1 ist implicit "session.read".
+model GarminApiToken {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation("GarminApiTokens", fields: [userId], references: [id], onDelete: Cascade)
+
+  /// SHA-256 hash of "vamg_<48-hex>". Index lookups happen on this.
+  tokenHash String @unique @db.VarChar(64)
+
+  /// Free-text user-label ("Edge 1040", "fenix 7 Solar"). Max 60 chars.
+  label String @db.VarChar(60)
+
+  /// Last 4 chars of plain token für UI-display (suffix preview).
+  /// Reveals nothing useful (4 hex = 16 bit), kein security issue.
+  tokenSuffix String @db.VarChar(4)
+
+  createdAt    DateTime  @default(now())
+  lastUsedAt   DateTime?
+  revokedAt    DateTime?
+
+  @@index([userId, revokedAt])
 }

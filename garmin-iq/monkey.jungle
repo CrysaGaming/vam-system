@@ -1,0 +1,14 @@
+# Welle N / N4 — Connect IQ build config
+#
+# `monkey.jungle` tells the Connect IQ compiler which sources to compile
+# for which target device. The base entry compiles everything under
+# source/ for all targets; per-device overrides go in branches like
+# `fenix7.sourcePath`.
+#
+# For v1 we have a single source tree and one resource pack — no per-
+# device customization yet. Add overrides only when a target needs them.
+
+project.manifest = manifest.xml
+
+base.sourcePath = source
+base.resourcePath = resources

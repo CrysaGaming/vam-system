@@ -1,0 +1,24 @@
+<!--
+  Welle N / N4 — User-editable settings for the VAM Flight HUD.
+
+  Connect-IQ phone-app exposes these settings to the user. They edit
+  on the phone, the watch reads them at startup via Application.
+  Properties.getValue("apiToken").
+
+  Defaults are empty strings so the data-field falls back to its
+  "SETUP" state until the user pastes a real token.
+
+  `serverBase` lets users self-host or stage the API; for most users
+  the default vam.kevindrack.de is fine.
+-->
+<properties>
+  <property id="apiToken" type="string">
+    
+  </property>
+  <property id="serverBase" type="string">
+    https://vam.kevindrack.de
+  </property>
+  <property id="pollSeconds" type="number">
+    10
+  </property>
+</properties>
