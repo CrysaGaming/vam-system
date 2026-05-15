@@ -139,6 +139,14 @@ export type { AirportWeather } from "@prisma/client";
 // Format to drive the open/closed status badge.
 export type { AirportCurfew } from "@prisma/client";
 
+// Welle P / P4: Random irregular operations (IROPs). Auto-injected at
+// booking-creation time with ~15% probability; pilot acknowledges via
+// the dashboard card before flying. IropsEventType drives the
+// per-event message-templating in apps/web/lib/irops/dispatcher.ts;
+// IropsSeverity drives the badge color (minor=amber, major=rose).
+export { IropsEventType, IropsSeverity } from "@prisma/client";
+export type { IropsEvent } from "@prisma/client";
+
 // Welle 13 (Economy MVP): wallet/transfer/decimal helpers. Re-exports
 // vom ./economy barrel damit consumer (apps/web, apps/bot) alles via
 // `import { transfer, formatVamCurrency } from "@vam/db"` kriegen ohne

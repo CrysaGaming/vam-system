@@ -2366,6 +2366,11 @@ model Booking {
   // Room side keeps history if booking is deleted.
   cockpitRooms CockpitRoom[] @relation("CockpitRoomBooking")
 
+  // Welle P / P4 — IROP events injected at booking creation. Most
+  // bookings have 0 events; some have 1. Cascade-delete from the
+  // IropsEvent side cleans up on hard-delete.
+  iropsEvents IropsEvent[]
+
   @@index([userId, state])
   @@index([airlineId, state])
   @@index([routeId])
@@ -6244,4 +6249,87 @@ model AirportCurfew {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// ────────────────────────────────────────────────────────────
+// Welle P / P4 — Random irregular operations (IROPs)
+// ────────────────────────────────────────────────────────────
+//
+// Real airline ops have a steady drumbeat of disruptions: slot
+// delays, gate changes, minor tech holds, weather pauses. For a VA
+// sim context they make flights feel less mechanical — you can't
+// always file-and-go, sometimes the dispatcher tells you to wait or
+// swap gates. P4 injects one of these at booking-creation time with
+// ~15% probability, and the pilot acknowledges via a dashboard card
+// before flying.
+//
+// # Why no @relation back to Booking
+//
+// The FK is enforced via the `bookingId` column + matching index
+// rather than a full Prisma relation. We never need to traverse
+// `booking.iropsEvents` from a booking in the codebase — every
+// query is "find IROPs where bookingId = X" or "find IROPs where
+// userId = X via the booking-join". Both work fine with a plain
+// String FK and avoid editing the Booking model (which is large +
+// touchy). If V2 needs the relation we can add it then.
+//
+// # Severity
+//
+// MINOR = display in muted amber, ack is one click, no game-economy
+//   impact. Covers most cases (gate change, 10-min hold).
+// MAJOR = display in rose, ack still one click but signals to the
+//   pilot that the situation is more serious (engine MEL deferral,
+//   30-60min weather hold). v2 could tie MAJOR events into the
+//   "Resilient Pilot" award counter.
+//
+// # No auto-resolve
+//
+// V1 events stay around forever once acknowledged — they're a
+// history of what happened on a flight. The dashboard card filters
+// to unacknowledged-only so the active list stays clean.
+
+enum IropsEventType {
+  SLOT_DELAY        // ATC slot pushed; pilot waits delayMin
+  GATE_CHANGE       // Different gate at departure or arrival
+  WEATHER_HOLD      // Weather-induced pause
+  TECH_ISSUE        // Minor aircraft tech issue, X min delay
+  CREW_SHUFFLE      // Crew change announced (cosmetic, 0 min delay)
+  RUNWAY_CHANGE     // Different runway assigned
+}
+
+enum IropsSeverity {
+  MINOR
+  MAJOR
+}
+
+model IropsEvent {
+  id        String         @id @default(cuid())
+
+  /// Owning booking. Full Prisma relation so the dispatcher helper
+  /// can filter via `booking.userId` and include `booking.route`
+  /// in a single query (essential for the dashboard card).
+  bookingId String
+  booking   Booking        @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  eventType IropsEventType
+
+  severity  IropsSeverity  @default(MINOR)
+
+  /// Delay imposed by this event in minutes. 0 for purely informational
+  /// events (CREW_SHUFFLE) and gate/runway changes; non-zero for
+  /// slot/weather/tech holds.
+  delayMin  Int            @default(0)
+
+  /// Human-readable description shown on the dashboard card. German
+  /// for LEAV Aviation (Kevin's airline). Includes the eventType-
+  /// specific details ("Gate change: B22 → A14", "Slot push +25 min").
+  message   String         @db.Text
+
+  /// When the pilot clicked acknowledge. null = still active.
+  acknowledgedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([bookingId])
+  @@index([acknowledgedAt])
 }

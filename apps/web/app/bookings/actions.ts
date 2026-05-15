@@ -7,6 +7,7 @@ import { requireUserWithAirline } from '@/lib/auth';
 import { fetchSimBriefOfp } from '@/lib/simbrief/fetchOfp';
 import { fetchSimBriefOfpDirect } from '@/lib/simbrief/fetchOfpDirect';
 import { buildSimBriefDispatchUrl } from '@/lib/simbrief/buildDispatchUrl';
+import { maybeRollIropsForBooking } from '@/lib/irops/dispatcher';
 
 /**
  * Welle 13E-7 — Career-mode booking-gate.
@@ -176,6 +177,13 @@ export async function createBooking(
     },
     select: { id: true, state: true, expiresAt: true },
   });
+
+  // Welle P / P4 — Random IROP injection. Fire-and-forget conceptually
+  // (no UI dependence on the result) but awaited so a DB-write failure
+  // surfaces here rather than corrupting state. ~15% chance the pilot
+  // gets a slot push / gate change / weather hold to acknowledge on
+  // their dashboard before they fly.
+  await maybeRollIropsForBooking(booking.id);
 
   revalidatePath('/bookings');
 
@@ -620,6 +628,11 @@ export async function cloneBooking(
     select: { id: true },
   });
 
+  // Welle P / P4 — Random IROP injection. Every new booking, including
+  // clones, gets a fresh roll. The original's IROP doesn't carry over
+  // (it was specific to that flight's timeline).
+  await maybeRollIropsForBooking(booking.id);
+
   revalidatePath('/bookings');
 
   return { id: booking.id };
@@ -757,6 +770,11 @@ export async function createBookingFromScheduledFlight(
       where: { id: scheduledFlightId },
       data: { bookingId: created.id },
     });
+
+    // Welle P / P4 — IROP roll inside the transaction so the booking +
+    // its IROP either both land or neither does. tx client is passed
+    // explicitly via the dispatcher's optional db parameter.
+    await maybeRollIropsForBooking(created.id, tx);
 
     return created;
   });
@@ -959,6 +977,10 @@ export async function createBookingFromTemplate(
     },
     select: { id: true, state: true },
   });
+
+  // Welle P / P4 — IROP roll for template-instantiated bookings too.
+  // Same 15% chance as the fresh / clone / scheduled paths.
+  await maybeRollIropsForBooking(booking.id);
 
   revalidatePath('/bookings');
   revalidatePath('/bookings/new');

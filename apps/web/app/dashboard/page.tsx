@@ -7,6 +7,7 @@ import { CurrencyCard } from "./currency-card";
 import { GoalCard } from "./goal-card";
 import { DashboardRosterCard } from "./roster-card";
 import { DutyCard } from "./duty-card";
+import { IropsCard } from "./irops-card";
 
 export default async function Dashboard() {
   const session = await auth();
@@ -298,6 +299,15 @@ export default async function Dashboard() {
               </p>
             )}
           </section>
+        )}
+
+        {/* Welle P / P4 — IROPs card. Renders only when the pilot has
+            unacknowledged irregular-ops events on their bookings —
+            empty state returns null so the dashboard stays clean. */}
+        {user.airline && (
+          <div className="mt-6">
+            <IropsCard userId={user.id} />
+          </div>
         )}
 
         {/* Welle P / P2 — Duty/Fatigue card. Pure aggregation over
