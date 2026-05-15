@@ -3,6 +3,7 @@ import { redirect, notFound } from 'next/navigation';
 import { prisma, substituteThumbnailDimensions, getUserAwards, getUserEvents } from '@vam/db';
 import Link from 'next/link';
 import { AwardBadge } from '../../awards/award-badge';
+import { TwitchEmbedToggle } from './_twitch-player';
 
 export default async function PilotProfile({
   params,
@@ -446,6 +447,16 @@ export default async function PilotProfile({
                   </svg>
                   Watch on Twitch
                 </a>
+
+                {/* Welle O / O2 — In-profile embed-toggle. Sits as a
+                    sibling to the external "Watch on Twitch"-link, gives
+                    viewers a choice: stay on the profile (embed) or jump
+                    to twitch.tv (external). Default-collapsed; click
+                    expands to a 16:9 iframe player below the live-card
+                    metadata block. */}
+                <div className="mt-3">
+                  <TwitchEmbedToggle username={pilot.twitchUsername} />
+                </div>
 
                 {/* Track 4 #43 (Section H): Stream-revenue inline in der live-
                     card — wenn der pilot grade live ist, ist es sehr passend
