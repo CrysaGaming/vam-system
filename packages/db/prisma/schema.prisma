@@ -82,6 +82,11 @@ enum FlightType {
   POSITIONING
   TRAINING
   FREE
+  // Welle M / M4 — Cargo-only operations (freight, mail, express).
+  // Pireps mit flightType=CARGO bekommen einen separaten payout-
+  // multiplier (CargoLoadSpec.payoutMultiplier oder default 1.3x)
+  // und tauchen in cargo-specific dashboards auf.
+  CARGO
 }
 
 // Welle 4: Quelle des Position-Updates für User.currentLocationIcao.
@@ -1946,6 +1951,9 @@ model Route {
 
   // Welle M / M1 — Price snapshots history.
   priceSnapshots RoutePriceSnapshot[]
+
+  // Welle M / M4 — Cargo-load specification (optional, 1:0..1).
+  cargoLoadSpec CargoLoadSpec?
 
   @@unique([airlineId, flightNumber])
   @@index([departureId])
@@ -5555,4 +5563,45 @@ model AirportFuelPrice {
 
   @@unique([airlineId, icao])
   @@index([airlineId])
+}
+
+/// Welle M / M4 — Cargo-load specification per route.
+///
+/// Optional: pro Route ein cargo-config. Routes ohne CargoLoadSpec
+/// können trotzdem als CARGO geflogen werden, kriegen dann nur den
+/// default-bonus (1.3x). Mit Spec kann admin pro-route customizen:
+///
+///   - cargoTonnage (typische ladung, kg)
+///   - payoutMultiplier (z.B. 1.5x für hochwert-cargo wie express
+///     oder pharma)
+///   - cargoCategory (free-text, z.B. "express", "general-freight",
+///     "pharma-cold-chain", "live-animals", "dangerous-goods")
+///
+/// # Real-world flavor
+///
+/// Echte cargo-operations: FedEx fliegt MD-11F mit 90t payload,
+/// DHL 777F mit 100t, Amazon Prime Air. Express/overnight zahlt
+/// premium, general-freight ist standard, mail ist günstigster
+/// segment.
+model CargoLoadSpec {
+  id      String @id @default(cuid())
+  routeId String @unique
+  route   Route  @relation(fields: [routeId], references: [id], onDelete: Cascade)
+
+  /// Typische cargo-ladung in kg (für display + planning).
+  cargoTonnageKg Int
+
+  /// Payout-multiplier (1.0 = neutral, default 1.3 für cargo, premium
+  /// segments können 1.5-2.0). Floor 1.0, ceiling 3.0 enforced im
+  /// app-layer.
+  payoutMultiplier Decimal @db.Decimal(5, 3) @default("1.300")
+
+  /// Free-text kategorie für UI-display + filtering.
+  cargoCategory String @db.VarChar(50) @default("general-freight")
+
+  /// Optional description (operator-info, special handling, etc.).
+  notes String? @db.VarChar(1000)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
