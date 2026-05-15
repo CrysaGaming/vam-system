@@ -19,8 +19,9 @@ import { OfflineBanner } from './OfflineBanner';
 
 export type ShellUser = {
   // User.id — needed to link from the user-dropdown's identity block to
-  // the public pilot profile (/p/[id]). Track 5 #11 ships the public
-  // profile, so the link target is stable.
+  // the pilot profile page (/pilots/[id], the canonical profile URL
+  // used everywhere else in the app — pilots-browse, follower-lists,
+  // audit-log entries).
   id: string;
   name: string | null;
   image: string | null;
@@ -640,7 +641,7 @@ function UserDropdown({ user }: { user: ShellUser }) {
           className="absolute right-0 top-full mt-2 w-64 rounded-lg bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 shadow-lg overflow-hidden z-40"
         >
           {/* Identity-block at top of menu — clickable, links to the
-              user's public pilot profile (/p/[id]). Repeats user info
+              user's pilot profile (/pilots/[id]). Repeats user info
               so the menu stands alone visually even when triggered
               from a user-button that's already showing the same info.
               On mobile the trigger doesn't show name (only avatar),
@@ -653,12 +654,19 @@ function UserDropdown({ user }: { user: ShellUser }) {
               was visually a label only; now it's the canonical
               "view my profile" affordance.
 
+              Route choice: /pilots/[id] is the canonical pilot-profile
+              URL (linked from /pilots browse, follower-lists, audit-log,
+              etc.). A second route /p/[id] exists too (Track 5 #11
+              "public profile"), but /pilots/[id] is what's used everywhere
+              else in the app — keeping consistency over the public-vs-
+              authenticated-profile distinction.
+
               Hover/focus state mirrors the menu-items below so the
               affordance is visible — hover:bg-gray-100 +
               hover:text-gray-900. Same height/padding as before so
               the menu doesn't reflow. */}
           <Link
-            href={`/p/${user.id}`}
+            href={`/pilots/${user.id}`}
             role="menuitem"
             onClick={() => setOpen(false)}
             className="block px-4 py-3 border-b border-gray-200 dark:border-gray-800 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
