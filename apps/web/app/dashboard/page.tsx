@@ -6,6 +6,7 @@ import { WalletCard } from "./wallet-card";
 import { CurrencyCard } from "./currency-card";
 import { GoalCard } from "./goal-card";
 import { DashboardRosterCard } from "./roster-card";
+import { DutyCard } from "./duty-card";
 
 export default async function Dashboard() {
   const session = await auth();
@@ -297,6 +298,15 @@ export default async function Dashboard() {
               </p>
             )}
           </section>
+        )}
+
+        {/* Welle P / P2 — Duty/Fatigue card. Pure aggregation over
+            approved PIREPs (no schema). Always shown for airline-
+            members; for solo pilots the "OK" state is harmless. */}
+        {user.airline && (
+          <div className="mt-6">
+            <DutyCard userId={user.id} />
+          </div>
         )}
 
         {/* === Track 4 #56 (Section K): "This Month"-card ===
