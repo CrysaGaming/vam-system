@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>VAM Flight HUD</title>
+    <style>
+      /* Welle N / N5 — Discord Activity inline styles.
+         No external CSS file — Discord activities are iframe-sized
+         (~400×600 default, resizable), and a single small CSS block
+         here is faster than a separate stylesheet. */
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      html, body {
+        height: 100%;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        background: #0d0d0d;
+        color: #f3f3f3;
+        overflow: hidden;
+      }
+      body {
+        display: flex;
+        flex-direction: column;
+        padding: 16px;
+        gap: 12px;
+      }
+      .header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: #9a9a9a;
+      }
+      .dot {
+        width: 8px; height: 8px; border-radius: 50%;
+        background: #10b981;
+      }
+      .dot.stale { background: #ef4444; }
+      .callsign {
+        font-family: 'SF Mono', Menlo, monospace;
+        font-size: 18px;
+        font-weight: 600;
+        color: #f3f3f3;
+        letter-spacing: 0.05em;
+      }
+      .alt {
+        font-family: 'SF Mono', Menlo, monospace;
+        font-size: 64px;
+        font-weight: 900;
+        letter-spacing: -0.02em;
+        color: #fbbf24;
+        line-height: 1;
+        text-align: center;
+        font-variant-numeric: tabular-nums;
+      }
+      .alt-unit {
+        font-size: 14px;
+        font-weight: normal;
+        color: #fbbf24aa;
+        margin-left: 4px;
+      }
+      .row {
+        display: flex;
+        justify-content: space-around;
+        font-family: 'SF Mono', Menlo, monospace;
+        font-size: 18px;
+        color: #d1d5db;
+        font-variant-numeric: tabular-nums;
+      }
+      .row .label { color: #6b7280; margin-right: 4px; font-size: 13px; }
+      .route {
+        text-align: center;
+        font-family: 'SF Mono', Menlo, monospace;
+        font-size: 14px;
+        color: #9ca3af;
+      }
+      .stale-chip {
+        background: rgba(239, 68, 68, 0.2);
+        color: #fca5a5;
+        font-weight: 700;
+        padding: 2px 6px;
+        border-radius: 3px;
+        font-size: 10px;
+      }
+      .dim { opacity: 0.5; }
+      .empty {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+      }
+      .empty p { color: #9ca3af; }
+      .empty .big { font-size: 28px; font-weight: 700; color: #f3f3f3; }
+      .setup-form {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        align-items: stretch;
+        justify-content: center;
+      }
+      .setup-form label {
+        font-size: 12px;
+        color: #9ca3af;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+      }
+      .setup-form input {
+        background: #1f2937;
+        border: 1px solid #374151;
+        color: #f3f3f3;
+        padding: 10px 12px;
+        border-radius: 6px;
+        font-family: 'SF Mono', Menlo, monospace;
+        font-size: 13px;
+      }
+      .setup-form button {
+        background: #4f46e5;
+        color: white;
+        border: none;
+        padding: 10px;
+        border-radius: 6px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .setup-form button:hover { background: #4338ca; }
+      .setup-hint {
+        font-size: 11px;
+        color: #6b7280;
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body>
+    <!--
+      Welle N / N5 — Discord Activity DOM root.
+
+      Three views, toggled by main.ts:
+
+        #setup-view    — first launch / no token saved
+        #flight-view   — pilot has token + active LiveSession
+        #empty-view    — pilot has token but no active session
+    -->
+    <div id="setup-view" class="setup-form" hidden>
+      <label for="token-input">VAM Embed Token</label>
+      <input
+        id="token-input"
+        type="text"
+        placeholder="vame_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        autocomplete="off"
+      />
+      <button id="save-token">Save</button>
+      <p class="setup-hint">
+        Get a token at vam.kevindrack.de/settings/embeds
+      </p>
+    </div>
+
+    <div id="flight-view" hidden>
+      <div class="header">
+        <span class="dot" id="hb-dot"></span>
+        <span class="callsign" id="callsign">—</span>
+        <span class="stale-chip" id="stale-chip" hidden>Stale</span>
+      </div>
+      <div class="alt">
+        <span id="alt-value">—</span><span class="alt-unit" id="alt-unit">ft</span>
+      </div>
+      <div class="row">
+        <div><span class="label">GS</span><span id="gs-value">—</span></div>
+        <div><span class="label">HDG</span><span id="hdg-value">—</span></div>
+      </div>
+      <div class="route" id="route">—</div>
+    </div>
+
+    <div id="empty-view" class="empty" hidden>
+      <p class="big">NO FLT</p>
+      <p>Pilot not currently flying</p>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

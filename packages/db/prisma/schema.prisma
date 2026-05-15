@@ -1103,6 +1103,9 @@ model User {
   // Welle N / N4 — Garmin Connect IQ API tokens.
   garminApiTokens GarminApiToken[] @relation("GarminApiTokens")
 
+  // Welle N / N5 — Public embed tokens for Discord/OBS/Twitch.
+  embedTokens EmbedToken[] @relation("EmbedTokens")
+
   // Track 5 #24 (Section E): Web Push subscriptions. Ein user kann mehrere
   // devices/browsers haben (laptop chrome, mobile safari, tablet edge),
   // daher ist die relation 1:N. Bei user-löschung cascade-delete alle
@@ -5771,6 +5774,50 @@ model GarminApiToken {
   createdAt    DateTime  @default(now())
   lastUsedAt   DateTime?
   revokedAt    DateTime?
+
+  @@index([userId, revokedAt])
+}
+
+/// Welle N / N5 — Public embed token.
+///
+/// Token im URL (vs Bearer-header für Garmin). Anyone-with-the-URL
+/// sieht live-flight-data. Gedacht zum teilen in Discord voice-channel-
+/// descriptions, OBS overlays, Twitch panels, oder im Discord Activity-
+/// frame.
+///
+/// # Threat model
+///
+/// URL-tokens sind weniger sicher als bearer-tokens — sie tauchen in
+/// referrer-headers, browser-history, analytics auf. Akzeptable trade-
+/// off weil:
+///   - Daten sind read-only (ALT/GS/route, kein PII-sensible content)
+///   - Pilot will sie eh "öffentlich machen" (es ist ein share-feature)
+///   - Token kann sofort revoked werden wenn versehentlich geleaked
+///
+/// # Format
+///
+///   token: 32 hex chars (URL-safe, 128 bit entropy — kürzer als
+///   Garmin weil's in URLs vorkommt und nicht raten-resistent sein
+///   muss gegen offline-attacks)
+///   prefix: "vame_"
+///
+/// Pro user beliebig viele tokens (mehrere überlay-quellen denkbar),
+/// jeder mit free-text label.
+model EmbedToken {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation("EmbedTokens", fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Plain token "vame_<32-hex>". Steht im URL — kein hash nötig weil
+  /// das geheimnis eh public ist. @unique für indexierten lookup.
+  tokenString String @unique @db.VarChar(40)
+
+  /// Free-text label ("Twitch overlay", "Discord embed", "OBS panel").
+  label String @db.VarChar(60)
+
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
 
   @@index([userId, revokedAt])
 }
