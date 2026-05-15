@@ -6064,3 +6064,112 @@ model TwitchClip {
 
   @@index([userId, createdAt])
 }
+
+// ────────────────────────────────────────────────────────────
+// Welle P / P1 — Live aviation weather (METAR/TAF)
+// ────────────────────────────────────────────────────────────
+//
+// Cached weather observations + parsed-out fields per airport. The
+// helper in apps/web/lib/weather/aviation-weather.ts hits NOAA's
+// aviationweather.gov API on demand, parses the raw METAR, and
+// upserts a row here keyed on the ICAO. Subsequent reads within
+// the 30min freshness window return the cached row without hitting
+// the upstream — keeps us inside any rate limits and avoids extra
+// latency on the dispatch board (which renders weather for every
+// scheduled flight).
+//
+// # Why we store the parsed fields separately
+//
+// The raw METAR is the source of truth — we keep it in `metarRaw`
+// for debugging + display. But UIs need to filter/sort by ceiling
+// and visibility, which means we need extracted columns. Storing
+// both is the simplest cache-coherent design: parser writes both;
+// reads pick whichever they need.
+//
+// # FlightCategory derivation
+//
+// FAA-style (matches what aviationweather.gov displays):
+//   VFR   ceiling >= 3000 ft  AND  visibility >= 5 sm
+//   MVFR  ceiling  1000-3000  OR   visibility 3-5 sm
+//   IFR   ceiling   500-1000  OR   visibility 1-3 sm
+//   LIFR  ceiling   <500      OR   visibility <1 sm
+//   UNKNOWN  parser couldn't extract usable values
+//
+// The OR semantics matter: if vis is great but ceiling is 800ft,
+// it's still IFR. We pick the worst of the two.
+//
+// # No TTL/cleanup-cron
+//
+// Stale rows aren't deleted — they're overwritten on next refresh.
+// A pilot looking up a rare airport gets a "last updated 5 days
+// ago" timestamp + the option to force-refresh. Cheaper than
+// running a sweeper to drop expired rows.
+
+enum FlightCategory {
+  VFR
+  MVFR
+  IFR
+  LIFR
+  UNKNOWN
+}
+
+model AirportWeather {
+  id          String   @id @default(cuid())
+
+  /// ICAO of the observation airport. @unique — one row per airport;
+  /// upserts on refresh.
+  airportIcao String   @unique @db.VarChar(4)
+
+  /// Raw METAR string exactly as received from upstream. Persisted
+  /// for debugging + advanced-pilot display ("show me the raw").
+  metarRaw    String   @db.Text
+
+  /// Raw TAF string if available. Not all airports have a TAF; many
+  /// regional fields publish METAR only.
+  tafRaw      String?  @db.Text
+
+  /// Lowest BKN/OVC cloud layer base in feet AGL. null if SKC/clear
+  /// or if the parser couldn't extract (rare malformed METARs).
+  ceilingFt   Int?
+
+  /// Visibility in statute miles. "6+" / ">10" parsed as the lower
+  /// bound (6.0 / 10.0). null if unparseable.
+  visibilitySm Float?
+
+  windDirDeg  Int?
+  windSpeedKt Int?
+  windGustKt  Int?
+
+  /// Temperature in Celsius. Allows the dispatch board to flag
+  /// freezing conditions (anti-ice procedures) even when ceiling
+  /// + vis are nominal.
+  tempC       Float?
+
+  /// Dew point in Celsius. Spread vs tempC drives fog risk.
+  dewpointC   Float?
+
+  /// Altimeter setting in hPa (Q-value). Pilots need this for
+  /// pressure-altitude calculations.
+  altimeterHpa Float?
+
+  /// Derived classification from ceilingFt + visibilitySm. Index
+  /// supports "show me all IFR airports today" filter queries.
+  category    FlightCategory @default(UNKNOWN)
+
+  /// When upstream observed the conditions (parsed from METAR's
+  /// DDHHMMZ timestamp). Different from fetchedAt — a METAR is
+  /// only updated 1-2x per hour, so observation can lag fetch by
+  /// up to 30min.
+  rawObservationAt DateTime?
+
+  /// When our cache row was last refreshed from upstream.
+  fetchedAt   DateTime @default(now())
+
+  /// Upstream provider. v1 always "aviationweather.gov" — column
+  /// exists for v2 multi-provider fallback (CheckWX, OpenWeather,
+  /// etc.) without a migration.
+  source      String   @default("aviationweather.gov") @db.VarChar(40)
+
+  @@index([fetchedAt])
+  @@index([category])
+}

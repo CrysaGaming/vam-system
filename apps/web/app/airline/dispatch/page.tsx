@@ -62,6 +62,12 @@ export default async function DispatchBoardPage() {
               🔧 Maintenance
             </Link>
             <Link
+              href="/airline/weather"
+              className="rounded-md border border-border bg-card px-3 py-1.5 hover:border-indigo-400"
+            >
+              🌬️ Weather
+            </Link>
+            <Link
               href="/airline/notams"
               className="rounded-md border border-border bg-card px-3 py-1.5 hover:border-indigo-400"
             >

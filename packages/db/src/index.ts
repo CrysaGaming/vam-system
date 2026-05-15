@@ -126,6 +126,13 @@ export type { ChannelPointReward, ChannelPointRedemption } from "@prisma/client"
 export { TwitchClipTrigger } from "@prisma/client";
 export type { TwitchClip } from "@prisma/client";
 
+// Welle P / P1: Live aviation weather. FlightCategory enum drives
+// dispatch-badge colors + filter queries; AirportWeather type is
+// used by apps/web/lib/weather/aviation-weather.ts (cache helper)
+// and consumed by the dispatch board + bookings UI.
+export { FlightCategory } from "@prisma/client";
+export type { AirportWeather } from "@prisma/client";
+
 // Welle 13 (Economy MVP): wallet/transfer/decimal helpers. Re-exports
 // vom ./economy barrel damit consumer (apps/web, apps/bot) alles via
 // `import { transfer, formatVamCurrency } from "@vam/db"` kriegen ohne
