@@ -597,6 +597,9 @@ model Airline {
 
   // Welle M / M3 — Airport fuel-prices configured by this airline.
   airportFuelPrices AirportFuelPrice[]
+
+  // Welle M / M5 — VAMSE stock (1:0..1 — initialized on first recompute).
+  vamseStock VamseStock?
 }
 
 model User {
@@ -1092,6 +1095,10 @@ model User {
 
   // Welle L / L5 — NOTAMs created by this user.
   createdNotams Notam[] @relation("NotamCreatedBy")
+
+  // Welle M / M5 — VAMSE stock holdings + trade audit.
+  vamseHoldings VamseHolding[] @relation("VamseUserHoldings")
+  vamseTrades   VamseTrade[]   @relation("VamseUserTrades")
 
   // Track 5 #24 (Section E): Web Push subscriptions. Ein user kann mehrere
   // devices/browsers haben (laptop chrome, mobile safari, tablet edge),
@@ -5604,4 +5611,117 @@ model CargoLoadSpec {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+/// Welle M / M5 — VAMSE = "Virtual Airline & Money Stock Exchange".
+///
+/// Pro Airline ein ticker auf dem pilots shares kaufen können. Preis
+/// wird vom system periodisch aus airline-performance recomputed
+/// (PIREPs/7d, total revenue, flight-hours). Spekulativ: pilots
+/// glauben an "ihre" airline → wallet-investment.
+///
+/// # V1 scope
+///
+///   - Genau ein VamseStock pro Airline (1:1).
+///   - Total shares fest (1000 ausgegeben, niemand kann mehr emittieren).
+///   - Preis schwankt zwischen 0.10 und 10000 VAM$ je nach performance.
+///   - Pilot kann jederzeit kaufen/verkaufen am aktuellen preis.
+///   - Keine bid/ask spread, kein order book — direkt counterparty
+///     ist system-wallet.
+///
+/// # V2 ideas
+///
+///   - Bid/ask spread + order book
+///   - Cross-airline trading (kaufe shares von "ihrer" airline)
+///   - Dividends payout an shareholders
+///   - IPO bei airline-creation
+model VamseStock {
+  id        String  @id @default(cuid())
+  airlineId String  @unique
+  airline   Airline @relation(fields: [airlineId], references: [id], onDelete: Cascade)
+
+  /// Ticker-symbol, max 6 chars (z.B. "LH", "BA", "DLH"). Wird im
+  /// app-layer aus airline.icao initialisiert, kann editiert werden.
+  tickerSymbol String @db.VarChar(6)
+
+  /// Aktueller preis pro share in VAM$.
+  currentPrice Decimal @db.Decimal(12, 4)
+
+  /// Total shares ausgegeben (fix in V1).
+  totalShares Int @default(1000)
+
+  /// Wieviele shares sind im umlauf (=verkauft an pilots).
+  /// Berechnet via sum(VamseHolding.shares); denormalized hier.
+  sharesOutstanding Int @default(0)
+
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  lastPricedAt DateTime?
+
+  snapshots VamseStockSnapshot[]
+  holdings  VamseHolding[]
+  trades    VamseTrade[]
+}
+
+/// Welle M / M5 — Historical price snapshot.
+model VamseStockSnapshot {
+  id      String     @id @default(cuid())
+  stockId String
+  stock   VamseStock @relation(fields: [stockId], references: [id], onDelete: Cascade)
+
+  price Decimal @db.Decimal(12, 4)
+
+  /// Optional input-signals (für audit + transparency-display):
+  pireps7d        Int
+  totalRevenue7d  Decimal? @db.Decimal(18, 2)
+
+  createdAt DateTime @default(now())
+
+  @@index([stockId, createdAt])
+}
+
+/// Welle M / M5 — Pilot's holding of an airline stock.
+model VamseHolding {
+  id      String     @id @default(cuid())
+  userId  String
+  user    User       @relation("VamseUserHoldings", fields: [userId], references: [id], onDelete: Cascade)
+  stockId String
+  stock   VamseStock @relation(fields: [stockId], references: [id], onDelete: Cascade)
+
+  /// Anzahl shares aktuell gehalten.
+  shares Int
+
+  /// Durchschnittlicher kauf-preis (VAM$/share) — moving-average über
+  /// alle bisherigen käufe. Für P&L-anzeige.
+  avgPurchasePrice Decimal @db.Decimal(12, 4)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, stockId])
+  @@index([userId])
+}
+
+/// Welle M / M5 — Trade audit trail (buy/sell).
+enum VamseTradeKind {
+  BUY
+  SELL
+}
+
+model VamseTrade {
+  id      String         @id @default(cuid())
+  userId  String
+  user    User           @relation("VamseUserTrades", fields: [userId], references: [id], onDelete: Cascade)
+  stockId String
+  stock   VamseStock     @relation(fields: [stockId], references: [id], onDelete: Cascade)
+  kind    VamseTradeKind
+
+  shares     Int
+  pricePerShare Decimal @db.Decimal(12, 4)
+  totalVam   Decimal @db.Decimal(18, 2)
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([stockId, createdAt])
 }
