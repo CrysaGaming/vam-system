@@ -5,7 +5,12 @@ import {
   getMultipleAirportWeather,
   type WeatherResult,
 } from '@/lib/weather/aviation-weather';
+import {
+  getMultipleCurfewStatus,
+  type CurfewStatus,
+} from '@/lib/curfews/airport-curfew';
 import { WeatherBadge } from '@/app/_components/weather-badge';
+import { CurfewBadge } from '@/app/_components/curfew-badge';
 import { RefreshButton } from './_refresh-button';
 
 /**
@@ -53,7 +58,7 @@ const CATEGORY_WEIGHT: Record<FlightCategory, number> = {
   UNKNOWN: 0,
 };
 
-type Filter = 'all' | 'ifr-or-worse' | 'lifr-only' | 'stale-only';
+type Filter = 'all' | 'ifr-or-worse' | 'lifr-only' | 'stale-only' | 'curfew-active';
 
 export default async function AirlineWeatherPage({
   searchParams,
@@ -122,30 +127,45 @@ export default async function AirlineWeatherPage({
   }
   const icaos = Array.from(icaoSet).sort();
 
-  // ─── Fetch weather for all airports (batched + cached) ───
-  const weatherMap = await getMultipleAirportWeather(icaos);
+  // ─── Fetch weather + curfew status in parallel ───────────
+  // Weather has its own 30-min cache; curfew status is a pure-compute
+  // pass over the seeded AirportCurfew table (one query for all ICAOs)
+  // so it's effectively free. Doing them concurrently keeps the page
+  // latency identical to the weather-only version.
+  const [weatherMap, curfewMap] = await Promise.all([
+    getMultipleAirportWeather(icaos),
+    getMultipleCurfewStatus(icaos),
+  ]);
 
   // ─── Sort + filter ───────────────────────────────────────
   type Row = {
     icao: string;
     result: WeatherResult;
+    curfew: CurfewStatus;
     weight: number;
     isStale: boolean;
+    curfewActive: boolean;
   };
   const rows: Row[] = icaos.map((icao) => {
     const result = weatherMap.get(icao) ?? {
       ok: false as const,
       reason: 'no_metar' as const,
     };
+    const curfew = curfewMap.get(icao) ?? { kind: 'no-curfew' as const, icao };
+    // "Active" = closed now OR closes within the closes-soon window.
+    // Both states mean the dispatcher should pay attention.
+    const curfewActive = curfew.kind === 'closed' || curfew.kind === 'closes-soon';
     if (!result.ok) {
-      return { icao, result, weight: -1, isStale: false };
+      return { icao, result, curfew, weight: -1, isStale: false, curfewActive };
     }
     const weight = CATEGORY_WEIGHT[result.weather.category as FlightCategory] ?? 0;
     return {
       icao,
       result,
+      curfew,
       weight,
       isStale: result.isStale,
+      curfewActive,
     };
   });
 
@@ -161,6 +181,8 @@ export default async function AirlineWeatherPage({
         return row.weight >= 4;
       case 'stale-only':
         return row.isStale;
+      case 'curfew-active':
+        return row.curfewActive;
     }
   });
 
@@ -177,6 +199,7 @@ export default async function AirlineWeatherPage({
     vfr: rows.filter((r) => r.weight === 1).length,
     unknown: rows.filter((r) => r.weight <= 0).length,
     stale: rows.filter((r) => r.isStale).length,
+    curfewActive: rows.filter((r) => r.curfewActive).length,
   };
 
   return (
@@ -190,12 +213,13 @@ export default async function AirlineWeatherPage({
             ← Dispatch Board
           </Link>
           <h1 className="mt-2 text-2xl font-bold sm:text-3xl">
-            🌬️ Weather Overview
+            🌬️ Weather & Curfews
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Live METARs für alle airports die deine airline aktuell
-            bedient (routes + letzte 30 tage bookings + member-bases).
-            Cache 30min, force-refresh per row möglich.
+            bedient (routes + letzte 30 tage bookings + member-bases),
+            plus Nachtflug­verbot-Status wo bekannt. Cache 30min,
+            force-refresh per row möglich.
           </p>
         </header>
 
@@ -209,6 +233,9 @@ export default async function AirlineWeatherPage({
           <SummaryChip label="No data" value={counts.unknown} tone="slate" />
           {counts.stale > 0 && (
             <SummaryChip label="Stale" value={counts.stale} tone="amber" />
+          )}
+          {counts.curfewActive > 0 && (
+            <SummaryChip label="Curfew" value={counts.curfewActive} tone="rose" />
           )}
         </section>
 
@@ -225,6 +252,11 @@ export default async function AirlineWeatherPage({
           />
           <FilterPill current={filter} value="lifr-only" label="Nur LIFR" />
           <FilterPill current={filter} value="stale-only" label="Stale only" />
+          <FilterPill
+            current={filter}
+            value="curfew-active"
+            label="Curfew aktiv"
+          />
         </section>
 
         {/* Airport grid */}
@@ -251,6 +283,10 @@ export default async function AirlineWeatherPage({
                       : `Fehler: ${row.result.detail ?? row.result.reason}`}
                   </p>
                 )}
+                {/* Curfew status — rendered only when this airport
+                    actually has a curfew rule. Avoids visual noise on
+                    the 95% of airports with no published curfew. */}
+                <CurfewBadge status={row.curfew} hideWhenNoCurfew />
                 <div className="px-1">
                   <RefreshButton icao={row.icao} />
                 </div>
@@ -293,6 +329,12 @@ export default async function AirlineWeatherPage({
               satellites) veröffentlichen oft kein METAR — die zeigen
               "—" und sind harmlos.
             </li>
+            <li>
+              Curfew-zeiten sind LOCAL-time anchored — DST-transitions
+              werden via IANA-timezone (Europe/Berlin etc.) korrekt
+              behandelt. Aktuell geseedet: EDDF · EDDL · EDDM · EDDH ·
+              EDDS · EDDK · EGLL. Mehr airports auf anfrage.
+            </li>
           </ul>
         </section>
       </div>
@@ -307,6 +349,7 @@ function parseFilter(raw: string | undefined): Filter {
     case 'ifr-or-worse':
     case 'lifr-only':
     case 'stale-only':
+    case 'curfew-active':
       return raw;
     default:
       return 'all';

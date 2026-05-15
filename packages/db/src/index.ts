@@ -133,6 +133,12 @@ export type { TwitchClip } from "@prisma/client";
 export { FlightCategory } from "@prisma/client";
 export type { AirportWeather } from "@prisma/client";
 
+// Welle P / P3: Airport curfews / Nachtflugverbot. Seeded with major
+// German curfew airports + EGLL. Read by apps/web/lib/curfews/
+// airport-curfew.ts which converts UTC→local-time via Intl.DateTime
+// Format to drive the open/closed status badge.
+export type { AirportCurfew } from "@prisma/client";
+
 // Welle 13 (Economy MVP): wallet/transfer/decimal helpers. Re-exports
 // vom ./economy barrel damit consumer (apps/web, apps/bot) alles via
 // `import { transfer, formatVamCurrency } from "@vam/db"` kriegen ohne

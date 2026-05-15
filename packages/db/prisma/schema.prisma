@@ -6173,3 +6173,75 @@ model AirportWeather {
   @@index([fetchedAt])
   @@index([category])
 }
+
+// ────────────────────────────────────────────────────────────
+// Welle P / P3 — Airport curfew / Nachtflugverbot
+// ────────────────────────────────────────────────────────────
+//
+// Many airports — especially European hubs near residential areas
+// — have nighttime operating restrictions. Pilots planning a 23:30
+// arrival at Frankfurt need to see "this would violate curfew"
+// BEFORE they file the booking, not after the bot rejects the
+// arrival ATC clearance in their sim.
+//
+// # Data model
+//
+// One row per airport with a curfew. Times stored in local-time-
+// minutes-since-midnight (1380 = 23:00 local) plus an IANA timezone
+// string so the helper can convert UTC→local correctly year-round
+// (including DST transitions). Day-mask bitfield allows weekend-
+// specific curfews (rare but exists — e.g. Sunday-only restrictions
+// at some general-aviation fields).
+//
+// # Why a separate table
+//
+// Most airports do NOT have a curfew (the default). Adding nullable
+// curfew columns directly to Airport would inflate every row with
+// mostly-NULL data. Separate table = cleaner storage + join only
+// when checking, and an Airport's curfew can be edited without
+// touching the airport row itself.
+//
+// # Seed strategy
+//
+// Migration seeds the major German curfew airports (LEAV's primary
+// market) plus a few high-volume European ones. Admin-UI for adding/
+// editing curfews is v2; for v1 the seed-list is the source of truth.
+
+model AirportCurfew {
+  id          String   @id @default(cuid())
+  airportIcao String   @unique @db.VarChar(4)
+
+  /// IANA timezone identifier (e.g. "Europe/Berlin"). Used by the
+  /// helper to convert UTC→local correctly across DST boundaries.
+  /// Must match the airport's actual local timezone — wrong values
+  /// silently produce wrong curfew checks.
+  timezone    String   @db.VarChar(40)
+
+  /// Local-time curfew start, minutes since midnight. 23:00 = 1380.
+  /// Range 0-1439.
+  curfewStartLocalMin Int
+
+  /// Local-time curfew end, minutes since midnight. End < start is
+  /// valid and indicates a wrap-around curfew (the common case —
+  /// 23:00 → 06:00 means "closed from 23:00 today through 06:00
+  /// tomorrow"). End == start is an invalid configuration.
+  curfewEndLocalMin   Int
+
+  /// Bitmask of days the curfew applies to. bit 0 = Sunday,
+  /// bit 6 = Saturday. 127 (0b1111111) = all 7 days; 65 = Sat+Sun
+  /// only; etc. Default 127 because almost all curfews are 7-day.
+  dayMask Int @default(127)
+
+  /// Short label for the source/rule (max 200 chars). Surfaced in
+  /// tooltips so pilots understand what they're seeing. Example:
+  /// "Frankfurt Nachtflugverbot (BVerfG 2011)".
+  source String? @db.VarChar(200)
+
+  /// Free-text notes for special cases (cargo-only exemptions,
+  /// medical-flight allowances, etc.). v1 informational only —
+  /// the helper applies the basic time check uniformly.
+  notes String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
