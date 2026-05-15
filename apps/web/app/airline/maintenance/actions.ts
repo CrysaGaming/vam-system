@@ -18,12 +18,18 @@
  *   delete    → nur in Scheduled (sonst → cancel)
  */
 
-import { prisma } from '@vam/db';
+import {
+  prisma,
+  recordTransaction,
+  getOrCreateWallet,
+  getSystemWallet,
+  InsufficientFundsError,
+} from '@vam/db';
 import { revalidatePath } from 'next/cache';
 import { requireAirlineManagerWithAirline } from '@/lib/roles';
 
 export type MaintenanceActionResult =
-  | { ok: true; message?: string; eventId?: string }
+  | { ok: true; message?: string; eventId?: string; debitedVam?: number }
   | { ok: false; error: string };
 
 const TITLE_MAX = 200;
@@ -173,19 +179,105 @@ export async function startMaintenanceAction(
 export async function completeMaintenanceAction(
   eventId: string,
 ): Promise<MaintenanceActionResult> {
-  const ev = await requireAdminOwnedEvent(eventId);
-  if (!ev) return { ok: false, error: 'Event nicht gefunden.' };
+  const { airlineId } = await requireAirlineManagerWithAirline();
+
+  // Holen die volle event-row inkl. cost + aircraft-context, weil wir
+  // beim complete bei costVam-set einen wallet-debit anhängen wollen
+  // (Welle M / M2 — automatic maintenance-cost debit).
+  const ev = await prisma.maintenanceEvent.findUnique({
+    where: { id: eventId },
+    select: {
+      id: true,
+      status: true,
+      airlineId: true,
+      aircraftId: true,
+      title: true,
+      type: true,
+      costVam: true,
+      aircraft: { select: { registration: true } },
+    },
+  });
+  if (!ev || ev.airlineId !== airlineId) {
+    return { ok: false, error: 'Event nicht gefunden.' };
+  }
   if (ev.status !== 'InProgress') {
     return { ok: false, error: `Status ${ev.status} → kann nicht abgeschlossen werden.` };
   }
-  await prisma.maintenanceEvent.update({
-    where: { id: eventId },
-    data: { status: 'Completed', actualEnd: new Date() },
-  });
+
+  const cost =
+    ev.costVam !== null && ev.costVam !== undefined
+      ? parseFloat(ev.costVam.toString())
+      : 0;
+  const shouldDebit = cost > 0;
+
+  // Wenn kein cost → einfacher update ohne wallet-touch.
+  if (!shouldDebit) {
+    await prisma.maintenanceEvent.update({
+      where: { id: eventId },
+      data: { status: 'Completed', actualEnd: new Date() },
+    });
+    revalidatePath(`/airline/maintenance/${eventId}`);
+    revalidatePath('/airline/maintenance');
+    revalidatePath(`/airline/aircraft/${ev.aircraftId}`);
+    return { ok: true, message: 'Maintenance abgeschlossen (kein cost).' };
+  }
+
+  // Mit cost: status-update + wallet-debit atomic in einem $transaction-
+  // block. Falls wallet zu leer ist (InsufficientFundsError), bleibt der
+  // status InProgress (rollback) und admin kriegt eine fehlermeldung —
+  // er kann das wallet auffüllen und erneut completen.
+  try {
+    await prisma.$transaction(async (tx) => {
+      // 1. Status auf Completed setzen
+      await tx.maintenanceEvent.update({
+        where: { id: eventId },
+        data: { status: 'Completed', actualEnd: new Date() },
+      });
+
+      // 2. Airline wallet (primary) + system wallet als counterparty
+      const airlineWallet = await getOrCreateWallet({
+        ownerType: 'AIRLINE',
+        ownerAirlineId: airlineId,
+        db: tx,
+      });
+      const systemWallet = await getSystemWallet('primary', tx);
+
+      // 3. Negative amount = outflow
+      await recordTransaction({
+        walletId: airlineWallet.id,
+        amount: -cost,
+        type: 'EXPENSE_MAINTENANCE',
+        category: `maintenance-${ev.type.toLowerCase()}`,
+        description: `Maintenance: ${ev.title} (${ev.aircraft.registration})`,
+        counterpartyWalletId: systemWallet.id,
+        metadata: {
+          maintenanceEventId: ev.id,
+          aircraftId: ev.aircraftId,
+          aircraftRegistration: ev.aircraft.registration,
+          maintenanceType: ev.type,
+        },
+        db: tx,
+      });
+    });
+  } catch (e) {
+    if (e instanceof InsufficientFundsError) {
+      return {
+        ok: false,
+        error: `Airline-wallet zu leer für ${cost.toFixed(2)} VAM$ maintenance-cost. Verfügbar: ${e.available.toFixed(2)} VAM$. Wallet auffüllen und erneut versuchen.`,
+      };
+    }
+    throw e;
+  }
+
   revalidatePath(`/airline/maintenance/${eventId}`);
   revalidatePath('/airline/maintenance');
   revalidatePath(`/airline/aircraft/${ev.aircraftId}`);
-  return { ok: true, message: 'Maintenance abgeschlossen.' };
+  revalidatePath('/airline/finance');
+  return {
+    ok: true,
+    message: `Maintenance abgeschlossen. ${cost.toLocaleString('de-DE')} VAM$ vom airline-wallet abgebucht.`,
+    debitedVam: cost,
+  };
 }
 
 export async function cancelMaintenanceAction(

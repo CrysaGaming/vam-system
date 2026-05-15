@@ -200,6 +200,18 @@ export default async function MaintenanceDetailPage(props: { params: Params }) {
         </header>
 
         <section>
+          {event.status === 'InProgress' && event.costVam && (
+            <div className="mb-3 rounded-md border border-orange-500/30 bg-orange-500/5 p-3 text-sm">
+              💸 Beim Abschließen werden{' '}
+              <span className="font-semibold tabular-nums">
+                {parseFloat(event.costVam.toString()).toLocaleString('de-DE', {
+                  maximumFractionDigits: 2,
+                })}{' '}
+                VAM$
+              </span>{' '}
+              automatisch vom airline-wallet abgebucht (EXPENSE_MAINTENANCE).
+            </div>
+          )}
           <MaintenanceActions
             eventId={event.id}
             status={event.status as 'Scheduled' | 'InProgress' | 'Completed' | 'Cancelled'}
