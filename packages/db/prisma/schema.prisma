@@ -1110,6 +1110,12 @@ model User {
   channelPointRewards     ChannelPointReward[]     @relation("ChannelPointRewards")
   channelPointRedemptions ChannelPointRedemption[] @relation("ChannelPointRedemptions")
 
+  // Welle O / O5 — Auto-clips on milestones (butter-landing, hard-
+  // landing, award-grant). Each row is a Twitch clip created via
+  // Helix POST /clips; editUrl points to the Twitch creator-dashboard
+  // edit-page where the streamer can trim before publishing.
+  twitchClips TwitchClip[] @relation("TwitchClips")
+
   // Track 5 #24 (Section E): Web Push subscriptions. Ein user kann mehrere
   // devices/browsers haben (laptop chrome, mobile safari, tablet edge),
   // daher ist die relation 1:N. Bei user-löschung cascade-delete alle
@@ -5983,4 +5989,78 @@ model ChannelPointRedemption {
 
   @@index([userId, createdAt])
   @@index([rewardId, createdAt])
+}
+
+// ────────────────────────────────────────────────────────────
+// Welle O / O5 — Auto-Clips on Milestones
+// ────────────────────────────────────────────────────────────
+//
+// When a noteworthy event happens (butter landing, hard landing,
+// award grant), the web server fires a Helix POST /clips against
+// the streamer's broadcaster_id and stores the resulting clip-id +
+// edit-url here. The streamer can later visit /settings/twitch and
+// click through to Twitch's edit-page to trim + publish.
+//
+// # Why edit-url and not just clip-id
+//
+// Helix's create-clip response includes `edit_url` which is the only
+// way for the streamer to access the unpublished clip. Without it
+// they'd have to navigate manually through their dashboard — and
+// Twitch's clip-list pagination makes it hard to find a specific
+// unpublished clip. Storing edit_url means the UI can deep-link.
+//
+// # Failure semantics
+//
+// If clip creation fails (offline, missing scope, expired token), we
+// don't write a row — the helper just logs and returns. The user-
+// facing impact is just "no auto-clip this time", not "a stuck
+// pending row". The pirepId / awardId FKs are nullable + SetNull on
+// delete so deleting a source-PIREP doesn't take down its clips.
+
+enum TwitchClipTrigger {
+  /// PIREP approved with landingRate >= -100 fpm — buttery smooth.
+  BUTTER_LANDING
+
+  /// PIREP approved with landingRate <= -800 fpm — structural-inspect
+  /// territory. Captures the "ouch" moment that streamers chat about.
+  HARD_LANDING
+
+  /// Manual or auto-grant of an Award. Reserved for future award-
+  /// grant trigger integration; not wired in O5 MVP.
+  AWARD_GRANTED
+
+  /// Generic reserve for hour-totals, flight-count totals, etc. Not
+  /// used by O5 MVP — placeholder so adding a new trigger later is
+  /// just code, not a schema migration.
+  MILESTONE_REACHED
+}
+
+model TwitchClip {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation("TwitchClips", fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Twitch's UUID for the clip. @unique to avoid duplicate-create on
+  /// retry (Helix should be idempotent, but better to defend).
+  twitchClipId String   @unique @db.VarChar(64)
+
+  /// Direct deep-link to Twitch's creator-dashboard edit-page for
+  /// this clip. Streamer clicks → lands in the trim UI. Format is
+  /// "https://clips.twitch.tv/<id>/edit" (~50 chars typically) but
+  /// we allow 500 to cover future Twitch URL changes.
+  editUrl      String   @db.VarChar(500)
+
+  /// Which milestone fired the clip.
+  trigger      TwitchClipTrigger
+
+  /// Optional source-PIREP. SetNull on delete so log-rows survive
+  /// PIREP deletion (admin cleanups, GDPR erasure).
+  pirepId      String?
+
+  /// Optional source-Award. Reserved for future trigger integration.
+  awardId      String?
+
+  createdAt    DateTime @default(now())
+
+  @@index([userId, createdAt])
 }

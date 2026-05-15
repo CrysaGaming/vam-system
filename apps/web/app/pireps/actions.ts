@@ -346,6 +346,48 @@ export async function approvePirep(pirepId: string) {
     }
   })();
 
+  // Welle O / O5 — Auto-clip auf Twitch bei butter/hard landing.
+  // Fire-and-forget. Pure-pass-through wenn der pilot nicht mit Twitch
+  // verknüpft ist oder offline ist — `createTwitchClip` returnt sauber
+  // {ok:false, reason} statt zu werfen. Threshold-semantik:
+  //   landingRate >= -100 fpm  → BUTTER (sehr smooth, "greaser")
+  //   landingRate <= -800 fpm  → HARD   (structural-inspect territory)
+  // Andere werte (typical -100..-800) generieren keinen clip — der
+  // streamer hat genug clips davon, wir wollen nur die extremes.
+  // Dynamic import damit die kalte approvePirep-pfad bei pilots ohne
+  // Twitch keinen helix-helper bundle-baut.
+  void (async () => {
+    if (pirep.landingRateFpm === null) return;
+    const trigger =
+      pirep.landingRateFpm >= -100
+        ? ('BUTTER_LANDING' as const)
+        : pirep.landingRateFpm <= -800
+          ? ('HARD_LANDING' as const)
+          : null;
+    if (trigger === null) return;
+    const { createTwitchClip } = await import('@/lib/twitch/clips');
+    const result = await createTwitchClip({
+      userId: pirep.userId,
+      trigger,
+      pirepId: pirep.id,
+    });
+    if (!result.ok) {
+      // Log soft-failures (offline/not-connected/reauth_required) at
+      // info-level so they show up in dev-tools but don't trigger
+      // alerts. The streamer-facing UI in /settings/twitch reflects
+      // the absence of a clip naturally — there's no row to display.
+      console.info(
+        `[approvePirep] auto-clip skipped for user ${pirep.userId}: ${trigger} → ${result.reason}`,
+      );
+    } else {
+      console.info(
+        `[approvePirep] auto-clip created for user ${pirep.userId}: ${trigger} → ${result.clipId}`,
+      );
+    }
+  })().catch((err) => {
+    console.warn('[approvePirep] auto-clip failed:', err);
+  });
+
   // Track 5 #10 — Evaluate pilot-goals nach approval. Idempotent
   // (skipt periods that already incremented). Fire-and-forget mit
   // try/catch — goal-eval-fehlschlag darf approval nicht blockieren.

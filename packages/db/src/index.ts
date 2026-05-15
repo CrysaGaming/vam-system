@@ -121,6 +121,11 @@ export type { Wallet, Transaction } from "@prisma/client";
 export { ChannelPointActionType, ChannelPointRedemptionStatus } from "@prisma/client";
 export type { ChannelPointReward, ChannelPointRedemption } from "@prisma/client";
 
+// Welle O / O5: Auto-clip trigger enum + clip model type for the
+// /settings/twitch hub UI and the apps/web/lib/twitch/clips helper.
+export { TwitchClipTrigger } from "@prisma/client";
+export type { TwitchClip } from "@prisma/client";
+
 // Welle 13 (Economy MVP): wallet/transfer/decimal helpers. Re-exports
 // vom ./economy barrel damit consumer (apps/web, apps/bot) alles via
 // `import { transfer, formatVamCurrency } from "@vam/db"` kriegen ohne

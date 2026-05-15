@@ -45,7 +45,12 @@ export async function GET() {
   const redirectUri = process.env.TWITCH_REDIRECT_URI;
   const scopes =
     process.env.TWITCH_OAUTH_SCOPES ??
-    'user:read:email channel:read:subscriptions bits:read channel:read:redemptions channel:read:hype_train';
+    // Welle O / O5 — added `clips:edit` so /lib/twitch/clips.ts can
+    // create clips via Helix POST /clips on milestone events. Existing
+    // tokens without this scope continue to work for everything else;
+    // the clip-helper detects the missing-scope 403 and degrades to
+    // "re-auth required" instead of throwing.
+    'user:read:email channel:read:subscriptions bits:read channel:read:redemptions channel:read:hype_train clips:edit';
 
   if (!clientId || !redirectUri) {
     return new Response('Twitch OAuth not configured', { status: 500 });

@@ -101,6 +101,25 @@ export default async function TwitchSettingsPage() {
       })
     : [];
 
+  // Welle O / O5 — Auto-clips. Last 5 rows for the streamer; only
+  // fetched when connected (without a twitchUserId no clips could
+  // have been created). Sorted desc so the freshest landing tops.
+  const recentClips = connected
+    ? await prisma.twitchClip.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+        select: {
+          id: true,
+          twitchClipId: true,
+          editUrl: true,
+          trigger: true,
+          pirepId: true,
+          createdAt: true,
+        },
+      })
+    : [];
+
   return (
     <main className="min-h-screen bg-background p-4 text-foreground sm:p-8">
       <div className="mx-auto max-w-4xl">
@@ -309,6 +328,119 @@ export default async function TwitchSettingsPage() {
           </section>
         )}
 
+        {/* Welle O / O5 — Auto-Clips. Surfaces what the server captured
+            for the streamer over the last few flights. Each row deep-
+            links to Twitch's edit-page (the only way to reach the
+            untrimmed clip), with trigger-badge color-coded by event:
+            butter (emerald = celebrate), hard (rose = "ouch"), award/
+            milestone (indigo = future-reserved, not wired in MVP). */}
+        {connected && (
+          <section className="mb-6 rounded-lg border border-border bg-card p-5">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+                Letzte Auto-Clips
+              </h2>
+              <span className="rounded-sm bg-muted/60 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Welle O · O5
+              </span>
+            </div>
+            {recentClips.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                Noch keine auto-clips. Fliege eine butter-landing
+                (≥ -100 fpm) oder hard-landing (≤ -800 fpm) während
+                du live auf Twitch bist — der server clipt automatisch
+                den moment und du findest hier den edit-link.
+              </p>
+            ) : (
+              <ul className="space-y-2">
+                {recentClips.map((clip) => {
+                  // Trigger-display: badge-color + emoji + label.
+                  // Inlined per-row rather than extracted to a const-map
+                  // because we'd need to import the enum-type just to
+                  // index it — for 4 cases an inline switch reads cleaner.
+                  const badge = (() => {
+                    switch (clip.trigger) {
+                      case 'BUTTER_LANDING':
+                        return {
+                          emoji: '🧈',
+                          label: 'Butter Landing',
+                          bg: 'bg-emerald-100 dark:bg-emerald-900/40',
+                          text: 'text-emerald-800 dark:text-emerald-200',
+                        };
+                      case 'HARD_LANDING':
+                        return {
+                          emoji: '💥',
+                          label: 'Hard Landing',
+                          bg: 'bg-rose-100 dark:bg-rose-900/40',
+                          text: 'text-rose-800 dark:text-rose-200',
+                        };
+                      case 'AWARD_GRANTED':
+                        return {
+                          emoji: '🏆',
+                          label: 'Award',
+                          bg: 'bg-indigo-100 dark:bg-indigo-900/40',
+                          text: 'text-indigo-800 dark:text-indigo-200',
+                        };
+                      case 'MILESTONE_REACHED':
+                        return {
+                          emoji: '🎯',
+                          label: 'Milestone',
+                          bg: 'bg-indigo-100 dark:bg-indigo-900/40',
+                          text: 'text-indigo-800 dark:text-indigo-200',
+                        };
+                    }
+                  })();
+                  return (
+                    <li
+                      key={clip.id}
+                      className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-background/40 px-3 py-2"
+                    >
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span
+                          className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-semibold ${badge.bg} ${badge.text}`}
+                        >
+                          <span aria-hidden="true">{badge.emoji}</span>
+                          {badge.label}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          {clip.createdAt.toLocaleString('de-DE', {
+                            dateStyle: 'short',
+                            timeStyle: 'short',
+                          })}
+                        </span>
+                        {clip.pirepId && (
+                          <Link
+                            href={`/pireps/${clip.pirepId}`}
+                            className="text-xs text-indigo-600 hover:underline dark:text-indigo-400"
+                          >
+                            PIREP →
+                          </Link>
+                        )}
+                      </div>
+                      <a
+                        href={clip.editUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="rounded-md bg-purple-600 px-3 py-1 text-xs font-semibold text-white transition hover:bg-purple-700"
+                      >
+                        ✂️ Auf Twitch bearbeiten
+                      </a>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            <p className="mt-3 text-xs text-muted-foreground">
+              Hinweis: Auto-Clips brauchen den{' '}
+              <code className="rounded bg-muted/40 px-1">clips:edit</code>
+              -scope. Falls du dich vor O5 verknüpft hast und keine
+              clips erscheinen obwohl du live geflogen bist, einmal
+              kurz disconnecten und neu verbinden — dann wird der scope
+              mit eingespielt.
+            </p>
+          </section>
+        )}
+
         {/* Coming soon: O2-O5 preview cards */}
         <section className="mb-6">
           <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
@@ -355,12 +487,13 @@ export default async function TwitchSettingsPage() {
                 actions (fuel-bonus, shout-out, gate-request).
               </p>
             </Link>
-            <ComingSoonCard
-              icon="✂️"
-              title="Auto-Clip bei Milestones"
-              welleRef="Welle O · O5"
-              description="Automatischer Twitch-clip bei landing/award/milestone — gespeichert auf deinem Twitch-channel."
-            />
+            {/* Welle O O5 shipped — the "Letzte Auto-Clips" section
+                above is the active UI; we drop the preview card here
+                so the page doesn't advertise a feature as upcoming
+                that's already running. O2/O3 cards stay because
+                their features are implicit (auto-applied on profile/
+                overlay) without a dedicated nav entry — different
+                situation from O4/O5 which have their own surfaces. */}
           </div>
         </section>
 
