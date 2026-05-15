@@ -148,6 +148,14 @@ export default async function RootLayout({
         : 0;
 
       shellUser = {
+        // Welle Q follow-up: user.id durchreichen damit der dropdown-
+        // identity-block einen profil-link auf /p/[id] hat (Track 5 #11
+        // public profile route). Ohne das schlägt der ShellUser-typecheck
+        // fehl, weil id: string jetzt required ist. Wir nehmen
+        // session.user.id (statt user.id) weil das prisma-select id nicht
+        // explizit fetcht — und session.user.id ist garantiert == user.id
+        // weil die where-clause oben darauf basiert.
+        id: session.user.id,
         name: user.name,
         image: user.image,
         airlineName: user.airline?.name ?? null,

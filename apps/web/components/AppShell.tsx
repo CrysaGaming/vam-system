@@ -18,6 +18,10 @@ import { PullToRefresh } from './PullToRefresh';
 import { OfflineBanner } from './OfflineBanner';
 
 export type ShellUser = {
+  // User.id — needed to link from the user-dropdown's identity block to
+  // the public pilot profile (/p/[id]). Track 5 #11 ships the public
+  // profile, so the link target is stable.
+  id: string;
   name: string | null;
   image: string | null;
   airlineName: string | null;
@@ -635,13 +639,32 @@ function UserDropdown({ user }: { user: ShellUser }) {
           aria-label="User menu"
           className="absolute right-0 top-full mt-2 w-64 rounded-lg bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 shadow-lg overflow-hidden z-40"
         >
-          {/* Identity-block at top of menu — repeats user info so the
-              menu stands alone visually even when triggered from a
-              user-button that's already showing the same info. On
-              mobile the trigger doesn't show name (only avatar), so
-              this block is the only place the user sees their name. */}
-          <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-800">
-            <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+          {/* Identity-block at top of menu — clickable, links to the
+              user's public pilot profile (/p/[id]). Repeats user info
+              so the menu stands alone visually even when triggered
+              from a user-button that's already showing the same info.
+              On mobile the trigger doesn't show name (only avatar),
+              so this block is the only place the user sees their name.
+
+              Why <Link> wrap: users naturally expect that clicking
+              their own name + role takes them to "my profile" — the
+              same convention as every social/SaaS product (GitHub,
+              Slack, Vercel). Pre-Welle Q (commit 6199d08) this block
+              was visually a label only; now it's the canonical
+              "view my profile" affordance.
+
+              Hover/focus state mirrors the menu-items below so the
+              affordance is visible — hover:bg-gray-100 +
+              hover:text-gray-900. Same height/padding as before so
+              the menu doesn't reflow. */}
+          <Link
+            href={`/p/${user.id}`}
+            role="menuitem"
+            onClick={() => setOpen(false)}
+            className="block px-4 py-3 border-b border-gray-200 dark:border-gray-800 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+            aria-label={`Profil von ${user.name ?? 'Pilot'} öffnen`}
+          >
+            <p className="text-sm font-medium text-gray-900 dark:text-white truncate group-hover:text-gray-900 dark:group-hover:text-white">
               {user.name ?? 'Pilot'}
             </p>
             {user.isAdmin && (
@@ -649,7 +672,7 @@ function UserDropdown({ user }: { user: ShellUser }) {
                 Admin
               </p>
             )}
-          </div>
+          </Link>
 
           <div className="py-1">
             <Link
