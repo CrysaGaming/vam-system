@@ -853,40 +853,108 @@ function Sidebar({ user, pathname }: SidebarProps) {
         </div>
 
         <div className="flex-1 px-3 py-4 space-y-6 overflow-y-auto lg:overflow-visible">
+        {/*
+          Welle Q (UX-Reorg, 2026-05-15) — sidebar restructure.
+
+          Goals of this reorganization (from the previous flat structure):
+          1. Shrink "Airline-Admin" from 12 items → 6 via hub-tab consolidation
+             (Fleet+Operations+Training+Verwaltung are now multi-tab pages
+              accessed from a single sidebar entry — see app/airline/layout.tsx).
+          2. Split the old "Admin" section into "Training & Review" (instructor
+             tools — PIREP-approvals + Training-Hub) and "System-Admin" (admin-
+             only — Server/Stats/Roles/Pilots/Requests/Flight-Schools).
+          3. Surface ~10 orphan pages that previously had no sidebar entry:
+             Feed, Awards, Events, Trips, Blog, Photo-of-the-Week, Leaderboard,
+             Sceneries, VAMSE, NOTAMs (pilot-side), Mentorship (pilot-side).
+          4. Add a "Karriere" section to group pilot-career-progression links
+             (Lizenzen + Flugschulen + find-a-mentor) that were scattered in
+             Flying with mixed gating.
+
+          Section order (top to bottom) follows usage-frequency for a typical
+          pilot:  Flying daily → Karriere weekly → Community occasional →
+          Network rare → Airline (browse) rare → Airline-Admin (managers) →
+          Training & Review (instructors) → System-Admin (admins) → Account.
+        */}
+
+        {/* ──────────────────────────────────────────────────────────
+            Flying — daily pilot-core. Five evergreen links plus
+            optional Wallet (economy-gated). Career-progression links
+            moved out to their own "Karriere" section below so Flying
+            stays focused on operations.
+            ────────────────────────────────────────────────────────── */}
         <NavSection title="Flying">
           <NavLink href="/dashboard" pathname={pathname} icon="🏠" label="Dashboard" exact />
           <NavLink href="/bookings" pathname={pathname} icon="✈️" label="Bookings" />
           <NavLink href="/pireps" pathname={pathname} icon="📋" label="PIREPs" />
-          {/* Welle 13D-3: Wallet-link wird nur gezeigt wenn beide economy-
-              flags ON sind (gating in layout.tsx via hasEconomy). Sitzt in
-              Flying-section weil's eine persönliche pilot-tool ist (selbe
-              kategorie wie PIREPs/Bookings), nicht eine airline-admin-
-              funktion. */}
+          <NavLink href="/jumpseat" pathname={pathname} icon="🪂" label="Jumpseat" />
+          <NavLink href="/live" pathname={pathname} icon="🌐" label="Live" />
+          {/* Welle 13D-3: Wallet-link nur wenn beide economy-flags ON. */}
           {user.hasEconomy && (
             <NavLink href="/wallet" pathname={pathname} icon="💰" label="Wallet" />
           )}
-          {/* Welle 13E-5: Lizenzen-link analog zum Wallet-link gegated.
-              hasCareer=true erfordert user.careerEnabled UND airline.career-
-              Enabled. Sitzt unter Wallet weil career-progression eine
-              persönliche pilot-management-aufgabe ist (selbe kategorie).
-              Pilots ohne aktive licenses sehen die page als "Du hast noch
-              keine Lizenzen"-empty-state mit hinweis auf flight-school
-              enrollments (Welle 13E-12). */}
-          {user.hasCareer && (
-            <NavLink href="/licenses" pathname={pathname} icon="📜" label="Lizenzen" />
-          )}
-          {/* Welle 13E-12: Pilot-side flight-school browse. Selbe gating
-              wie Lizenzen — nur sichtbar wenn beide career-toggles ON.
-              Der pilot sieht hier alle aktiven schulen, kann sich
-              einschreiben und hours kaufen. Die page selbst hat den
-              gleichen redirect-fallback bei direkt-aufrufen. */}
-          {user.hasCareer && (
-            <NavLink href="/flight-schools" pathname={pathname} icon="🎓" label="Flugschulen" />
-          )}
-          <NavLink href="/jumpseat" pathname={pathname} icon="🪂" label="Jumpseat" />
-          <NavLink href="/live" pathname={pathname} icon="🌐" label="Live" />
         </NavSection>
 
+        {/* ──────────────────────────────────────────────────────────
+            Karriere — pilot-side career-progression tools.
+            Gated on user.hasCareer (career-toggle on user + airline).
+            Welle Q: extracted from Flying so the section is collapsible
+            as a unit and so pilots without career-mode get a leaner
+            sidebar (the whole section hides).
+            ────────────────────────────────────────────────────────── */}
+        {user.hasCareer && (
+          <NavSection title="Karriere">
+            <NavLink href="/licenses" pathname={pathname} icon="📜" label="Lizenzen" />
+            <NavLink href="/flight-schools" pathname={pathname} icon="🎓" label="Flugschulen" />
+            {/* K4 — pilot-side mentor-discovery (find-a-mentor).
+                Distinct from /airline/mentorship (admin-side pairing,
+                in Training-Hub). */}
+            <NavLink href="/mentorship" pathname={pathname} icon="🤝" label="Mentorship" />
+          </NavSection>
+        )}
+
+        {/* ──────────────────────────────────────────────────────────
+            Community — visible to everyone, surfaces formerly orphaned
+            pages. These pages all exist in the codebase but had no
+            sidebar entry before Welle Q.
+
+            Order: most-active engagement first (Feed = realtime stream),
+            then incentives (Awards, Events, Trips), then content
+            (Blog, Photo), then leaderboards/catalogs.
+            ────────────────────────────────────────────────────────── */}
+        <NavSection title="Community">
+          {/* Track 5 #12: cross-airline activity timeline. */}
+          <NavLink href="/feed" pathname={pathname} icon="📰" label="Feed" />
+          <NavLink href="/awards" pathname={pathname} icon="🏆" label="Awards" />
+          <NavLink href="/events" pathname={pathname} icon="📅" label="Events" />
+          {/* K5: inter-airline trips. */}
+          <NavLink href="/trips" pathname={pathname} icon="🌍" label="Trips" />
+          {/* K2: pilot blog. */}
+          <NavLink href="/blog" pathname={pathname} icon="✍️" label="Blog" />
+          {/* K3: photo of the week. */}
+          <NavLink href="/photo-of-the-week" pathname={pathname} icon="📸" label="Photo of the Week" />
+          <NavLink href="/leaderboard" pathname={pathname} icon="📈" label="Leaderboard" />
+          {/* Track 1 #3: scenery catalog. */}
+          <NavLink href="/sceneries" pathname={pathname} icon="🗺️" label="Sceneries" />
+        </NavSection>
+
+        {/* ──────────────────────────────────────────────────────────
+            Network — environmental/market intelligence.
+            NOTAMs is the pilot-side view (/airline/notams is admin-side
+            in Operations-Hub). VAMSE is gated on hasEconomy.
+            ────────────────────────────────────────────────────────── */}
+        <NavSection title="Network">
+          <NavLink href="/notams" pathname={pathname} icon="📢" label="NOTAMs" />
+          {/* M5: VAMSE stock market. */}
+          {user.hasEconomy && (
+            <NavLink href="/vamse" pathname={pathname} icon="📊" label="VAMSE Markt" />
+          )}
+        </NavSection>
+
+        {/* ──────────────────────────────────────────────────────────
+            Airline — public browse views of the airline's people +
+            routes + airports + aircraft-types. Unchanged from before
+            Welle Q. Distinct from "Airline-Admin" below (= management).
+            ────────────────────────────────────────────────────────── */}
         {user.hasAirline && (
           <NavSection title="Airline">
             <NavLink href="/pilots" pathname={pathname} icon="👥" label="Piloten" />
@@ -896,119 +964,92 @@ function Sidebar({ user, pathname }: SidebarProps) {
           </NavSection>
         )}
 
-        {/* Airline-Admin-sektor (2026-05-02 neu eingeführt). Sichtbar für
-            admin, airline-admin und instructor (canManageAirline). Enthält
-            airline-spezifische verwaltungs-aufgaben — aktuell nur die
-            Airline-Verwaltung (members + settings). Backend-gating in
-            airline/actions.ts AIRLINE_MANAGER_ROLES + airline/page.tsx
-            allowedRoles muss synchron mit canManageAirline bleiben.
+        {/* ──────────────────────────────────────────────────────────
+            Airline-Admin — Welle Q consolidation (12 → 6 items).
 
-            Trennung von Admin: Admin ist system-weit (Statistiken, globale
-            Rollen, Requests), Airline-Admin ist airline-internal. Damit
-            kann airline-admin die airline verwalten ohne system-rechte.
+            Five subpages folded into TWO hub-links thanks to the
+            /airline/layout.tsx + _hub-tabs.tsx machinery:
+              - Fleet-Hub  (link: /airline/fleet) → tabs into
+                Übersicht / Aircraft / Wartung
+              - Operations-Hub (link: /airline/schedule) → tabs into
+                Schedule / Roster / Pairings / Dispatch / NOTAMs / Wetter
+              - Verwaltung gets its own multi-tab hub too:
+                Verwaltung / Personal / Ränge / Hubs / Onboarding
+                (link: /airline) → all reachable via tabs at top
+              - Routen-Verwaltung kept as standalone link because it
+                shares a hub-pair with the /routes browse view rather
+                than other airline-admin pages.
 
-            hasAirline check: ein admin ohne airline-zuordnung hat hier
-            nichts zu tun (selbe logik wie alter Admin-sektor). */}
+            The hub-tab bar appears automatically above each sub-page
+            because of the /airline/layout.tsx → _hub-tabs.tsx wrapper.
+            Pages NOT in a hub (Dashboard, Finanzen, Audit-Log) render
+            without tabs.
+
+            Gating unchanged: canManageAirline + hasAirline.
+            ────────────────────────────────────────────────────────── */}
         {user.canManageAirline && user.hasAirline && (
           <NavSection title="Airline-Admin">
-            {/* Track 3 #11.2.5 Foundation: Dashboard-landing für airline-
-                admins. Bewusst SEPARAT von /airline (= Settings-Form +
-                MemberTable, bestehend) damit non-destruktiv. Steht oben
-                weil's konzeptionell der einstiegs-überblick ist. */}
             <NavLink href="/airline/dashboard" pathname={pathname} icon="📊" label="Dashboard" />
-            <NavLink href="/airline" pathname={pathname} icon="🏢" label="Airline-Verwaltung" exact />
-            {/* Welle 13D-4: Airline-Finanzen. Nur sichtbar wenn die airline
-                economy-toggle ON ist UND der user canManageAirline ist
-                (beide checks zusammengefasst in airlineEconomyEnabled).
-                Sitzt direkt unter Airline-Verwaltung weil's konzeptionell
-                der financial-overview der airline ist und admins als zweite
-                primäre admin-aufgabe nach members-management zugreifen. */}
+            {/* Verwaltung-Hub-entry — links to /airline (the legacy
+                settings + member-table page), with tabs along the top
+                for Personal/Ränge/Hubs/Onboarding. */}
+            <NavLink href="/airline" pathname={pathname} icon="🏢" label="Verwaltung" exact />
+            {/* Welle 13D-4: Airline-Finanzen, economy-gated. */}
             {user.airlineEconomyEnabled && (
               <NavLink href="/airline/finance" pathname={pathname} icon="💼" label="Finanzen" />
             )}
-            <NavLink href="/airline/hubs" pathname={pathname} icon="📍" label="Hubs" />
-            <NavLink href="/airline/aircraft" pathname={pathname} icon="🛩️" label="Aircraft" />
-            <NavLink href="/airline/fleet" pathname={pathname} icon="📊" label="Fleet-Übersicht" />
-            <NavLink href="/airline/ranks" pathname={pathname} icon="🏅" label="Ränge" />
-            <NavLink href="/airline/pilots" pathname={pathname} icon="👥" label="Personal" />
+            {/* Fleet-Hub-entry — links to /airline/fleet (overview), with
+                tabs across Aircraft + Wartung. */}
+            <NavLink href="/airline/fleet" pathname={pathname} icon="🛩️" label="Fleet-Hub" />
+            {/* Operations-Hub-entry — links to /airline/schedule (the most
+                common operations destination), with tabs across Roster +
+                Pairings + Dispatch + NOTAMs + Wetter. */}
+            <NavLink href="/airline/schedule" pathname={pathname} icon="🎯" label="Operations-Hub" />
             <NavLink href="/airline/routes" pathname={pathname} icon="🛣️" label="Routen-Verwaltung" />
-            <NavLink href="/airline/schedule" pathname={pathname} icon="🕒" label="Schedule" />
-            {/* Track 5 #26 (Section F): Roster-overview-link für admin-side.
-                Sitzt unter Schedule weil das die conceptual-progression ist:
-                Schedule = wann/was fliegt (templates + instances), Roster =
-                wer fliegt das (pilot↔scheduled-flight assignments). Filter-
-                tabs in der page selbst (Anstehend/Probleme/Abgeschlossen). */}
-            <NavLink href="/airline/roster" pathname={pathname} icon="📋" label="Roster" />
-            {/* Welle F / F1: Audit-log für airline-admins — chronologische
-                historie aller member-management-aktionen (role/rank/remove)
-                in dieser airline. Sitzt am ende der admin-section weil's
-                ein retrospective-tool ist (read-only), nicht ein operatives. */}
+            {/* Welle F / F1: audit-log — retrospective tool at the end. */}
             <NavLink href="/airline/admin/audit-log" pathname={pathname} icon="📜" label="Audit-Log" />
           </NavSection>
         )}
 
-        {/* Admin-sektor — system-weite verwaltung. Wird gezeigt wenn der
-            User isApprover (instructor) ODER isAdmin ist. Innerhalb des
-            sektors sind die einzelnen links nochmal granular gegated:
-              - PIREPs zur Prüfung: isApprover (instructor + admin)
-              - Statistiken / Piloten / Requests / Rollen: isAdmin
-            Damit sieht ein instructor nur den approval-link, ein admin
-            sieht den vollen sektor. Wer weder noch ist, sieht den
-            sektor gar nicht.
+        {/* ──────────────────────────────────────────────────────────
+            Training & Review — Welle Q split-out from the old "Admin"
+            section. Holds the instructor-facing review queue (PIREPs
+            zur Prüfung) plus a single entry-point to the Training-Hub
+            (Praktische Prüfungen / Type-Ratings / Mentorship), reached
+            via tabs at the top.
 
-            Airline-Verwaltung war hier 2026-05-02 → wurde in den neuen
-            Airline-Admin-sektor verschoben damit airline-admin/instructor
-            es ohne admin-rolle erreichen können. */}
-        {(user.isApprover || user.isAdmin) && user.hasAirline && (
-          <NavSection title="Admin">
-            {user.isApprover && (
-              <NavLink href="/pireps/pending" pathname={pathname} icon="📋" label="PIREPs zur Prüfung" />
+            Gating: isApprover (= instructor OR admin) + hasAirline.
+            The career-pages inside Training-Hub additionally gate on
+            airlineCareerEnabled at the page level — we don't repeat
+            that here because the Training-Hub landing page handles
+            the redirect.
+            ────────────────────────────────────────────────────────── */}
+        {user.isApprover && user.hasAirline && (
+          <NavSection title="Training & Review">
+            <NavLink href="/pireps/pending" pathname={pathname} icon="📋" label="PIREPs zur Prüfung" />
+            {user.airlineCareerEnabled && (
+              <NavLink href="/airline/practical-exams" pathname={pathname} icon="🎓" label="Training-Hub" />
             )}
-            {/* Welle 13E-14c: Praktische-Prüfungs-review für instructors.
-                Sichtbar wenn isApprover (instructor + admin haben das) UND
-                airline hat career aktiviert. Sitzt direkt unter "PIREPs zur
-                Prüfung" weil's konzeptionell selbe kategorie ist (instructor-
-                review-aufgabe), nur eine ebene tiefer (PIREP wird hier als
-                exam-PIREP markiert vom pilot, instructor reviewed nochmal
-                im career-context). */}
-            {user.isApprover && user.airlineCareerEnabled && (
-              <NavLink href="/airline/practical-exams" pathname={pathname} icon="🎓" label="Praktische Prüfungen" />
-            )}
-            {/* Track 4 #91 (Section R): Type-Rating Exam-Scheduler.
-                Direkt unter den Praktischen Prüfungen weil's auch zur
-                instructor-review-kategorie gehört. Type-Rating-Exams sind
-                eigenständig (nicht via FlightSchoolEnrollment) — admin
-                kann hier termine ansetzen + nach durchführung passen/failen,
-                bei pass wird automatisch ein TypeRating erzeugt. */}
-            {user.isApprover && user.airlineCareerEnabled && (
-              <NavLink href="/airline/exams/type-ratings" pathname={pathname} icon="⏰" label="Type-Rating Exams" />
-            )}
-            {/* Track 4 #93 (Section R): Mentor-Mentee Matching.
-                Direkt unter Type-Rating Exams in der instructor-tools-
-                gruppe. Mentorship ist informell (kein curriculum, kein
-                exam) — daher separate kategorie von der enrollment-driven
-                praktischen-prüfungs-pipeline. Admin paart pilots oder
-                erlaubt PROPOSED-vorschläge. */}
-            {user.isApprover && user.airlineCareerEnabled && (
-              <NavLink href="/airline/mentorship" pathname={pathname} icon="🤝" label="Mentorship" />
-            )}
-            {user.isAdmin && (
-              <>
-                {/* Track 3 #11.2.5 Foundation: /admin landing-page (vorher
-                    war /admin ein 404). Steht oben im admin-only-block. */}
-                <NavLink href="/admin" pathname={pathname} icon="🛠️" label="Server-Admin" exact />
-                <NavLink href="/admin/stats" pathname={pathname} icon="📊" label="Statistiken" />
-                <NavLink href="/admin/pilots" pathname={pathname} icon="👥" label="Alle Piloten" />
-                <NavLink href="/admin/requests" pathname={pathname} icon="📥" label="Requests" />
-                <NavLink href="/admin/roles" pathname={pathname} icon="🔐" label="Rollen" />
-                {/* Welle 13E-11: FlightSchools sind cross-airline NPC-orgs, also
-                    system-admin-only (nicht airline-admin). Sichtbar für isAdmin
-                    unabhängig vom career-mode-toggle, weil das CRUD-tool für
-                    den system-admin auch dann erreichbar bleiben muss wenn auf
-                    seiner persönlichen airline career deaktiviert ist. */}
-                <NavLink href="/admin/flight-schools" pathname={pathname} icon="🎓" label="Flugschulen" />
-              </>
-            )}
+          </NavSection>
+        )}
+
+        {/* ──────────────────────────────────────────────────────────
+            System-Admin — Welle Q split-out from old "Admin". Pure
+            system-wide tooling, isAdmin-only. Notice this section
+            does NOT require hasAirline because a system-admin still
+            needs Server-Admin + Roles + Requests even if their
+            personal user has no airline assigned.
+            ────────────────────────────────────────────────────────── */}
+        {user.isAdmin && (
+          <NavSection title="System-Admin">
+            <NavLink href="/admin" pathname={pathname} icon="🛠️" label="Server-Admin" exact />
+            <NavLink href="/admin/stats" pathname={pathname} icon="📊" label="Statistiken" />
+            <NavLink href="/admin/pilots" pathname={pathname} icon="👥" label="Alle Piloten" />
+            <NavLink href="/admin/requests" pathname={pathname} icon="📥" label="Requests" />
+            <NavLink href="/admin/roles" pathname={pathname} icon="🔐" label="Rollen" />
+            {/* Welle 13E-11: FlightSchools = cross-airline NPC-orgs,
+                system-admin-only. */}
+            <NavLink href="/admin/flight-schools" pathname={pathname} icon="🏫" label="Flugschulen" />
           </NavSection>
         )}
 
