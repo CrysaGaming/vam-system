@@ -589,6 +589,9 @@ model Airline {
 
   // Welle M / M1 — Route price snapshots history.
   routePriceSnapshots RoutePriceSnapshot[]
+
+  // Welle M / M3 — Airport fuel-prices configured by this airline.
+  airportFuelPrices AirportFuelPrice[]
 }
 
 model User {
@@ -5512,4 +5515,44 @@ model RoutePriceSnapshot {
 
   @@index([routeId, createdAt])
   @@index([airlineId, createdAt])
+}
+
+/// Welle M / M3 — Airport fuel pricing.
+///
+/// Pro airline + ICAO ein eintrag mit fuel-price (VAM$ per gallon).
+/// Wird im booking-flow / PIREP-approval als basis für fuel-expense-
+/// berechnung genutzt: fuelCostVam = fuelGallons × pricePerGallon.
+///
+/// Fallback-strategie wenn kein eintrag für eine ICAO existiert: das
+/// app-layer kann eine airline-default-price + region-default zurück-
+/// fallen (z.B. EU vs US). V1 hat aber keine default-logik — caller
+/// muss damit umgehen ('no price set').
+///
+/// # Real-world flavor
+///
+/// Reale jet-A-preise schwanken zwischen ~$3-7/gallon je nach airport
+/// (z.B. KLAX teurer als KFLL). Wir nutzen VAM$ statt USD; admin kann
+/// die preise als realistic oder als gameplay-balancing tool nutzen.
+model AirportFuelPrice {
+  id        String  @id @default(cuid())
+  airlineId String
+  airline   Airline @relation(fields: [airlineId], references: [id], onDelete: Cascade)
+
+  /// ICAO-code des airports (4 chars, uppercase enforced im app-layer).
+  /// Bewusst nicht FK zu Airport-table weil airlines auch für fiktive
+  /// airports preise setzen können sollen (analog zu NOTAM.affectedIcaos).
+  icao String @db.VarChar(10)
+
+  /// Preis in VAM$ pro US-gallon Jet-A.
+  pricePerGallon Decimal @db.Decimal(8, 3)
+
+  /// Optional notiz (z.B. "discounted contract rate" oder "premium
+  /// during winter season").
+  note String? @db.VarChar(500)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([airlineId, icao])
+  @@index([airlineId])
 }
