@@ -2038,6 +2038,11 @@ model Pirep {
   // the source-event for audit-trail. NULL für manuelle PIREPs (default).
   triggeringEvent AcarsEvent? @relation("PirepTriggeringEvent")
 
+  // Welle P / P5: Emergency reports auto-detected at approval-time.
+  // 0 for normal flights, 1+ when telemetry or ACARS events triggered
+  // detection. Cascade-delete from the EmergencyReport side.
+  emergencyReports EmergencyReport[] @relation("PirepEmergencyReports")
+
   /// Anti-Cheat structured field (option #20).
   ///
   /// Machine-readable mirror of the [ACARS-flag: …] / [Replay-flag: …]
@@ -6332,4 +6337,84 @@ model IropsEvent {
 
   @@index([bookingId])
   @@index([acknowledgedAt])
+}
+
+// ────────────────────────────────────────────────────────────
+// Welle P / P5 — Emergency auto-detect 🚨
+// ────────────────────────────────────────────────────────────
+//
+// At PIREP approval time, scan the flight's telemetry + ACARS events
+// for emergency signatures and persist one EmergencyReport per detected
+// signature. The PIREP detail page surfaces them as badges; pilot career
+// stats can aggregate them as a "Saved Souls" counter (passengerCount
+// summed across PIREPs with any active emergency).
+//
+// # Detection strategy
+//
+//   - RAPID_DESCENT     — LiveSessionPosition VS < -3000 fpm sustained
+//                         for ≥3 consecutive samples while altitudeAglFt
+//                         < 5000 ft. Excludes intentional approach.
+//                         Severity: EMERGENCY.
+//   - HARD_LANDING      — pirep.landingRateFpm ≤ -800 (heavy touchdown).
+//                         Sourced from PIREP itself, no session needed.
+//                         Works for manually-filed PIREPs. Severity:
+//                         INCIDENT (≥ -800 < -1000) / EMERGENCY (≥ -1000
+//                         < -1300) / MAYDAY (< -1300, structural risk).
+//   - ACARS_INCIDENT    — AcarsEventType.INCIDENT row on the linked
+//                         session. Payload's "reason" field (if present)
+//                         is copied to EmergencyReport.details so the
+//                         badge tooltip can show "stall warning at
+//                         3200 ft" etc. Severity inferred from payload
+//                         or defaults to EMERGENCY.
+//
+// # Idempotency
+//
+// runEmergencyDetectionForPirep deletes existing rows where
+// autoDetected=true for this PIREP, then re-creates. Re-running on
+// re-approval doesn't duplicate. The autoDetected=false case (future:
+// admin-filed reports) is preserved.
+//
+// # Why no @unique on (pirepId, type)
+//
+// A single PIREP can have multiple instances of the same type — e.g.
+// two rapid-descent events at different points in the flight. We
+// index on pirepId only; queries pull all rows for a PIREP and the
+// dashboard collapses by type at display time if needed.
+
+enum EmergencyType {
+  RAPID_DESCENT
+  HARD_LANDING
+  ACARS_INCIDENT
+}
+
+enum EmergencySeverity {
+  INCIDENT   // logged, no career impact
+  EMERGENCY  // significant, visible badge
+  MAYDAY     // life-threatening — heaviest rendering
+}
+
+model EmergencyReport {
+  id        String            @id @default(cuid())
+
+  pirepId   String
+  pirep     Pirep             @relation("PirepEmergencyReports", fields: [pirepId], references: [id], onDelete: Cascade)
+
+  type      EmergencyType
+  severity  EmergencySeverity @default(EMERGENCY)
+
+  /// True for runEmergencyDetectionForPirep-generated rows (the v1
+  /// path). False reserved for future admin-/pilot-filed manual reports
+  /// (not auto-detected) — those won't be touched by re-detection.
+  autoDetected Boolean        @default(true)
+
+  /// One-line human-readable evidence string. Examples:
+  ///   "VS -3200 fpm at 1200 ft AGL (3 consecutive samples)"
+  ///   "Touchdown -1450 fpm — structural inspection recommended"
+  ///   "ACARS incident: stall warning"
+  details   String?           @db.Text
+
+  detectedAt DateTime         @default(now())
+
+  @@index([pirepId])
+  @@index([type, severity])
 }

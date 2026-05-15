@@ -33,6 +33,7 @@ import { computeSmoothnessScore, computeSuggestions } from '@/lib/pirep-metrics'
 import { AnnotationList } from './annotation-list';
 import { CommentsSection } from './comments-section';
 import { PhotoGallery } from './photo-gallery';
+import { EmergencyBadge } from '@/app/_components/emergency-badge';
 
 /**
  * Track 4 #2 (Phase-Breakdown-Bar): bg-color pro flight-phase.
@@ -669,6 +670,16 @@ export default async function PirepDetail({
             </p>
           </div>
         )}
+
+        {/* Welle P / P5 — Emergency reports. Async server component
+            that fetches via getEmergencyReportsForPirep; renders nothing
+            when the PIREP has no emergency findings (the common case).
+            Positioned right after the approver-info so emergencies sit
+            prominently above the performance KPIs — pilot/admin's eye
+            lands on safety findings before the analytical breakdown. */}
+        <div className="mb-8">
+          <EmergencyBadge pirepId={pirep.id} />
+        </div>
 
         {/* Welle 13E-14d: Practical-Exam-Badge.
             Sichtbar wenn dieser PIREP einem enrollment als Prüfungsflug

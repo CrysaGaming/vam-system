@@ -15,6 +15,7 @@ import {
 } from '@/lib/discord-templates';
 import { evaluatePromotion } from '@/lib/ranks';
 import { APPROVER_ROLES, isApproverRole } from '@/lib/roles';
+import { runEmergencyDetectionForPirep } from '@/lib/emergency/detector';
 import {
   notifyFollowersOfPirep,
   notifyFollowersOfAward,
@@ -156,6 +157,23 @@ export async function approvePirep(pirepId: string) {
   }
 
   await prisma.$transaction(transactionOps);
+
+  // Welle P / P5 — Emergency auto-detect. Runs post-commit so a
+  // detection failure doesn't roll back the approval. Idempotent
+  // (deletes existing autoDetected rows + recreates), so re-running
+  // on a corrected PIREP is safe. Fire-and-forget pattern: errors
+  // get logged but the approval stands — emergency flagging is
+  // advisory, not gating.
+  try {
+    const detection = await runEmergencyDetectionForPirep(pirepId);
+    if (detection.hadEmergency) {
+      console.info(
+        `[approvePirep] emergency detection for ${pirepId}: ${detection.created.length} report(s) — ${detection.created.map((r) => r.type).join(', ')}`,
+      );
+    }
+  } catch (err) {
+    console.error('[approvePirep] emergency detection failed:', err);
+  }
 
   // Welle 13 (Economy MVP): nach erfolgreichem approval die economy
   // verarbeiten — passenger/cargo revenue auf airline-wallet, fuel/

@@ -147,6 +147,14 @@ export type { AirportCurfew } from "@prisma/client";
 export { IropsEventType, IropsSeverity } from "@prisma/client";
 export type { IropsEvent } from "@prisma/client";
 
+// Welle P / P5: Emergency auto-detect. Created at PIREP approval time
+// by apps/web/lib/emergency/detector.ts when telemetry or ACARS events
+// match a known emergency signature (rapid descent, hard landing,
+// ACARS INCIDENT). EmergencyType drives the badge emoji; Severity
+// drives the badge color (INCIDENT=amber, EMERGENCY=rose, MAYDAY=red).
+export { EmergencyType, EmergencySeverity } from "@prisma/client";
+export type { EmergencyReport } from "@prisma/client";
+
 // Welle 13 (Economy MVP): wallet/transfer/decimal helpers. Re-exports
 // vom ./economy barrel damit consumer (apps/web, apps/bot) alles via
 // `import { transfer, formatVamCurrency } from "@vam/db"` kriegen ohne
