@@ -59,11 +59,17 @@ import {
 /**
  * Internal helper: load followers eines actors + filter nach prefs.
  *
- * Returnt nur die userIds die in-app push wirklich wollen — das
- * spart sendPushToUser-aufrufe für users die die category deaktiviert
+ * Returnt nur die userIds die push wirklich wollen — das spart
+ * sendPushToUser-aufrufe für users die die category deaktiviert
  * haben (zwar tut sendPushToUser dann auch nichts wenn keine
  * subscriptions vorhanden sind, aber dieser pre-filter ist günstiger
  * als ein DB-roundtrip).
+ *
+ * Welle N / N2: Wir prüfen jetzt die 'push'-channel-toggle statt
+ * 'inApp' wie vorher — das war ein bug (die fanout schickt PUSH, der
+ * inApp-toggle steuert in-app-banners die noch nicht implementiert
+ * sind). Default für 'push' ist true → backward-compatible: users
+ * die noch nichts gesetzt haben kriegen weiter pushes.
  *
  * Performance: bei einem pilot mit 50 followers ist das eine query
  * mit `.follow.findMany` + join auf user. Index covered.
@@ -83,7 +89,7 @@ async function loadEligibleFollowers(
   return followers
     .filter((f) => {
       const prefs = parsePrefs(f.follower.notificationPrefs);
-      return getPref(prefs, category, 'inApp');
+      return getPref(prefs, category, 'push');
     })
     .map((f) => f.followerId);
 }

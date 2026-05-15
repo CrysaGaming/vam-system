@@ -16,9 +16,12 @@
  *   delete   → nur Drafts (hard delete)
  */
 
-import { prisma } from '@vam/db';
+import {
+  prisma,
+} from '@vam/db';
 import { revalidatePath } from 'next/cache';
 import { requireAirlineManagerWithAirline } from '@/lib/roles';
+import { broadcastPushToAirline } from '@/lib/push/broadcast';
 
 export type NotamActionResult =
   | { ok: true; message?: string; notamId?: string }
@@ -127,8 +130,24 @@ async function requireAdminOwnedNotam(
 export async function publishNotamAction(
   notamId: string,
 ): Promise<NotamActionResult> {
-  const n = await requireAdminOwnedNotam(notamId);
-  if (!n) return { ok: false, error: 'NOTAM nicht gefunden.' };
+  const { user: admin, airlineId } = await requireAirlineManagerWithAirline();
+
+  // Welle N / N2: Holen die volle row für broadcast-payload (title +
+  // severity + affectedIcaos).
+  const n = await prisma.notam.findUnique({
+    where: { id: notamId },
+    select: {
+      airlineId: true,
+      publishedAt: true,
+      cancelledAt: true,
+      title: true,
+      severity: true,
+      affectedIcaos: true,
+    },
+  });
+  if (!n || n.airlineId !== airlineId) {
+    return { ok: false, error: 'NOTAM nicht gefunden.' };
+  }
   if (n.publishedAt) return { ok: false, error: 'Schon publisht.' };
   if (n.cancelledAt) return { ok: false, error: 'Cancelled NOTAMs können nicht publisht werden.' };
 
@@ -136,10 +155,43 @@ export async function publishNotamAction(
     where: { id: notamId },
     data: { publishedAt: new Date() },
   });
+
+  // Welle N / N2 — Broadcast push an alle airline-pilots (außer admin
+  // selber). Fire-and-forget; failures geloggt aber nicht propagiert.
+  // Category 'adminBroadcast' weil NOTAMs eine system-ansage sind, kein
+  // pilot-spezifisches event. Critical NOTAMs könnten V2 einen distinct
+  // payload+sound kriegen, V1 ist alles uniform.
+  const severityIcon =
+    n.severity === 'Critical' ? '🔴' : n.severity === 'Warning' ? '🟠' : '📢';
+  const icaoSuffix =
+    n.affectedIcaos.length > 0 ? ` · ${n.affectedIcaos.join(', ')}` : '';
+  void broadcastPushToAirline(
+    airlineId,
+    'adminBroadcast',
+    {
+      title: `${severityIcon} NOTAM publisht`,
+      body: `${n.title}${icaoSuffix}`,
+      url: `/notams`,
+      tag: `notam-${notamId}`,
+    },
+    { excludeUserId: admin.id },
+  )
+    .then((res) => {
+      console.info(
+        `[notam-publish-broadcast] notam=${notamId} airline=${airlineId}: ${res.requested} members, ${res.eligible} eligible, ${res.delivered} delivered, ${res.failed} failed`,
+      );
+    })
+    .catch((err) => {
+      console.warn(
+        `[notam-publish-broadcast] notam=${notamId} failed:`,
+        err,
+      );
+    });
+
   revalidatePath(`/airline/notams/${notamId}`);
   revalidatePath('/airline/notams');
   revalidatePath('/notams');
-  return { ok: true, message: 'NOTAM publisht.' };
+  return { ok: true, message: 'NOTAM publisht. Push an pilots gesendet.' };
 }
 
 export async function cancelNotamAction(

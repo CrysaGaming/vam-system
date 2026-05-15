@@ -76,8 +76,9 @@ export default async function NotificationsPage() {
         </h1>
         <p className="text-sm text-muted-foreground">
           Wähle pro Kategorie und Kanal aus, wie du informiert werden möchtest.
-          Defaults: In-App ist standardmäßig <strong>aktiviert</strong>, Email
-          ist <strong>deaktiviert</strong> (Opt-In).
+          Defaults: In-App und Push sind standardmäßig{' '}
+          <strong>aktiviert</strong>, Email ist <strong>deaktiviert</strong>{' '}
+          (Opt-In).
         </p>
       </header>
 

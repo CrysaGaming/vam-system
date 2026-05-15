@@ -65,7 +65,7 @@ export const NOTIFICATION_CATEGORIES = [
 
 export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
 
-export const NOTIFICATION_CHANNELS = ['inApp', 'email'] as const;
+export const NOTIFICATION_CHANNELS = ['inApp', 'email', 'push'] as const;
 
 export type NotificationChannel = (typeof NOTIFICATION_CHANNELS)[number];
 
@@ -172,6 +172,25 @@ export const CHANNEL_LABELS: Record<
     // aber die prefs werden gespeichert + UI ist konsistent.
     status: 'available',
   },
+  // Welle N / N2 — Push-channel pro category. Web-push infrastructure
+  // (lib/push/vapid.ts, /api/push/subscribe, settings/notifications/
+  // push-subscription-card) existiert schon. N2 macht push zu einem
+  // first-class channel auf gleicher ebene wie inApp + email statt nur
+  // einer separaten device-toggle-card.
+  //
+  // Status: 'available' wenn VAPID env-vars gesetzt sind. Wenn nicht,
+  // bleiben toggles funktional aber sendPushToUser noopt — user kann
+  // trotzdem präferenzen pflegen.
+  //
+  // PushSubscriptionCard (unten in der page) bleibt — die ist für das
+  // device-subscribe-management (welche browser/devices empfangen
+  // grundsätzlich pushes); diese channel-spalte ist orthogonal für
+  // welche categories pushes auslösen.
+  push: {
+    label: 'Push-Benachrichtigung',
+    shortLabel: 'Push',
+    status: 'available',
+  },
 };
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -186,6 +205,13 @@ export const CHANNEL_LABELS: Record<
 export const DEFAULT_CHANNEL_VALUES: Record<NotificationChannel, boolean> = {
   inApp: true,
   email: false,
+  // Welle N / N2 — Push defaults ON (opt-out) für users die eine push-
+  // subscription registriert haben. Logik: das subscribe ist ein
+  // explizit-opt-in (browser-permission-prompt + click), daher dürfen
+  // wir annehmen dass der user pushes will. Wenn er sie nicht will
+  // kann er die toggles deaktivieren oder die device-subscription
+  // direkt unten in der page entfernen.
+  push: true,
 };
 
 // ─────────────────────────────────────────────────────────────────────────
