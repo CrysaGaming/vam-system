@@ -24,6 +24,12 @@ import {
   type PhaseColor,
   type PhaseColorMap,
 } from '@/lib/overlay-types';
+import {
+  RouteProgressBar,
+  WindComponentBadge,
+  PhaseTransitionToast,
+  type V2OverlayInput,
+} from './_v2-overlays';
 
 // Re-Exports für convenience
 export {
@@ -253,6 +259,7 @@ export function OverlayClient({
   phaseColorOverride,
   showTrail = false,
   branding,
+  showV2Widgets = false,
 }: {
   token: string;
   initialLayout: OverlayLayout;
@@ -275,6 +282,14 @@ export function OverlayClient({
    * "no branding configured", default theme everywhere.
    */
   branding?: OverlayBranding;
+  /**
+   * Welle O / O3: enables v2 overlay widgets (route-progress bar,
+   * wind-component badge, phase-transition toast). URL-only opt-in
+   * via `?v2=on`. All three widgets render as fixed-position siblings
+   * to the chosen layout, layout-agnostic. Default false so existing
+   * streamer-overlays are unchanged unless explicitly opted in.
+   */
+  showV2Widgets?: boolean;
 }) {
   const [data, setData] = useState<OverlayData | null>(null);
   const [hasError, setHasError] = useState(false);
@@ -553,6 +568,23 @@ export function OverlayClient({
       )}
       {branding?.logoUrl && (
         <BrandLogo logoUrl={branding.logoUrl} layoutPosition={cardPosition} layout={initialLayout} />
+      )}
+      {/*
+        Welle O / O3 — v2 widgets, opt-in via ?v2=on. All three pull
+        their data from the same poll-loop state above; no separate
+        fetch. The route-progress bar tracks its own baseline-ref
+        across renders, the wind-badge derives head/cross from
+        heading + windDir each frame, the phase-toast watches phase.id
+        transitions. We pass a narrowed V2OverlayInput rather than
+        the full OverlayData so the widget module stays decoupled
+        from this file's internal type-shape.
+      */}
+      {showV2Widgets && (
+        <>
+          <RouteProgressBar data={data as V2OverlayInput} />
+          <WindComponentBadge data={data as V2OverlayInput} />
+          <PhaseTransitionToast data={data as V2OverlayInput} />
+        </>
       )}
     </>
   );

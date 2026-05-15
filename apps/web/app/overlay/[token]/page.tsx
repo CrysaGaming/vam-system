@@ -54,6 +54,16 @@ type SearchParams = Promise<{
    * kommt das in einem follow-up commit mit User.overlayTrailEnabled.
    */
   map?: string;
+  /**
+   * Welle O / O3: opt-in toggle for the v2 widget bundle — route-
+   * progress bar, wind-component badge, phase-transition toast.
+   * URL-only ('v2=on'), same pattern as `map=on` for the same reason:
+   * existing streamer-overlays in OBS scenes shouldn't change shape
+   * after an upgrade unless the streamer explicitly enables them.
+   * If user-feedback shows people want it remembered, we can later
+   * add a User.overlayV2Enabled pref and read it here too.
+   */
+  v2?: string;
 }>;
 type RouteParams = Promise<{ token: string }>;
 
@@ -89,6 +99,7 @@ export default async function OverlayPage({
     layout: layoutParam,
     position: positionParam,
     map: mapParam,
+    v2: v2Param,
   } = await searchParams;
 
   // ─── Token-Format-Pre-Check ──────────────────────────────
@@ -141,6 +152,13 @@ export default async function OverlayPage({
   // than to surprise a streamer who didn't ask for one.
   const showTrail = mapParam === 'on';
 
+  // ─── V2-Widgets-Resolution (Welle O / O3) ────────────────
+  // Same strict 'on' check as showTrail above. Future opt-in toggles
+  // should follow this same pattern — single canonical value, no
+  // truthy-coercion, no surprises in OBS scenes that were configured
+  // before the feature shipped.
+  const showV2Widgets = v2Param === 'on';
+
   // ─── Branding-Resolution ─────────────────────────────────
   // Read-through from the User row. Validation already happened in
   // updateOverlayBranding (settings server-action) — by the time the
@@ -172,6 +190,7 @@ export default async function OverlayPage({
       phaseColorOverride={phaseColors}
       showTrail={showTrail}
       branding={branding}
+      showV2Widgets={showV2Widgets}
     />
   );
 }
